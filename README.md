@@ -8,12 +8,12 @@ A public, installable, offline-capable knowledge base for machine learning and l
 private source repository
 ├── private planning and source material
 ├── context-aware sensitive-content checks
-└── privacy-reviewed export bundle
+└── privacy-reviewed chapter export
             │ explicit allowlist + manual review
             ▼
 public llm-notes repository
-├── content/topics.json
-├── content/glossary.json
+├── 39 substantive HTML chapter fragments
+├── neutral topic registry and glossary
 ├── strict structural and generic leak checks
 ├── generated static topic pages
 ├── installable web-app manifest
@@ -23,18 +23,18 @@ public llm-notes repository
 iPhone Home Screen web app
 ```
 
-The public repository has a clean history and never imports commits from a private source. Only a reviewed two-file content bundle is accepted.
-
-Context-specific sensitive names are deliberately **not committed here**, including inside validation denylist source code. They are checked in the private exporter. The public side enforces exact schemas and generic leak patterns, with an optional secret-backed denylist for defense in depth.
+The public repository never imports private Git history. The current chapter corpus contains approximately 698,000 text characters across 39 technical chapters.
 
 ## Public content model
 
-- `content/topics.json`: neutral topic metadata, summaries, prerequisites, and connections.
+- `content/topics.json`: neutral topic titles, summaries, prerequisites, and connections.
 - `content/glossary.json`: concise technical definitions.
+- `content/chapters/*.html`: privacy-reviewed substantive chapter fragments.
+- `content/chapter-manifest.json`: SHA-256 hashes, character counts, and section counts for every chapter.
 - `scripts/build_site.py`: deterministic static-site and PWA generator.
-- `scripts/content_policy.py`: structural schema, generic leak detection, and optional secret policy.
-- `scripts/validate_public.py`: privacy, link, and battery-behavior checks.
-- `scripts/import_bundle.py`: fail-closed importer for reviewed bundles.
+- `scripts/content_policy.py`: schema, chapter-integrity, generic leak, and optional secret-backed checks.
+- `scripts/validate_public.py`: privacy, content-depth, link, and battery-behavior checks.
+- `scripts/import_bundle.py`: fail-closed importer for reviewed chapter exports.
 - `site/`: generated output; ignored locally and produced in CI.
 
 ## Local development
@@ -47,41 +47,43 @@ python3 -m http.server 8000 --directory site
 
 Then open `http://localhost:8000/`.
 
-## Importing a privacy-reviewed bundle
+## Importing a privacy-reviewed chapter export
 
-The bundle must contain exactly:
+The importer accepts the private workflow artifact ZIP or its extracted directory. The export must contain exactly:
 
 ```text
 topics.json
-glossary.json
+manifest.json
+chapters/
+  <39 topic-id>.html
 ```
 
-Import and validate it with:
+The exported topic metadata must match the independently maintained public registry. Every chapter is checked against its hash, character count, section count, HTML structure, links, and privacy policy before it replaces `content/chapters/`.
 
 ```bash
-python3 scripts/import_bundle.py /path/to/export-bundle
+python3 scripts/import_bundle.py /path/to/public-notes-export
 python3 scripts/validate_public.py
 ```
 
+The archive is only a transfer artifact. The public repository stores each chapter directly as an ordinary HTML file; no unpacking workflow is part of the deployed application.
+
 ## Optional secret-backed publication policy
 
-Repository administrators may configure the Actions secret `PUBLICATION_DENYLIST_B64`. It is a base64-encoded UTF-8 JSON list of private regular-expression strings. The patterns remain outside the repository and are applied during validation and deployment without being printed.
+Repository administrators may configure `PUBLICATION_DENYLIST_B64`, a base64-encoded UTF-8 JSON list of private regular-expression strings. The patterns remain outside the public repository and are applied during validation and deployment without being printed.
 
-The private workspace remains responsible for the primary context-aware review. This optional secret is only defense in depth.
+The private workspace remains responsible for primary context-aware sanitization. The secret-backed check is defense in depth.
 
 ## PWA and battery behavior
 
 - The small application shell is cached during service-worker installation.
-- The complete note library is downloaded only after an explicit tap.
+- The complete detailed library is downloaded only after an explicit tap.
 - Cached files are served locally when available.
 - Refreshing the full library is a manual action.
 - There are no analytics, ads, polling timers, push notifications, WebSockets, periodic synchronization, or background synchronization.
 
 ## GitHub Pages
 
-After this PR is merged, configure the repository under **Settings → Pages → Source → GitHub Actions**. The deployment workflow builds and validates the public site before uploading only the generated `site/` directory.
-
-Expected project URL:
+The deployment workflow validates the complete corpus before uploading only the generated `site/` directory.
 
 ```text
 https://art-test-stack.github.io/llm-notes/

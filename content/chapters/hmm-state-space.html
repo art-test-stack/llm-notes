@@ -1,0 +1,211 @@
+<section class="chapter-content" data-topic="hmm-state-space">
+<p>Probabilistic state-space models describe a hidden process that evolves through time and generates noisy observations. Hidden Markov models (HMMs) use discrete hidden states; linear Gaussian state-space models use continuous Gaussian states. Both share the same predict–update logic.</p>
+
+<h2 id="latent-markov-models">1. Latent Markov models</h2>
+<p>Let <code>z_t</code> be the hidden state and <code>x_t</code> the observation at time <code>t</code>. The first-order Markov and conditional-independence assumptions are</p>
+<div class="math-display">p(z_t | z_1,…,z_{t-1}) = p(z_t | z_{t-1})
+p(x_t | z_1,…,z_t,x_1,…,x_{t-1}) = p(x_t | z_t).</div>
+<p>A model is specified by an initial distribution <code>p(z_1)</code>, transition distribution <code>p(z_t | z_{t-1})</code>, and emission distribution <code>p(x_t | z_t)</code>. Its joint distribution factorizes as</p>
+<div class="math-display">p(z_1:T, x_1:T)
+  = p(z_1) p(x_1 | z_1)
+    ∏_{t=2}^T p(z_t | z_{t-1}) p(x_t | z_t).</div>
+<p>The main inference tasks are filtering <code>p(z_t | x_1:t)</code>, prediction <code>p(z_{t+k} | x_1:t)</code>, smoothing <code>p(z_t | x_1:T)</code>, sequence likelihood <code>p(x_1:T)</code>, and path decoding.</p>
+
+<h2 id="hidden-markov-models">2. Hidden Markov Models</h2>
+<p>In an HMM, <code>z_t ∈ {1,…,K}</code>. Write the initial probabilities as <code class="math-inline">\pi _i = p(z_{1}=i)</code>, the row-stochastic transition matrix as <code>A_ij = p(z_t=j | z_{t-1}=i)</code>, and the emission probability or density as <code>b_i(x) = p(x_t=x | z_t=i)</code>.</p>
+<p>For a fixed state path,</p>
+<div class="math-display">p(z_1:T, x_1:T)
+  = π_{z_1} b_{z_1}(x_1)
+    ∏_{t=2}^T A_{z_{t-1},z_t} b_{z_t}(x_t).</div>
+<p>The sequence likelihood marginalizes all <code class="math-inline">K^{T}</code> paths:</p>
+<div class="math-display">p(x_1:T) = ∑_{z_1:T} p(z_1:T, x_1:T).</div>
+<p>Direct enumeration is exponential. The forward algorithm performs the same sum in <code class="math-inline">O(TK^{2})</code>.</p>
+
+<h2 id="forward-algorithm">3. Forward algorithm</h2>
+<p>Define the unnormalized forward message</p>
+<div class="math-display">α_t(j) = p(x_1:t, z_t=j).</div>
+<p>The base case follows from the initial and emission distributions:</p>
+<div class="math-display">α_1(j) = π_j b_j(x_1).</div>
+<p>For the recursion, insert the previous state and use the Markov assumptions:</p>
+<div class="math-display">α_t(j)
+  = p(x_t | z_t=j) ∑_i p(x_1:t-1, z_{t-1}=i) p(z_t=j | z_{t-1}=i)
+  = b_j(x_t) ∑_i α_{t-1}(i) A_ij.</div>
+<p>The likelihood is <code class="math-inline">p(x_{1}:T)=\sum _j \alpha _T(j)</code>. Each of <code class="math-inline">T</code> steps evaluates <code>K²</code> transitions, so time is <code class="math-inline">O(TK^{2})</code>; likelihood-only memory is <code class="math-inline">O(K)</code>, or <code class="math-inline">O(TK)</code> when all messages are retained for smoothing.</p>
+
+<h3 id="numerical-stability">Scaling and log space</h3>
+<p>Products of many probabilities underflow. One scaled implementation computes</p>
+<div class="math-display">α̃_t(j) = b_j(x_t) ∑_i α̂_{t-1}(i) A_ij
+c_t    = ∑_j α̃_t(j)
+α̂_t(j) = α̃_t(j) / c_t
+log p(x_1:T) = ∑_{t=1}^T log c_t,</div>
+<p>with <code class="math-inline">\widehat{\alpha}_0</code> interpreted through the usual initialization. Alternatively, store <code class="math-inline">\ell _t(j)=\operatorname{log} \alpha _t(j)</code> and use</p>
+<div class="math-display">ℓ_t(j) = log b_j(x_t) + logsumexp_i(ℓ_{t-1}(i) + log A_ij).</div>
+
+<h3 id="worked-hmm-example">Worked numerical example</h3>
+<p>Consider states <code class="math-inline">R</code> (rainy) and <code class="math-inline">S</code> (sunny), observations <code class="math-inline">U</code> (umbrella) and <code class="math-inline">N</code> (no umbrella), and the sequence <code>U,U,N</code>:</p>
+<div class="math-display">π = [0.6, 0.4]
+
+        next R  next S
+A = R   [0.7,    0.3]
+    S   [0.4,    0.6]
+
+             U    N
+b_R        0.9  0.1
+b_S        0.2  0.8</div>
+<p>The forward table is</p>
+<table>
+<thead><tr><th>Time</th><th>Observation</th><th><code class="math-inline">\alpha _t(R)</code></th><th><code class="math-inline">\alpha _t(S)</code></th><th>Prefix probability</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code class="math-inline">U</code></td><td><code class="math-inline">0.6\cdot 0.9 = 0.54000</code></td><td><code class="math-inline">0.4\cdot 0.2 = 0.08000</code></td><td><code>0.62000</code></td></tr>
+<tr><td>2</td><td><code class="math-inline">U</code></td><td><code class="math-inline">(.54\cdot .7+.08\cdot .4)\cdot .9 = .36900</code></td><td><code class="math-inline">(.54\cdot .3+.08\cdot .6)\cdot .2 = .04200</code></td><td><code>0.41100</code></td></tr>
+<tr><td>3</td><td><code class="math-inline">N</code></td><td><code class="math-inline">(.369\cdot .7+.042\cdot .4)\cdot .1 = .02751</code></td><td><code class="math-inline">(.369\cdot .3+.042\cdot .6)\cdot .8 = .10872</code></td><td><code>0.13623</code></td></tr>
+</tbody></table>
+<p>Therefore <code class="math-inline">p(U,U,N)=0.02751+0.10872=0.13623</code>.</p>
+
+<h2 id="backward-algorithm-and-smoothing">4. Backward algorithm and smoothing</h2>
+<p>Define the backward message</p>
+<div class="math-display">β_t(i) = p(x_{t+1:T} | z_t=i).</div>
+<p>Nothing remains to observe after <code class="math-inline">T</code>, so <code class="math-inline">\beta _T(i)=1</code>. Inserting <code>z_{t+1}</code> gives the backward recursion</p>
+<div class="math-display">β_t(i)
+  = ∑_j p(z_{t+1}=j | z_t=i) p(x_{t+1} | z_{t+1}=j)
+        p(x_{t+2:T} | z_{t+1}=j)
+  = ∑_j A_ij b_j(x_{t+1}) β_{t+1}(j).</div>
+<p>Combining past evidence in <code class="math-inline">\alpha</code> with future evidence in <code class="math-inline">\beta</code> yields the smoothed one-state posterior</p>
+<div class="math-display">γ_t(i) = p(z_t=i | x_1:T)
+       = α_t(i) β_t(i) / p(x_1:T).</div>
+<p>The pairwise transition posterior, needed by EM, is</p>
+<div class="math-display">ξ_t(i,j) = p(z_t=i,z_{t+1}=j | x_1:T)
+         = α_t(i) A_ij b_j(x_{t+1}) β_{t+1}(j) / p(x_1:T).</div>
+<p>With scaled forward messages, backward messages must use the matching convention, for example <code>β̂_t(i)=∑_j A_ij b_j(x_{t+1})β̂_{t+1}(j)/c_{t+1}</code>.</p>
+<p>For the example, <code class="math-inline">\beta _3=[1,1]</code>, <code class="math-inline">\beta _2=[0.31,0.52]</code>, and <code class="math-inline">\beta _1=[0.2265,0.1740]</code>. The identity</p>
+<div class="math-display">∑_i α_1(i)β_1(i) = .54·.2265 + .08·.174 = .13623</div>
+<p>checks the likelihood. At time 2,</p>
+<div class="math-display">γ_2(R) = .369·.31/.13623 ≈ .8397
+γ_2(S) = .042·.52/.13623 ≈ .1603.</div>
+<p>The first pairwise posterior is approximately</p>
+<table>
+<thead><tr><th><code class="math-inline">\xi _1(i,j)</code></th><th>next <code class="math-inline">R</code></th><th>next <code class="math-inline">S</code></th></tr></thead>
+<tbody><tr><th>current <code class="math-inline">R</code></th><td>0.7742</td><td>0.1237</td></tr><tr><th>current <code class="math-inline">S</code></th><td>0.0655</td><td>0.0366</td></tr></tbody>
+</table>
+
+<h2 id="viterbi-decoding">5. Viterbi decoding</h2>
+<p>Viterbi finds the single most likely joint path</p>
+<div class="math-display">z* = argmax_{z_1:T} p(z_1:T, x_1:T).</div>
+<p>Replace the forward sum by a maximum. Define <code class="math-inline">\delta _t(j)</code> as the best joint probability of any partial path ending at <code>j</code> and <code class="math-inline">\psi _t(j)</code> as its predecessor:</p>
+<div class="math-display">δ_1(j) = π_j b_j(x_1)
+δ_t(j) = b_j(x_t) max_i[δ_{t-1}(i) A_ij]
+ψ_t(j) = argmax_i[δ_{t-1}(i) A_ij].</div>
+<p>Choose <code>z_T*=argmax_j δ_T(j)</code>, then backtrack with <code>z_t*=ψ_{t+1}(z_{t+1}*)</code>. Use log probabilities in practice. Time is <code class="math-inline">O(TK^{2})</code>.</p>
+<p>In the example, <code class="math-inline">\delta _2=[0.3402,0.0324]</code> and <code class="math-inline">\delta _3=[0.023814,0.081648]</code>, giving the Viterbi path <code>R,R,S</code>.</p>
+<h3 id="viterbi-versus-posterior-decoding">Viterbi versus posterior decoding</h3>
+<ul>
+<li><strong>Viterbi decoding</strong> maximizes the probability of the whole path and always returns a transition-consistent path.</li>
+<li><strong>Marginal posterior decoding</strong> chooses <code>argmax_i γ_t(i)</code> independently at each time. It minimizes expected per-time-step classification error, but the combined choices need not form the most probable path and can even include an impossible transition when some <code class="math-inline">A_{ij}=0</code>.</li>
+</ul>
+<p>They happen to agree on <code>R,R,S</code> in this example; that is not true in general because <code>max</code> and marginalization answer different questions.</p>
+
+<h2 id="baum-welch-em">6. Baum–Welch / EM</h2>
+<p>When states are unobserved, Baum–Welch applies expectation–maximization to the HMM likelihood.</p>
+<h3 id="e-step">E-step</h3>
+<p>Run forward–backward under the current parameters. The responsibilities <code class="math-inline">\gamma _t(i)</code> are expected state indicators, and <code class="math-inline">\xi _t(i,j)</code> are expected transition indicators. Thus</p>
+<div class="math-display">expected visits to i       = ∑_t γ_t(i)
+expected transitions i→j  = ∑_{t=1}^{T-1} ξ_t(i,j).</div>
+<h3 id="m-step">M-step</h3>
+<p>Maximize the expected complete-data log-likelihood. For a categorical HMM, normalized expected counts give</p>
+<div class="math-display">π_i(new)  = γ_1(i)
+A_ij(new) = [∑_{t=1}^{T-1} ξ_t(i,j)] / [∑_{t=1}^{T-1} γ_t(i)]
+b_i(v)(new) = [∑_{t=1}^{T} γ_t(i) 1{x_t=v}] / [∑_{t=1}^{T} γ_t(i)].</div>
+<p>For multiple sequences, sum the expected counts across sequences before normalizing. Other emission families use their weighted maximum-likelihood updates; priors or pseudocounts can regularize sparse counts.</p>
+<p>EM does not guarantee the global optimum. It can converge to local optima, degenerate states, or different label permutations. Use several initializations, sensible scale estimates, regularization, held-out likelihood, and convergence checks. Increasing training likelihood alone does not establish a meaningful latent interpretation.</p>
+
+<h2 id="linear-gaussian-state-space-models">7. Linear Gaussian state-space models</h2>
+<p>A controlled linear Gaussian model is</p>
+<div class="math-display">z_t = F_t z_{t-1} + B_t u_t + w_t,   w_t ~ N(0,Q_t)
+x_t = H_t z_t     + D_t u_t + v_t,   v_t ~ N(0,R_t),</div>
+<p>where process noise <code>w_t</code> represents uncertain dynamics and measurement noise <code>v_t</code> represents sensor error. Assume they are independent over time and mutually independent, with <code>z_0 ~ N(m_0,P_0)</code>.</p>
+
+<h3 id="kalman-prediction">Kalman prediction</h3>
+<p>If <code>z_{t-1}|x_1:t-1 ~ N(m_{t-1|t-1},P_{t-1|t-1})</code>, an affine transformation plus independent Gaussian noise gives</p>
+<div class="math-display">m_{t|t-1} = F_t m_{t-1|t-1} + B_t u_t
+P_{t|t-1} = F_t P_{t-1|t-1} F_tᵀ + Q_t.</div>
+
+<h3 id="kalman-update">Innovation and update</h3>
+<p>The predicted observation, innovation, and innovation covariance are</p>
+<div class="math-display">x̂_t     = H_t m_{t|t-1} + D_t u_t
+r_t     = x_t - x̂_t
+S_t     = H_t P_{t|t-1} H_tᵀ + R_t.</div>
+<p>Before observing <code>x_t</code>, the state and innovation are jointly Gaussian with cross-covariance <code>P_{t|t-1}H_tᵀ</code>. Conditioning that joint Gaussian gives the Kalman gain and posterior:</p>
+<div class="math-display">K_t       = P_{t|t-1} H_tᵀ S_t⁻¹
+m_{t|t}   = m_{t|t-1} + K_t r_t
+P_{t|t}   = P_{t|t-1} - K_t S_t K_tᵀ
+          = (I-K_t H_t) P_{t|t-1}.</div>
+<p>This is the prediction/update derivation: prediction propagates the previous Gaussian through the transition; update is exact Gaussian conditioning. Numerically, solve linear systems instead of forming <code>S_t⁻¹</code>. The Joseph form</p>
+<div class="math-display">P_{t|t} = (I-K_tH_t)P_{t|t-1}(I-K_tH_t)ᵀ + K_tR_tK_tᵀ</div>
+<p>better preserves symmetry and positive semidefiniteness in finite precision.</p>
+<p>The innovation is both the correction signal and a diagnostic: under a correct model it is zero-mean with covariance <code class="math-inline">S_{t}</code>. Its Gaussian density also supplies each term of the data log-likelihood.</p>
+
+<h3 id="filtering-and-smoothing">Filtering and smoothing</h3>
+<p>Kalman filtering computes <code>p(z_t|x_1:t)</code> online. Rauch–Tung–Striebel smoothing uses all observations. After a forward filtering pass, run backward for <code class="math-inline">t=T-1,\ldots ,0</code>:</p>
+<div class="math-display">J_t = P_{t|t} F_{t+1}ᵀ P_{t+1|t}⁻¹
+m_{t|T} = m_{t|t} + J_t(m_{t+1|T} - m_{t+1|t})
+P_{t|T} = P_{t|t} + J_t(P_{t+1|T} - P_{t+1|t})J_tᵀ.</div>
+<p>As with HMM forward–backward, filtering carries past evidence forward and smoothing propagates future evidence backward.</p>
+
+<h2 id="nonlinear-non-gaussian-extensions">8. Nonlinear/non-Gaussian extensions</h2>
+<ul>
+<li><strong>Extended Kalman filter (EKF):</strong> linearizes nonlinear transition and observation functions with Jacobians around the current estimate. It is cheap but can be inaccurate or unstable under strong nonlinearity.</li>
+<li><strong>Unscented Kalman filter (UKF):</strong> propagates a deterministic set of sigma points through nonlinear functions, matching moments without explicit Jacobians. It often captures curvature better than an EKF but costs more.</li>
+<li><strong>Particle filter:</strong> represents the filtering distribution by weighted samples. It handles non-Gaussian and multimodal posteriors, but importance weights degenerate; resampling and good proposals are central. Cost grows with the number of particles and state difficulty.</li>
+<li><strong>Switching linear dynamical system:</strong> a discrete Markov mode selects among linear Gaussian dynamics. It combines regime changes with continuous states, but exact inference grows combinatorially, motivating mixture pruning, variational methods, or particles.</li>
+</ul>
+
+<h2 id="identifiability-and-observability">9. Identifiability and observability</h2>
+<ul>
+<li><strong>State-label permutation:</strong> permuting HMM state labels and consistently permuting <code class="math-inline">\pi</code>, rows/columns of <code class="math-inline">A</code>, and emissions leaves the observation distribution unchanged. Labels have no intrinsic meaning.</li>
+<li><strong>Parameter identifiability:</strong> distinct parameter settings can induce the same or nearly the same observation law. Redundant states, weakly separated emissions, similarity transforms of continuous latent coordinates, and insufficient excitation make interpretation difficult.</li>
+<li><strong>Observability:</strong> for a time-invariant linear system, the state is observable when <code class="math-inline">\mathcal{O}=[H;HF;\ldots ;HF^{n-1}]</code> has full column rank. This is a structural property of <code>(F,H)</code>, distinct from low-noise or statistically precise estimation.</li>
+<li><strong>Missing data:</strong> if <code>x_t</code> is wholly missing and missingness is ignorable, omit the emission/update at <code>t</code> and perform prediction only. For partially missing vectors, update with the observed components of <code class="math-inline">H_{t}</code>, <code class="math-inline">R_{t}</code>, and <code>x_t</code>. Non-ignorable missingness requires a model of the missingness mechanism.</li>
+<li><strong>Irregular sampling:</strong> transition dynamics must depend on the elapsed time <code class="math-inline">\Delta t</code>. For continuous-time linear dynamics, <code class="math-inline">F(\Delta t)=\operatorname{exp}(A\Delta t)</code> and the process covariance is the corresponding noise integral. Reusing a fixed-step transition silently changes the model.</li>
+</ul>
+
+<h2 id="neural-state-space-models">10. Neural state-space models</h2>
+<p>Probabilistic neural state-space models retain latent random variables but replace fixed transition or emission maps with learned functions, for example</p>
+<div class="math-display">p_θ(z_t | z_{t-1},u_t) = N(μ_θ(z_{t-1},u_t), diag σ²_θ(z_{t-1},u_t))
+p_θ(x_t | z_t)         = observation family with parameters g_θ(z_t).</div>
+<p>Deep Markov models use neural parameterizations of this kind. Because the posterior over an entire latent trajectory is generally intractable, an inference network <code class="math-inline">q_\phi (z_{1}:T\mid x_{1}:T)</code> is trained variationally by maximizing an evidence lower bound:</p>
+<div class="math-display">log p_θ(x_1:T)
+≥ E_{q_φ}[log p_θ(x_1:T,z_1:T) - log q_φ(z_1:T|x_1:T)].</div>
+<p>The inference model may be filtering or smoothing and must respect the desired information pattern. Flexible neural functions do not remove concerns about posterior collapse, calibration, identifiability, or extrapolation.</p>
+
+<h3 id="probabilistic-models-versus-neural-sequence-ssm-layers">Probabilistic models versus Mamba/S4-style neural SSM layers</h3>
+<table>
+<thead><tr><th>Question</th><th>Probabilistic state-space model</th><th>S4/Mamba-style sequence layer</th></tr></thead>
+<tbody>
+<tr><th>Primary object</th><td>A normalized joint distribution over latent states and observations</td><td>A deterministic learned sequence-to-sequence computation</td></tr>
+<tr><th>State uncertainty</th><td>Explicit posterior such as <code>p(z_t|x_1:t)</code> or an approximation</td><td>Usually no posterior distribution over the recurrent hidden activation</td></tr>
+<tr><th>Noise model</th><td>Explicit process and observation noise</td><td>Not required; training loss may be discriminative or next-token likelihood</td></tr>
+<tr><th>Core operation</th><td>Prediction, Bayesian update, marginalization, and smoothing</td><td>Structured recurrence/convolution or selective scan for efficient representation learning</td></tr>
+<tr><th>Typical goal</th><td>Latent-state estimation, forecasting, uncertainty, and system identification</td><td>Efficient long-sequence modelling with compact recurrent state</td></tr>
+</tbody></table>
+<p>The shared phrase <em>state-space model</em> reflects a related recurrence vocabulary, not equivalence. S4 begins from structured linear state-space dynamics, and Mamba makes parts of its recurrence input-dependent, but their hidden activations are not automatically physical states, probabilistic latent variables, or Bayesian filtering distributions. To obtain those meanings, the model must specify a generative distribution and an inference procedure.</p>
+
+<h2 id="common-pitfalls">Common pitfalls</h2>
+<ul>
+<li>confusing <code>p(z_t|x_1:t)</code> filtering with <code>p(z_t|x_1:T)</code> smoothing;</li>
+<li>calling Viterbi states the per-time posterior modes;</li>
+<li>running probability-space recursions without scaling or log space;</li>
+<li>interpreting permutable latent labels as uniquely identified concepts;</li>
+<li>using a fixed transition matrix under irregular sampling;</li>
+<li>forming covariance inverses explicitly in Kalman code;</li>
+<li>equating a neural sequence layer's hidden activation with a probabilistic posterior state.</li>
+</ul>
+
+<h2 id="planned-cross-links">Planned cross-links</h2>
+<ul>
+<li><a href="probabilistic-modelling.html">Probabilistic Modelling</a></li>
+<li><a href="sequential-monte-carlo.html">Sequential Monte Carlo</a></li>
+<li><a href="bayesian-variational-inference.html">Bayesian and Variational Inference</a></li>
+<li><a href="ssm.html">State-Space Models and Alternative Sequence Architectures</a></li>
+<li><a href="uncertainty-quantification.html">Uncertainty Quantification</a></li>
+</ul>
+</section>

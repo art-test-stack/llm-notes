@@ -1,0 +1,181 @@
+<section class="chapter-content" data-topic="synthetic-data">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to design a synthetic-data pipeline, distinguish generation from validation, explain rejection sampling and distillation, reason about mixture ratios and provenance, and identify model-collapse, contamination, and self-judging risks.</p>
+<h2 id="why-synthetic-data-is-used">Why synthetic data is used</h2>
+<p>Synthetic data can expand scarce labels, target rare cases, create curricula, expose a student to a teacher's behavior, generate tool traces, and scale tasks with programmatic verification. In scientific and engineering settings, simulators can generate labelled states or fields under controlled parameters.</p>
+<p>Synthetic data is not automatically high quality. Its value depends on the generator, sampling diversity, validation, deduplication, and how it is mixed with real data.</p>
+<h2 id="synthetic-data-taxonomy">Synthetic-data taxonomy</h2>
+<table>
+<thead>
+<tr><th>Source</th><th>What is generated</th><th>Best validation signal</th><th>Main risk</th></tr>
+</thead>
+<tbody>
+<tr><td>Teacher-generated demonstrations</td><td>Complete input-output examples or rationales from a stronger model</td><td>Task-specific checks plus sampled human review</td><td>Teacher errors and style become student defaults</td></tr>
+<tr><td>Self-instruct-style task generation</td><td>New instructions, often bootstrapped from seed tasks, followed by responses</td><td>Novelty, solvability, and response-quality checks</td><td>Trivial paraphrases create apparent rather than real coverage</td></tr>
+<tr><td>Rejection-sampled responses</td><td>Several answers to one prompt, filtered by a verifier or score</td><td>Exact verifier or calibrated judge</td><td>Selection bias and diversity collapse</td></tr>
+<tr><td>Preference pairs</td><td>A chosen and rejected response for preference optimization</td><td>Pairwise human or calibrated judge labels</td><td>Position, verbosity, and teacher bias</td></tr>
+<tr><td>Tool traces</td><td>Sequences of tool calls, arguments, observations, and final answers</td><td>Replay in a sandbox and check final state</td><td>Invalid calls, hidden state, or tools unavailable at deployment</td></tr>
+<tr><td>Verifiable reasoning problems</td><td>Math, code, logic, or formal problems with checkable answers</td><td>Tests, compilers, symbolic checkers, or theorem provers</td><td>Verifier loopholes and shortcut solutions</td></tr>
+<tr><td>Adversarial examples</td><td>Inputs designed to expose a target model's failures</td><td>Independent ground truth and attack-success review</td><td>Overfitting to one model or attack family</td></tr>
+<tr><td>Simulator-generated data</td><td>States, trajectories, fields, or labels from a numerical environment</td><td>Solver diagnostics and physical consistency checks</td><td>Simulation-to-reality gap</td></tr>
+<tr><td>Counterfactual and augmentation data</td><td>Label-preserving or label-changing edits to real examples</td><td>Invariant and causal-consistency checks</td><td>The edit accidentally changes the intended label</td></tr>
+</tbody>
+</table>
+<p>These sources are complementary rather than interchangeable: demonstrations transfer behavior, preference pairs shape rankings, verifiable problems train checkable skills, adversarial examples target weaknesses, and simulations cover controlled physical regimes. The source choice should follow the capability and available ground truth.</p>
+<h2 id="pipeline">Pipeline</h2>
+<pre><code class="language-text">task/source selection → prompt or simulator generation → candidate generation
+→ validation/filtering → deduplication → difficulty/diversity balancing
+→ provenance labelling → mixture with real data → independent evaluation
+</code></pre>
+<h2 id="task-generation">Task generation</h2>
+<ol>
+<li><strong>Start from seed tasks:</strong> use a small, reviewed set that spans the intended skills and domains rather than one large undifferentiated prompt pool.</li>
+<li><strong>Mutate prompts:</strong> change entities, formats, perspectives, tools, or required operations. Measure semantic distance so mutation does not become trivial paraphrase duplication.</li>
+<li><strong>Control difficulty:</strong> vary reasoning depth, distractors, context length, tool count, numerical precision, or compositional steps. Confirm difficulty using solve rates, not generator claims alone.</li>
+<li><strong>Generate constraints:</strong> sample compatible requirements such as output schema, forbidden operations, latency budget, proof form, or API limits; reject internally inconsistent combinations.</li>
+<li><strong>Track domain coverage:</strong> define a domain-by-skill matrix, target underrepresented cells, and cap overrepresented cells instead of trusting uniform prompt sampling.</li>
+<li><strong>Vary templates:</strong> use multiple independently written templates and free-form generation; normalize and cluster instructions to detect template-shaped duplicates.</li>
+</ol>
+<p>Deduplicate at three levels: exact normalized text, near-duplicate embeddings or shingles, and task semantics. Keep a mutation only if it changes a meaningful variable, constraint, solution path, or covered concept.</p>
+<h2 id="candidate-generation">Candidate generation</h2>
+<p>For each task, define a candidate distribution <code>q(y | x)</code>. Temperature flattens or sharpens token probabilities; top-p truncates sampling to a cumulative probability mass. Neither is a universal diversity knob: inspect actual answer and strategy diversity.</p>
+<ul>
+<li><strong>Multiple candidates:</strong> sample <code>k</code> responses per task so filtering can compare outcomes rather than approve a single draw.</li>
+<li><strong>Teacher ensembles:</strong> mix teachers from different model families or specializations to reduce a single teacher's blind spots.</li>
+<li><strong>Diverse decoding:</strong> vary temperature, top-p, prompts, system roles, and random seeds; use diversity penalties only when they improve semantic rather than cosmetic variation.</li>
+<li><strong>Search:</strong> use beam search, best-of-N, tree search, self-consistency, or tool-assisted exploration when a verifier can cheaply score intermediate or final states.</li>
+<li><strong>Cost versus diversity:</strong> increase <code>k</code> until the marginal accepted novel candidate per generation token no longer justifies its cost. More samples from one narrow teacher may add less diversity than fewer samples across independent teachers.</li>
+</ul>
+<h2 id="validation-and-filtering">Validation and filtering</h2>
+
+<p>Use the strongest available ground truth first, then learned or human judgement for properties that cannot be checked exactly. Combine filters as a documented decision rule; do not treat fluency or generator confidence as correctness.</p>
+<h3 id="verifier-error-analysis-protocol">Verifier error-analysis protocol</h3>
+<ol>
+<li>Before large-scale generation, draw a stratified audit sample across source, domain, difficulty, generator, score band, and both accepted and rejected outcomes.</li>
+<li>Have qualified humans or a stronger exact process assign ground-truth accept/reject labels while blinded to the filter decision. Double-label ambiguous cases and adjudicate disagreements.</li>
+<li>Build a confusion matrix. Estimate false-positive rate <code>FP / (FP + TN)</code> and false-negative rate <code>FN / (FN + TP)</code>, with confidence intervals, overall and per stratum.</li>
+<li>Inspect false positives for loopholes, factual errors, unsafe content, and shared generator-judge bias; inspect false negatives for equivalent answers, uncommon valid strategies, and over-strict formatting.</li>
+<li>Choose thresholds from the cost of each error. High-risk demonstrations may require low false-positive rates; diversity mining may tolerate more manual review to reduce false negatives.</li>
+<li>Freeze a verifier test set, version every rule/model, and repeat the audit after generator, domain, prompt, or threshold changes. Route uncertain score bands to human review.</li>
+</ol>
+<p>Cross-model agreement should be evaluated like any other filter. Agreement between closely related models is not independent evidence; report performance by judge family and on adversarial disagreements.</p>
+<h2 id="end-to-end-example">End-to-end example: generating code-repair demonstrations</h2>
+<ol>
+<li><strong>Task generation:</strong> begin with 500 reviewed Python functions and unit tests. Mutate boundary conditions, data types, and one bug operator; reject mutations that do not make at least one test fail. Cluster task statements and keep at most one trivial paraphrase per cluster.</li>
+<li><strong>Candidate generation:</strong> sample eight repairs per failing task: four at temperature 0.3/top-p 0.9 and four at temperature 0.8/top-p 0.95, split across two unrelated teachers. Give both teachers the same sandbox tools but not hidden tests.</li>
+<li><strong>Exact filtering:</strong> parse and compile each patch, run public and hidden tests in a sandbox, apply time and network limits, and reject patches that alter tests or unrelated files.</li>
+<li><strong>Quality filtering:</strong> reject duplicate patches, require a minimal-diff bound, scan for hard-coded test outputs, and manually review a stratified sample including near-threshold failures.</li>
+<li><strong>Retention:</strong> retain up to two semantically different passing repairs per task, weighted by test coverage and strategy rarity rather than keeping only the judge's top-ranked prose.</li>
+<li><strong>Audit and provenance:</strong> record seed task, mutation, teacher/version, prompt, random seed, sampling settings, sandbox and test-suite versions, result, and acceptance reason. Estimate verifier false positives with extra hidden tests and human code review.</li>
+<li><strong>Training and evaluation:</strong> mix accepted repairs with real code-review data, then evaluate on a deduplicated real-repository benchmark created before this generation run.</li>
+</ol>
+<p>This example separates task validity, response correctness, quality selection, and downstream evaluation. Passing generated tests is necessary but not sufficient evidence that a repair generalizes.</p>
+<h2 id="rejection-sampling-fine-tuning">Rejection sampling</h2>
+<p>Sample candidates <code>y ~ q(y | x)</code> from an explicit candidate distribution, score them with verifier <code>v(x, y)</code>, and retain candidates above an acceptance threshold <code class="math-inline">\tau</code>. Fine-tuning on the retained set converts inference-time exploration into supervised data, but the retained distribution is conditioned on the verifier.</p>
+<ul>
+<li><strong>Threshold:</strong> calibrate <code class="math-inline">\tau</code> on labelled data and separately by domain when score meanings differ.</li>
+<li><strong>Top-1 retention:</strong> keeping the highest-scored response is simple but discards valid alternative strategies and is sensitive to score noise.</li>
+<li><strong>Weighted retention:</strong> keep several passing candidates with weights based on correctness, quality, and rarity; cap candidates per task so easy prompts do not dominate.</li>
+<li><strong>Selection bias:</strong> the dataset overrepresents what the current generator can produce and the verifier can recognize, not necessarily what users need.</li>
+<li><strong>Diversity collapse:</strong> strict best-of-N can converge on one style or strategy. Monitor semantic clusters, n-gram/template concentration, and strategy coverage before and after filtering.</li>
+<li><strong>Iterative regeneration:</strong> regenerate failed or undercovered cells with revised prompts or a different teacher, but limit retries and retain failure metadata so repeated easy successes do not hide hard regions.</li>
+</ul>
+<h2 id="distillation">Distillation</h2>
+<p>Distillation trains a student on teacher logits, responses, rationales, or task labels. It can compress a larger model or transfer a specialized behavior. The student may inherit teacher mistakes and may learn stylistic imitation without the same underlying capability.</p>
+<h2 id="synthetic-preference-data">Synthetic preference data</h2>
+<p>Construct a chosen/rejected pair only after both responses pass basic validity checks. The label should express a relevant quality difference, not merely that one response is broken. Require a calibrated score margin for automatic labels; route near-ties to human review, retain them with soft labels if the training method supports uncertainty, or omit them.</p>
+<ul>
+<li><strong>Chosen/rejected construction:</strong> sample multiple responses to the same prompt, randomize their presentation, score against a fixed rubric, and preserve the pair's source and score rationale.</li>
+<li><strong>Teacher bias:</strong> a teacher may prefer its own phrasing and reasoning conventions. Use independent judges and human audits, including pairs where the teacher did not generate either answer.</li>
+<li><strong>Position and verbosity bias:</strong> swap left/right order, normalize formatting where appropriate, and test matched pairs where answer length changes without content quality changing.</li>
+<li><strong>On-policy candidates:</strong> responses from the policy being optimized expose its current errors and decision boundary but must be refreshed as the policy changes.</li>
+<li><strong>Off-policy candidates:</strong> responses from teachers, earlier checkpoints, or other systems broaden quality and style but may be too easy or unlike the deployed policy distribution.</li>
+</ul>
+<p>Mix on-policy and off-policy pairs, stratify by score margin, and report results separately. See <a href="post-training.html">post-training</a> for how pair construction interacts with preference-optimization objectives.</p>
+<h2 id="verifiable-reasoning-data">Verifiable reasoning data</h2>
+<p>Mathematics, code, formal reasoning, and simulations can provide programmatic rewards and support search. Generated tasks and solutions should be checked for leakage, malformed tests, trivial shortcuts, and verifier exploits. A model should not generate both the data and the only uncalibrated judgement of that data. See <a href="reasoning.html">reasoning training and RLVR</a> for using outcome and process signals.</p>
+<h2 id="mixture-design">Mixture design</h2>
+<p>Choose real-versus-synthetic proportions at the token or example level and state which one. Source weighting controls the probability of drawing from a source; quality weighting controls the contribution of an example after it is drawn. Both affect effective repeated exposure: a small, high-weight synthetic set may be seen far more often than a larger nominal proportion suggests.</p>
+<ul>
+<li><strong>Curriculum schedules:</strong> use synthetic data early for basic or verifiable skills, later for targeted hard cases, or decay it as the model approaches deployment distribution. Compare schedules rather than assuming easy-to-hard is best.</li>
+<li><strong>Coverage constraints:</strong> set floors for important real domains and caps for any generator, template, or teacher family.</li>
+<li><strong>Quality weighting:</strong> calibrate weights from audited verifier precision; avoid turning an uncalibrated reward score directly into a large training multiplier.</li>
+<li><strong>Exposure accounting:</strong> report expected epochs or token reuse per source, including oversampling and curriculum phases.</li>
+</ul>
+<h3 id="real-synthetic-mixture-ablation">Real/synthetic mixture ablation</h3>
+<p>Hold total training tokens, optimizer, model initialization, and compute constant. Deduplicate all training splits against evaluation data. Train at least three seeds for each mixture below:</p>
+<table>
+<thead><tr><th>Arm</th><th>Real / synthetic tokens</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>100% / 0%</td><td>Real-only baseline</td></tr>
+<tr><td>B</td><td>90% / 10%</td><td>Low synthetic supplementation</td></tr>
+<tr><td>C</td><td>70% / 30%</td><td>Moderate mixture</td></tr>
+<tr><td>D</td><td>50% / 50%</td><td>High synthetic exposure</td></tr>
+<tr><td>E</td><td>70% / 30%, shuffled</td><td>Separate proportion from curriculum ordering</td></tr>
+<tr><td>F</td><td>70% / 30%, quality-weighted</td><td>Test source/quality weighting against uniform sampling</td></tr>
+</tbody>
+</table>
+<p>Measure target capability, broad capability retention, calibration, robustness, tail-domain performance, style diversity, memorization, and contamination. Evaluate primarily on an independent, real-data validation and test set whose creation predates the generators; use a synthetic diagnostic set only for decomposition. Add source-removal ablations for each major generator and report confidence intervals across seeds. For broader data-mixture considerations, see <a href="pretraining-data.html">pretraining data, cleaning, and mixtures</a> and <a href="scaling-laws.html">scaling laws</a>.</p>
+<h2 id="model-collapse-and-feedback-loops">Model collapse and feedback loops</h2>
+<p>Model collapse is a possible feedback-loop failure, not an inevitable result of using synthetic data. It describes degradation when successive training distributions narrow around earlier models' outputs: rare modes and tail behavior disappear, systematic errors gain frequency, and the next generator has less real variation from which to recover.</p>
+<ul>
+<li><strong>Distribution narrowing:</strong> track semantic-cluster entropy, vocabulary and format diversity, strategy diversity, and coverage of the real reference distribution before and after filtering.</li>
+<li><strong>Error amplification:</strong> maintain a stable human-labelled error suite and trace whether each error class grows across successive synthetic generations.</li>
+<li><strong>Tail loss:</strong> report performance and inclusion rates by rare domain, language, difficulty, demographic slice, and low-density region rather than only global averages.</li>
+<li><strong>Generator-judge coupling:</strong> shared blind spots let plausible errors pass. Cross-family judges, exact checks, and human audits reduce but do not eliminate this dependence.</li>
+<li><strong>Related teacher/student families:</strong> close architectures, training data, and post-training recipes can make apparent cross-model agreement highly correlated.</li>
+<li><strong>Successive generations:</strong> label generation number, preserve real-data anchors, compare each generation to the original real distribution, and stop or rebalance when diversity or tail metrics regress.</li>
+</ul>
+<p>Collapse risk can be controlled by supplementing rather than replacing high-quality real data, preserving provenance, injecting independent sources, auditing filters, and selecting for diversity as well as score. The relevant claim is empirical: test whether a particular pipeline narrows or degrades under repeated generations.</p>
+<h2 id="simulator-generated-engineering-data">Simulator-generated engineering data</h2>
+<p>A simulator defines a synthetic world, so the data specification must define where that world is trustworthy.</p>
+<ul>
+<li><strong>Parameter ranges:</strong> sample physically meaningful ranges and dependencies; include rare but valid regions rather than independent uniform draws by default.</li>
+<li><strong>Boundary and initial conditions:</strong> enumerate types, units, compatibility constraints, and how frequently each regime appears.</li>
+<li><strong>Solver tolerances:</strong> store convergence criteria, residuals, timeouts, failed solves, and sensitivity to tighter tolerances.</li>
+<li><strong>Mesh and discretization:</strong> record grid, element type, resolution, time step, and convergence studies; avoid teaching mesh artefacts as physics.</li>
+<li><strong>Domain randomization:</strong> randomize geometry, materials, loads, sensors, and nuisance parameters within defensible priors to improve robustness.</li>
+<li><strong>Simulation-to-reality gap:</strong> compare against experimental or field measurements, model discrepancy explicitly, and reserve real observations for independent validation.</li>
+<li><strong>Out-of-distribution physical regimes:</strong> create held-out extrapolation splits beyond training combinations, but do not claim validity beyond the solver's governing assumptions or stability region.</li>
+</ul>
+<p>A surrogate inherits the simulator's equations, approximations, numerical errors, and sampled support. Solver success is not evidence of real-world accuracy.</p>
+<h2 id="provenance-and-contamination">Provenance and contamination</h2>
+<p>For every example, record the generator and version, complete prompt/template, source seed task and random seed, temperature/top-p and other sampling settings, verifier and version, raw scores, acceptance reason, timestamp, human edits, and generation number. Simulator records also need solver configuration, parameters, mesh, tolerances, and diagnostics.</p>
+<ul>
+<li><strong>Benchmark overlap:</strong> hash and semantically match seed tasks, prompts, retrieved context, generated tasks, and outputs against evaluation sets. Quarantine uncertain overlaps before training.</li>
+<li><strong>Deletion:</strong> maintain stable example and lineage identifiers so a contaminated source, generator run, or derived descendant can be removed and affected checkpoints identified.</li>
+<li><strong>Reproducibility:</strong> preserve prompts, seeds, versions, environments, and decision logs. Exact regeneration may still be impossible for nondeterministic hosted models, so archive raw generations and verifier outputs.</li>
+</ul>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>generator and judge share the same blind spots;</li>
+<li>high-confidence fluent errors pass filtering;</li>
+<li>duplicated templates dominate the set;</li>
+<li>benchmark questions appear in prompts or generated outputs;</li>
+<li>verifier loopholes produce reward hacking;</li>
+<li>synthetic style crowds out natural variation;</li>
+<li>difficult examples are filtered away;</li>
+<li>simulator coverage is mistaken for physical universality;</li>
+<li>evaluation uses synthetic data from the same generator.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Design a synthetic code-data pipeline with unit tests.</li>
+<li>Compare rejection sampling with online RL.</li>
+<li>Explain how to prevent generator-judge coupling.</li>
+<li>Design mixture-ratio ablations.</li>
+<li>Discuss simulator provenance for engineering data.</li>
+<li>Define model-collapse monitoring.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+<li><a href="pretraining-data.html">Pretraining Data, Cleaning and Mixtures</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="reasoning.html">Reasoning Training, RLVR and Test-Time Compute</a></li>
+<li><a href="post-training.html">Post-Training: SFT, Preference Optimization and RLHF</a></li>
+<li><a href="scaling-laws.html">Scaling Laws and Compute-Optimal Training</a></li>
+</ul>
+</section>

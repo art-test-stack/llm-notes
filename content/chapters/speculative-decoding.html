@@ -1,0 +1,166 @@
+<section class="chapter-content" data-topic="speculative-decoding">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to derive exact speculative sampling, trace block verification and KV-cache rollback, estimate the break-even point from measured costs and acceptance, compare proposal mechanisms, and explain how speculation changes a continuously batched serving system.</p>
+<h2 id="core-idea">Core idea</h2>
+<p>A cheaper draft mechanism proposes several future tokens. The target model evaluates those positions in one parallel verification pass. An acceptance rule keeps a valid prefix of draft tokens and samples a correction when needed.</p>
+<pre><code class="language-text">current prefix → draft proposes y₁…y_k
+→ target scores all proposals in parallel
+→ accept valid prefix → sample correction if required → repeat
+</code></pre>
+<p>With the correct rejection-sampling rule, speculative decoding preserves the target model's output distribution; it is not an approximate model-quality shortcut.</p>
+
+<h2 id="exact-speculative-sampling">Exact speculative sampling</h2>
+<p>Fix the current accepted prefix <var>x</var>. Let <code>q(t | x)</code> be the draft distribution and <code>p(t | x)</code> the target distribution over the next token after applying the intended sampling transforms. The draft samples a proposal <code>y ~ q</code>. Draw <code>u ~ Uniform(0,1)</code> and accept <code>y</code> when:</p>
+<div class="math-display">u ≤ a(y), where a(y) = min(1, p(y | x) / q(y | x)).
+</div>
+<p>The ratio is needed only for a sampled token, so <code class="math-inline">q(y \mid  x) \gt  0</code>. If the proposal is rejected, do not emit it. Instead sample a correction token from the residual distribution:</p>
+<div class="math-display">r(t | x) = max(0, p(t | x) - q(t | x)) / Z
+Z        = Σ_v max(0, p(v | x) - q(v | x)).
+</div>
+<p>If <code class="math-inline">Z = 0</code>, then <code class="math-inline">p = q</code> and rejection has probability zero, so the correction branch is unreachable. Target mass on tokens where <code class="math-inline">q=0</code> is included in the residual.</p>
+
+<h3 id="why-the-output-distribution-is-p">Why the output distribution is <var>p</var></h3>
+<p>The probability that token <var>t</var> is proposed and accepted is</p>
+<div class="math-display">q(t) min(1, p(t)/q(t)) = min(q(t), p(t)).
+</div>
+<p>The total rejection probability is</p>
+<div class="math-display">β = 1 - Σ_v min(p(v), q(v))
+  = Σ_v max(0, p(v) - q(v)) = Z.
+</div>
+<p>Therefore the probability that the algorithm emits <var>t</var>, either by acceptance or correction, is</p>
+<div class="math-display">P(output=t) = min(p(t), q(t)) + β r(t)
+            = min(p(t), q(t)) + max(0, p(t)-q(t))
+            = p(t).
+</div>
+<p>This proves the one-step result. Reapplying it at every realized prefix gives the same conditional distribution as ordinary target sampling at every position, hence the same joint sequence distribution. The proof assumes probabilities and random draws are implemented consistently; finite-precision and non-deterministic kernels can still cause small empirical differences.</p>
+
+<h2 id="block-verification">Block verification</h2>
+<ol>
+<li><strong>Draft:</strong> sample <code>y₁…y_k</code> serially, recording each conditional proposal distribution <code>q_i(· | x,y₁…y_{i-1})</code>.</li>
+<li><strong>Score in parallel:</strong> run the target once over the proposed block. Causal masking produces all target distributions <code>p_i(· | x,y₁…y_{i-1})</code> in one wider pass.</li>
+<li><strong>Verify in order:</strong> apply <code>min(1,p_i(y_i)/q_i(y_i))</code> from left to right. If <code>j</code> is the first rejected position, the accepted prefix length is <code class="math-inline">a=j-1</code>.</li>
+<li><strong>On rejection:</strong> keep <code>y₁…y_a</code>, discard <code>y_j…y_k</code>, and sample one token from <code>r_j ∝ max(0,p_j-q_j)</code>. Later proposals cannot be reused because their distributions were conditioned on the rejected token.</li>
+<li><strong>On full acceptance:</strong> keep all <var>k</var> proposals and sample a bonus token from the target's next-position distribution produced by the verification pass. A successful block can therefore advance by <code>k+1</code> output tokens.</li>
+</ol>
+<p>Verification is computationally parallel but acceptance is logically sequential: the target probability at position <var>i</var> is valid only while all earlier proposals remain on the realized prefix.</p>
+
+<h3 id="cache-commit-and-rollback">Cache commit and rollback</h3>
+<p>Treat speculative cache updates as a transaction. Target verification temporarily writes K/V for the proposed positions. After accepting <var>a</var> proposals, commit only the cache entries for the accepted prefix and roll the logical target-cache length back over rejected and unused entries. Whole paged-cache blocks beyond the committed length can be released; a partial tail block resets its write offset. Stale bytes may remain physically but must be unreachable and overwritten before reuse.</p>
+<p>The correction or bonus token has been sampled but normally has not yet had its own K/V computed; it is processed at the next model call. The draft cache must also discard proposal state after the accepted prefix and then consume the target-chosen correction or bonus token before drafting again. Roll back token buffers, positions, stop state, grammar state, and any counter-based RNG bookkeeping together with K/V. See <a href="inference.html">cache layouts and lifecycle</a> for contiguous and paged-cache mechanics.</p>
+
+<h3 id="sampling-parameter-consistency">Sampling-parameter consistency</h3>
+<p>Define <var>p</var> as the target distribution the user actually requested: after temperature, penalties, top-k/top-p or min-p filters, bad-word masks, grammar constraints, and other logit processors in their specified order. Define <var>q</var> from the distribution the draft actually sampled, not from unprocessed draft logits. The draft and target need not have equal logits, but both sides must use the same accepted prefix and synchronized stateful processors. Applying different user sampling policies accidentally, or computing the ratio from probabilities produced before filtering, breaks the claimed algorithm. A narrower draft support is mathematically allowed because the residual restores missing target mass, but it may lower acceptance.</p>
+
+<h2 id="expected-performance">Expected performance</h2>
+<p>Let <var>k</var> be proposal length, <code>C_d(k)</code> the cost of producing the draft block, <code>C_v(k)</code> the target verification cost, <code class="math-inline">C_{o}</code> bookkeeping/communication cost, and <code>C_t(1)</code> the baseline cost of one target decode step. Under the simplifying assumption that every proposal is accepted independently with probability <var>α</var>, the expected number of accepted draft tokens per verification is:</p>
+<pre><code class="language-text">E[A] = Σ(i=1…k) P(first i proposals are accepted)
+     = Σ(i=1…k) α^i
+     = α(1-α^k)/(1-α),  for α ≠ 1; and E[A]=k for α=1.
+</code></pre>
+<p>Every cycle also emits one correction after a rejection or one bonus target token after full acceptance, so <code class="math-inline">E[N] = E[A] + 1</code> output tokens. The approximate latency speedup and break-even condition are:</p>
+<div class="math-display">speedup ≈ (E[A] + 1) C_t(1) / (C_d(k) + C_v(k) + C_o)
+
+break even when C_d(k) + C_v(k) + C_o &lt; (E[A] + 1) C_t(1).
+</div>
+<p>This is a first-order model, not a promise: acceptance events are prefix- and position-dependent, verification cost is shape-dependent, and batching, cache traffic, synchronization, and draft placement affect the measured terms.</p>
+
+<h3 id="worked-speedup-example">Worked numerical example</h3>
+<p>Take <code class="math-inline">k=4</code>, per-position acceptance <code class="math-inline">\alpha =0.8</code>, draft cost <code class="math-inline">C_{d}=0.4 C_{t}(1)</code>, four-token target verification cost <code class="math-inline">C_{v}=1.2 C_{t}(1)</code>, and overhead <code class="math-inline">C_{o}=0.1 C_{t}(1)</code>.</p>
+<div class="math-display">E[A] = 0.8 + 0.8² + 0.8³ + 0.8⁴ = 2.3616
+E[N] = 3.3616 output tokens
+cycle cost = 0.4 + 1.2 + 0.1 = 1.7 baseline target steps
+speedup ≈ 3.3616 / 1.7 = 1.98×
+</div>
+<p>The cycle beats the <code>3.3616 C_t(1)</code> baseline cost. If placement or batching raised the cycle cost above that value, the same acceptance rate would no longer break even. This is why draft accuracy alone is not a speed metric.</p>
+
+<h2 id="where-speedup-comes-from">Where speedup comes from</h2>
+<p>Autoregressive decode normally requires one target-model pass per token. Verification turns several serial target calls into one wider call that can use the GPU more efficiently. Speedup depends on:</p>
+<ul>
+<li>draft cost;</li>
+<li>acceptance rate;</li>
+<li>proposal length;</li>
+<li>target verification efficiency;</li>
+<li>batch size and scheduler behavior;</li>
+<li>cache updates and rollback cost;</li>
+<li>hardware utilization.</li>
+</ul>
+<p>A draft that is cheap but inaccurate may reduce speed. A strong draft may be too expensive. Longer proposal blocks are not always better because rejection wastes later candidates.</p>
+
+<h2 id="variants">Variants</h2>
+<table>
+<thead><tr><th>Variant</th><th>Proposal mechanism</th><th>Strength</th><th>Main cost or limitation</th></tr></thead>
+<tbody>
+<tr><td>Independent draft model</td><td>A separate, usually smaller model samples an autoregressive block.</td><td>General and tunable; exact rejection sampling applies directly.</td><td>Extra weights, KV cache, launches, and possibly device-to-device communication.</td></tr>
+<tr><td>Self-speculation / early exit</td><td>Early target layers produce draft logits; the remaining layers verify.</td><td>Shares embeddings, tokenizer, and many weights; avoids a separate model.</td><td>Requires a useful early-exit head and careful reuse of partial activations; draft and verifier contend for one model pipeline.</td></tr>
+<tr><td>Multi-token prediction heads</td><td>Auxiliary heads predict several future offsets from target hidden states.</td><td>Small incremental parameter and memory cost; proposals come from the target representation.</td><td>Future heads need training and may be weak off-domain; independent offset predictions need a verification scheme.</td></tr>
+<tr><td>Medusa-style heads</td><td>Several lightweight heads propose candidates for successive future positions, commonly assembled into a candidate tree.</td><td>Many candidate continuations can be verified in one target pass without a full draft model.</td><td>Tree attention and candidate packing are more complex; extra heads are checkpoint-specific.</td></tr>
+<tr><td>Tree-based speculation</td><td>Expand multiple candidate branches rather than one chain, then verify a packed tree with a custom mask.</td><td>Recovers when the top single proposal is wrong and can raise accepted depth.</td><td>Branch width grows verification tokens and cache/mask complexity; useful work depends on tree quality.</td></tr>
+<tr><td>Prompt lookup / n-gram</td><td>Copy continuations following matching token n-grams in the prompt or recent output.</td><td>No learned draft weights and extremely cheap on repetitive or editing workloads.</td><td>Low coverage on novel text; matching, boundaries, and stale occurrences need care.</td></tr>
+<tr><td>Retrieval-assisted drafts</td><td>Retrieve likely continuations from a corpus, memory, or prior generation and propose their tokens.</td><td>Can excel when answers reproduce known text or domain templates.</td><td>Retrieval latency and poor matches can erase gains; retrieved text is still verified, not trusted.</td></tr>
+</tbody>
+</table>
+<p>These mechanisms can be combined: for example, retrieval can seed a tree, or self-speculation can choose a variable block length. Exactness depends on the verifier and correction rule, not on whether proposals came from a neural model.</p>
+
+<h2 id="serving-interactions">Serving interactions</h2>
+<ul>
+<li><strong>Continuous batching:</strong> a scheduler iteration no longer advances every decode request by exactly one token. A completed verification normally commits one through <code>k+1</code> tokens, may finish mid-block, and may roll back temporary cache entries.</li>
+<li><strong>Unequal progress:</strong> high-acceptance requests release capacity and reach stop conditions faster while low-acceptance requests consume more verification cycles. Token budgets and completion estimates must use committed tokens, not proposed positions.</li>
+<li><strong>Variable block sizes:</strong> choose <var>k</var> from recent acceptance, remaining maximum length, available KV blocks, batch shape, and latency target. Large blocks favor high acceptance; short blocks limit wasted target work and tail latency.</li>
+<li><strong>Fairness:</strong> charging one scheduling turn per verification can favor requests that accept many tokens; charging only committed tokens can let repeated low-acceptance verification consume excess compute. Fair queues should account for measured draft plus verification work while enforcing wait-time or TPOT bounds.</li>
+<li><strong>Draft/target placement:</strong> colocating them avoids communication but duplicates active weights and caches on scarce accelerator memory. Separate GPUs can overlap draft and target work, but transfer latency, topology, pipeline bubbles, and backpressure enter the break-even equation.</li>
+<li><strong>Memory duplication:</strong> an independent draft usually has its own weights and KV cache, while target verification needs temporary slots for all proposals. Capacity planning must include both caches, speculative tail blocks, tree candidates, and rollback fragmentation.</li>
+</ul>
+<p>Continuous batching can improve target utilization but may reduce the marginal gain from making each request wider. Benchmark the actual scheduler, concurrency, and SLO policy; see <a href="serving.html">static versus continuous batching</a> and <a href="serving.html">scheduling policies</a>.</p>
+
+<h2 id="tokenizer-and-vocabulary-compatibility">Tokenizer and vocabulary compatibility</h2>
+<ul>
+<li><strong>Shared tokenizer:</strong> the simplest exact path uses identical token IDs, normalization, special tokens, and chat templates. Target probabilities and proposal probabilities then refer to the same events.</li>
+<li><strong>Vocabulary mapping:</strong> different tokenizers require mapping draft continuations into target-token sequences and defining a valid proposal probability over those sequences. A text-level retokenization alone does not provide the per-target-token <var>q</var> needed by the acceptance ratio, and boundaries may change with surrounding text.</li>
+<li><strong>Sampling filters:</strong> temperature, top-k, top-p, min-p, and truncation must be reflected in the normalized <var>p</var> and <var>q</var> used by verification. Compute probabilities after masking and renormalization.</li>
+<li><strong>Logit processors:</strong> repetition/frequency penalties, forced tokens, bad-word lists, minimum length, and stop rules are prefix-stateful. Advance their state only for committed tokens and roll it back with rejected proposals.</li>
+<li><strong>Constrained decoding:</strong> grammar or schema state is part of the prefix. Apply the allowed-token mask before forming both distributions. A draft proposal forbidden by the target has <code class="math-inline">p(y)=0</code> and is rejected; branch or n-gram proposals must not move the committed automaton state until accepted.</li>
+</ul>
+<p>Without a sound vocabulary-level probability mapping, a mismatched-tokenizer draft can still be used as a heuristic candidate generator for a separately designed verifier, but the simple <code>p(y)/q(y)</code> proof above does not apply automatically.</p>
+
+<h2 id="evaluation">Evaluation</h2>
+
+<p>Also record draft cost, target verification latency by block/batch shape, TTFT, cache memory, rollback rate, energy or accelerator-seconds, and baseline results under identical target sampling parameters. Sweep proposal length and concurrency rather than tuning on one workload.</p>
+
+<h3 id="distribution-equivalence-test-design">Distribution-equivalence test design</h3>
+<ol>
+<li>Use a tiny known <var>p</var> and <var>q</var> to exhaustively check that acceptance plus residual correction produces <var>p</var>, including <code class="math-inline">q(t)=0</code> and <code class="math-inline">p(t)=0</code> cases.</li>
+<li>Compare speculative and ordinary target sampling over many trials at the first token and over short sequences. Test greedy separately; it is not evidence for sampling correctness.</li>
+<li>Repeat with temperature, truncation, penalties, EOS, constrained decoding, partial rejection, full acceptance, and paged-cache block boundaries.</li>
+<li>After every rejection, compare subsequent target logits and logical cache lengths with a clean non-speculative replay of the committed tokens.</li>
+</ol>
+
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>acceptance implementation changes the target distribution;</li>
+<li>cache state includes rejected tokens;</li>
+<li>draft/target tokenizer mismatch;</li>
+<li>poor acceptance under domain shift;</li>
+<li>synchronization overhead dominates small batches;</li>
+<li>benchmarking a different sampling distribution;</li>
+<li>proposal length tuned only on one workload.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Derive <code>min(1,p(y)/q(y))</code>, the residual <code>[p-q]₊</code>, and the final equality to <var>p</var>.</li>
+<li>For a rejection at proposal three, state which tokens and target/draft cache entries commit.</li>
+<li>Derive expected accepted tokens for <var>k</var> proposals with constant acceptance <var>α</var>, then write the break-even inequality.</li>
+<li>Explain why high draft accuracy alone does not guarantee speedup.</li>
+<li>Compare independent drafting, early exit, Medusa-style heads, and prompt lookup for memory, training, and workload sensitivity.</li>
+<li>Explain how continuous batching and fairness accounting change when requests advance by different token counts.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="inference.html">LLM Inference: Prefill, Decode and KV Cache</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="serving.html">LLM Serving and Request Scheduling</a></li>
+<li><a href="quantization.html">Quantization, Pruning and Distillation</a></li>
+<li><a href="compile-kernels.html">Compilation, Kernels and Operator Fusion</a></li>
+</ul>
+</section>

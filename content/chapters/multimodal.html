@@ -1,0 +1,85 @@
+<section class="chapter-content" data-topic="multimodal">
+<h2 id="core-idea">Core idea</h2>
+<p>Multimodal systems convert images, audio, video, sensor streams, actions, or scientific fields into representations that can interact with language or each other through attention.</p>
+<p>A common architecture is:</p>
+<pre><code class="language-text">modality encoder → projected modality tokens
+                         ↓
+language model self- or cross-attention → generated output
+</code></pre>
+<p>The main design choice is where and how modalities fuse.</p>
+<h2 id="modality-encoders">Modality encoders</h2>
+<table>
+<thead><tr><th>Input</th><th>Typical encoder</th><th>Important choices</th></tr></thead>
+<tbody>
+<tr><td>Image</td><td><strong>Vision Transformer (ViT)</strong> over patch embeddings, or a <strong>CNN/ViT hybrid</strong> whose convolutional stem supplies local, translation-aware features to a Transformer.</td><td>Patch size, input resolution, feature layer, multiscale features, and whether fine detail survives pooling.</td></tr>
+<tr><td>Audio</td><td>A Transformer or Conformer over log-mel <strong>spectrogram</strong> frames; alternatively a neural audio codec converts waveforms into discrete <strong>codec tokens</strong>.</td><td>Sample rate, hop length, frequency resolution, causal versus bidirectional context, and whether tokens preserve speech, music, or environmental sound.</td></tr>
+<tr><td>Video</td><td>Per-frame image encoder plus temporal attention, a 3D convolution/ViT, or a factorized spatial-then-temporal encoder.</td><td>Frame rate, clip length, motion sensitivity, temporal pooling, and shot boundaries.</td></tr>
+<tr><td>Sensor or time series</td><td>1D CNN, Transformer, state-space model, or event encoder over fixed windows, irregular samples, or detected events.</td><td>Sampling rate, missing-value mask, channel identity, physical units, timestamps, and aliasing.</td></tr>
+</tbody>
+</table>
+<p><strong>Frozen versus jointly trained.</strong> Freezing a strong encoder is cheaper, preserves its pretrained features, and lets a small connector learn the interface, but it caps task adaptation. Joint training can specialize perception and repair an interface mismatch, but costs more memory and data and can forget general features. A common schedule freezes the encoder and language model during connector alignment, then unfreezes selected encoder blocks or uses low-rank updates for later stages.</p>
+<h2 id="modality-tokenization">Modality tokenization and position</h2>
+<p>Tokenization is an architectural choice, not just preprocessing; see <a href="tokenization.html">Tokenization and Vocabulary Design</a>. For a non-overlapping image grid, the token count is <code class="math-inline">N = (H / P) \times  (W / P)</code>, where <code class="math-inline">P</code> is patch size. Smaller patches or higher resolution preserve detail but increase memory and compute. Audio uses spectrogram time-frequency patches or codec streams; sensors use temporal windows or events. Video adds a frame or tubelet dimension, so frame sampling, temporal window length, and spatial resolution multiply together.</p>
+<p><strong>Worked image example.</strong> A <code>336 × 336</code> image with <code>14 × 14</code> patches produces <code class="math-inline">(336 / 14)^{2} = 24^{2} = 576</code> visual tokens, before any class or separator token. Doubling each side to <code>672 × 672</code> produces <code class="math-inline">48^{2} = 2,304</code> tokens: 4× the sequence length and roughly 16× the pairwise attention scores in a dense self-attention layer. Sampling 16 independently encoded frames at the original resolution would expose <code class="math-inline">16 \times  576 = 9,216</code> tokens before temporal pooling. This is why high resolution and long duration interact strongly with <a href="long-context.html">long-context compute</a>.</p>
+<p><strong>Position handling.</strong> Images need 2D row/column information through learned absolute embeddings, relative biases, or 2D rotary encodings. Video needs both spatial position and ordered frame time; audio and sensors need elapsed-time encodings that can represent irregular gaps. Positions may be factorized by axis, interpolated to new resolutions, or expressed as normalized coordinates. Any crop, resize, tiling, frame subsampling, or coordinate transform must be carried into the positions and grounding labels; otherwise “top left” or “at 3.2 seconds” no longer matches the source.</p>
+<h2 id="fusion-architectures">Fusion architectures</h2>
+<table>
+<thead><tr><th>Architecture</th><th>Mechanism and fusion point</th><th>Parameters and compute</th><th>Information trade-off</th></tr></thead>
+<tbody>
+<tr><td><strong>Projected prefix tokens</strong></td><td>A linear layer or MLP projects encoder outputs to language-model width and inserts them before text: early fusion at the LM input.</td><td>Few new parameters; LM self-attention grows with visual/audio token count.</td><td>Simple and preserves each projected token, but long inputs consume the text context and may be awkward for a frozen LM.</td></tr>
+<tr><td><strong>Cross-attention adapters</strong></td><td>Selected LM layers query separate modality features: repeated middle fusion. See <a href="cross-attention.html">cross-attention</a>.</td><td>Extra query/key/value and adapter parameters; cost is proportional to text queries × modality tokens at inserted layers.</td><td>Keeps modality memory outside the text stream and permits repeated access; sparse insertion can limit how deeply evidence affects reasoning.</td></tr>
+<tr><td><strong>Unified token stream</strong></td><td>Text, image, audio, and action tokens share embeddings and Transformer blocks: early and continuing fusion.</td><td>Maximum parameter sharing, but dense attention over all tokens can be the most expensive and usually needs large-scale joint training.</td><td>Rich token-level interactions with no explicit connector bottleneck; modalities can interfere or one can dominate.</td></tr>
+<tr><td><strong>Perceiver/Q-Former-style latent bottleneck</strong></td><td>A fixed set of learned latent queries cross-attends to many encoder features, then supplies a compact prefix or memory: middle fusion.</td><td>Additional resampler parameters, but a fixed latent count bounds downstream LM compute.</td><td>Efficient for high-resolution or long inputs; compression can discard small text, rare events, exact counts, or geometry.</td></tr>
+<tr><td><strong>Late fusion / ensemble</strong></td><td>Independent modality models combine logits, scores, or decisions only near the output.</td><td>Duplicates model compute but requires little shared architecture or paired pretraining.</td><td>Robust and modular, yet cannot learn fine cross-modal relations such as which phrase refers to which region.</td></tr>
+</tbody>
+</table>
+<p><strong>Early, middle, and late fusion.</strong> Early fusion maximizes cross-modal interaction but pays sequence cost throughout the network. Middle fusion balances specialization with selected interaction points. Late fusion is easiest to isolate and replace but has the strongest semantic bottleneck. The right comparison reports trainable parameter count, encoder and LM FLOPs, tokens presented to each layer, and accuracy on detail-sensitive tasks—not just total model size.</p>
+<h2 id="training-data-and-stages">Training data and stages</h2>
+<ol>
+<li><strong>Contrastive alignment:</strong> encode paired items such as an image and caption, pull true pairs together, and push in-batch negatives apart. It creates a shared retrieval space but does not by itself teach generation or word-to-region grounding. Hard negatives that share objects but differ in count, relation, or time make the signal less shortcut-prone.</li>
+<li><strong>Captioning and image-text matching:</strong> autoregressive captioning teaches the decoder to verbalize modality features; a matching classifier distinguishes genuine from mismatched pairs. Captioning can reward generic plausible prose, while matching supplies a direct compatibility signal.</li>
+<li><strong>Connector alignment:</strong> with the encoder and often the LM frozen, train the projector, cross-attention adapter, or Q-Former so modality features enter the LM's representation space without destabilizing either backbone.</li>
+<li><strong>Multimodal instruction tuning:</strong> train on question answering, multi-turn dialogue, OCR, document understanding, tool use, and requests that require combining modalities. Include “unanswerable from the evidence” examples rather than forcing every prompt to have an answer.</li>
+<li><strong>Grounding supervision:</strong> attach phrases and answers to bounding boxes, segmentation regions, coordinates, OCR spans, timestamps, and tracked objects. Losses can predict discrete coordinate tokens, regress normalized values, or select candidate regions.</li>
+<li><strong>Preference tuning:</strong> rank responses for factuality, evidence use, calibration, helpfulness, and refusal when the modality does not support a claim. Avoid preferences based only on fluency, which can strengthen hallucination.</li>
+</ol>
+<p><strong>Data construction.</strong> Build paired examples from licensed image-caption, document-OCR, audio-transcript, video-narration, sensor-log, and scientific simulation sources. Preserve source files, transforms, timestamps, coordinate frames, units, and region annotations. Deduplicate by both content and near-duplicate modality embeddings; split by source, scene, speaker, subject, or simulation family to prevent leakage. Balance tasks and modalities, generate hard negative pairs by changing counts/relations/times, and audit synthetic captions against the source because verbose generated text can inject unsupported “facts.”</p>
+<h2 id="spatial-and-temporal-grounding">Spatial and temporal grounding</h2>
+<p>Grounding turns a fluent answer into a claim about a location or interval. A system may emit normalized bounding-box coordinates such as <code>[x_min, y_min, x_max, y_max]</code>, select region IDs, associate phrases with segmentation masks, or point to OCR spans with both text offsets and page coordinates. Training and evaluation must specify whether coordinates refer to the original image, a resized crop, a tile, or a page.</p>
+<p>For audio and video, ground events with start/end timestamps, frame indices, or temporal segments. Video temporal localization should test both event existence and boundaries, including repeated actions. Object counting and relations need explicit instances: distinguish “three bolts” from three mentions, and test relations such as left/right, inside, contact, before/after, and same-object persistence across frames.</p>
+<h2 id="missing-corrupted-and-conflicting-modalities">Missing, corrupted, and conflicting modalities</h2>
+
+<h2 id="scientific-and-engineering-inputs">Scientific and engineering inputs</h2>
+<p>Meshes, point clouds, fields, geometry, boundary conditions, and sensor streams are not naturally a single regular token grid. Mesh tokens may represent vertices, faces, elements, or multiscale patches with adjacency edges; point clouds need coordinates plus features and a permutation-invariant set encoder; scalar/vector fields may be sampled on grids or basis functions; boundary conditions should be separately typed rather than mixed with interior values. Cross-attention or latent bottlenecks can connect these irregular inputs to a compact reasoning state.</p>
+<p>Coordinate choices carry physics. Translation, rotation, permutation, scale, and sometimes gauge invariance should be built into features or equivariant layers, or covered systematically by augmentation. Record global versus local frames, units, mesh resolution, sensor calibration, time origin, and coordinate transforms. Test the same physical case under a rigid rotation, node reordering, remeshing, resampling, or unit conversion: invariant outputs should remain unchanged, while vector/tensor outputs should transform equivariantly.</p>
+<h2 id="evaluation">Evaluation: perception, grounding, and shortcuts</h2>
+<p>Separate perceptual evidence from language plausibility using the methodology in <a href="evaluation.html">LLM Evaluation and Benchmark Design</a>, and measure abstention and confidence as described in <a href="calibration.html">Hallucination, Grounding and Calibration</a>.</p>
+
+<p>Use held-out sources and counterfactual templates, randomize answer position, and compare paired examples that differ in exactly one perceptual fact. Report results by modality and corruption slice. A fluent explanation is not evidence of perception: require an answer plus its region, OCR span, or timestamp where the task permits.</p>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>language priors masking weak perception;</li>
+<li>shortcut learning from captions or metadata;</li>
+<li>incorrect position encoding across modalities;</li>
+<li>modality imbalance during training;</li>
+<li>high-resolution token explosion;</li>
+<li>weak grounding despite fluent descriptions;</li>
+<li>evaluating only final prose rather than perception evidence.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Compare cross-attention and unified-token fusion.</li>
+<li>Explain why image resolution changes Transformer cost.</li>
+<li>Design an evaluation that isolates perception from language priors.</li>
+<li>Relate a latent bottleneck to physical meshes or point clouds.</li>
+<li>Discuss how modality tokenization resembles and differs from text tokenization.</li>
+</ol>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="cross-attention.html">Encoder-Decoder Models and Cross-Attention</a></li>
+<li><a href="tokenization.html">Tokenization and Vocabulary Design</a></li>
+<li><a href="long-context.html">Long-Context Modelling</a></li>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+<li><a href="calibration.html">Hallucination, Grounding and Calibration</a></li>
+</ul>
+</section>

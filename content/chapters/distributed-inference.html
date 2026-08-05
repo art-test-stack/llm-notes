@@ -1,0 +1,102 @@
+<section class="chapter-content" data-topic="distributed-inference">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to trace communication through every Transformer layer, place every KV-cache shard, choose a topology-aware serving layout, and reason quantitatively about latency, concurrency, routing, and failures.</p>
+<h2 id="training-versus-inference">Training versus inference</h2>
+<p>Training optimizes throughput for forward, backward, and optimizer work. Inference serves variable-length requests and is often constrained by tail latency, KV-cache capacity, and memory bandwidth during decode. A layout that maximizes training throughput may be poor for interactive generation.</p>
+<p>Prefill processes many prompt tokens in large GEMMs and is compute-heavy; decode usually processes one new token per active sequence in small, memory-bound GEMMs. Training can amortize collectives over large tensors and tolerate pipeline bubbles, whereas online inference cares about time to first token (TTFT), inter-token latency (ITL), variable-length batches, cache capacity, and p99 latency. See <a href="inference.html">LLM Inference</a> for the single-device baseline.</p>
+<h2 id="tensor-parallel-decode">Tensor-parallel decode</h2>
+<p>Tensor parallelism (TP) splits matrices within a layer. In a common layout, the attention Q/K/V projections are column-sharded, each rank computes its assigned heads, and the output projection is row-sharded; the partial output then needs a reduce-scatter or all-reduce. The MLP gate/up projections are column-sharded, each rank applies the activation locally, and the row-sharded down projection needs another reduction. Thus a conventional block has roughly <strong>two latency-critical collectives per layer per decode step</strong>, although fused and sequence-parallel implementations change the exact operations.</p>
+<p>For hidden activation size <code class="math-inline">S = \text{batch} \times  \text{hidden} \times  \text{bytes}</code>, a ring all-reduce moves approximately <code>2(p - 1)S/p</code> bytes per rank for TP degree <code>p</code>. With batch 1, hidden size 8192, BF16, and TP=8, <code class="math-inline">S = 16 \text{KiB}</code> and each all-reduce moves only about <code>28 KiB</code> per rank. Across 80 layers and two reductions per layer, that is about <code>4.4 MiB</code> per generated token per rank. Bandwidth is not the whole story: 160 collective startups at even 5 µs each impose a theoretical 0.8 ms latency floor before synchronization, kernel launch, and compute. Small decode GEMMs finish quickly and cannot hide those startups as large prefill or training GEMMs can.</p>
+<p>Choose TP degree from both topology and tensor divisibility. The hidden and MLP dimensions must partition efficiently, attention-query heads should divide across ranks, and KV heads are a separate constraint under grouped-query attention (GQA). For 64 query heads but 8 KV heads, TP=8 assigns one KV head per rank; TP=16 must replicate some KV heads or use a more complex mapping. Larger TP also makes each GEMM narrower, eventually losing kernel efficiency while adding more collective participants. Keep fine-grained TP within the fastest NVLink/NVSwitch domain whenever possible; see <a href="parallelism.html">Tensor, Pipeline, Context and Expert Parallelism</a>.</p>
+<h2 id="pipeline-parallel-inference">Pipeline-parallel inference</h2>
+<p>Pipeline parallelism (PP) assigns complete consecutive layers to stages. One request must visit every stage, so PP does not reduce its critical-path layer count: single-request latency includes all stage compute, all stage-boundary sends, and the initial pipeline fill. With <code>s</code> equal-latency stages and one microbatch, only one stage is useful at a time; after filling, microbatching independent requests can approach one completed microbatch per stage time. A rough utilization for <code>m</code> equal microbatches in a simple forward pipeline is <code>m/(m+s-1)</code>, so <code class="math-inline">m=1, s=8</code> gives 12.5%, while <code class="math-inline">m=32</code> gives 82%.</p>
+<p>Continuous batching supplies microbatches from multiple requests, but variable prompt lengths, decode completion, attention cost, and heterogeneous layers can unbalance stages. Balance measured stage time and memory rather than merely assigning equal layer counts; embeddings, final logits, long-context attention, or MoE layers may need special treatment. Scheduling must also prevent a slow stage from building an unbounded activation queue.</p>
+<p><strong>Cache ownership is local to the layer owner:</strong> stage 0 stores K and V for its layers for every active request, stage 1 stores K and V for its layers, and so on. Sequence positions are complete on each stage unless context parallelism is also used. Stage boundaries send the current hidden activation and request/position metadata, not the earlier stages’ KV tensors. A request cannot move to a replacement stage without rebuilding or transferring that stage’s cache.</p>
+<h2 id="replication-and-request-parallelism">Replication and request parallelism</h2>
+<p>Independent replicas process disjoint requests without collectives between replicas. If a model does not fit one device, each replica can itself be a TP or TP×PP group; the <em>TP-per-replica</em> degree is the minimum that fits weights and target KV capacity, not automatically every GPU available. More, smaller replica groups usually improve aggregate concurrency and isolate failures better than one giant group.</p>
+<p>A queue-aware router estimates completion time from each replica’s queued prefill work, active decode batch, remaining token budgets, and free KV blocks—not just request count. A prefix-cache-aware router may prefer a somewhat busier replica that already holds the prompt prefix, but should include an overload threshold so cache affinity does not create a hotspot. Admission control and backpressure keep one overloaded replica or tenant from violating every request’s SLO. Losing one independent replica affects only its in-flight requests; healthy replicas continue and the router stops sending work to the failed group. See <a href="serving.html">LLM Serving and Request Scheduling</a>.</p>
+<h2 id="kv-cache-distribution">KV-cache distribution</h2>
+<p>For batch <code class="math-inline">B</code>, layers <code class="math-inline">L</code>, cached positions <code class="math-inline">T</code>, KV heads <code class="math-inline">H_{\text{kv}}</code>, head dimension <code class="math-inline">D_{h}</code>, and element width <code>b</code> bytes:</p>
+<div class="math-display">M_KV = 2 × B × L × T × H_kv × D_h × b
+</div>
+<p>The factor two is for keys and values. Every cache element is identified by <code>(request, layer, position, KV head, K-or-V, head channel)</code>; a distribution scheme must say which worker owns each axis:</p>
+<ul>
+<li><strong>Head sharding under TP:</strong> each rank stores all positions for all locally owned layers but only its KV heads. Query heads attend to the corresponding local GQA KV head. If TP exceeds or does not divide <code class="math-inline">H_{\text{kv}}</code>, implementations replicate KV heads across ranks or communicate K/V; the replicated copies must remain identical.</li>
+<li><strong>Layer sharding under PP:</strong> each stage stores every KV head and every cached position, but only for the layers assigned to that stage. With PP+TP, first select the owning stage by layer, then the TP rank by KV head; that rank stores all positions for that layer/head shard.</li>
+<li><strong>Context sharding:</strong> ranks partition the position axis. Each owns some past-token K/V for its layers and heads, so attention must circulate K/V blocks or combine partial attention statistics. It saves per-rank cache for very long contexts at communication cost on every attention operation.</li>
+<li><strong>Replicated caches:</strong> each independent model replica has a complete cache for its own requests; no cache exists on other replicas unless explicitly copied. Within a TP group, selectively replicating KV heads trades memory for simpler attention. Prefix caches may also be copied across replicas, trading capacity and invalidation work for more routing freedom.</li>
+</ul>
+<p>Request migration requires either cache transfer or replaying the prompt and generated tokens. For a 70B GQA example with 80 layers, 8 KV heads, head dimension 128, BF16, and 8192 cached tokens, the cache is <code class="math-inline">2 \times  80 \times  8192 \times  8 \times  128 \times  2 = 2.5 \text{GiB}</code>. Even an ideal 50 GB/s link needs about 50 ms to copy it, excluding protocol overhead, so arbitrary mid-decode migration is rarely free.</p>
+<p>Beam search creates multiple logical sequences: beams may share immutable prefix blocks, but each beam needs its own divergent suffix and beam scores/backpointers. Dynamic batching must move together the request-to-cache-block table, current position, sampled-token/RNG state, stop state, and any speculative-decoding state. Moving only K/V bytes can silently associate a request with the wrong positions or model version.</p>
+<h2 id="prefill-decode-disaggregation">Prefill/decode disaggregation</h2>
+<p>Separate prefill workers can run large compute-efficient batches while decode workers run latency-oriented continuous batches. The handoff cost is the prompt KV volume above: a prompt of <code class="math-inline">T</code> tokens moves <code>2LTH_kvD_hb</code> bytes, possibly sharded to several decode ranks. Alternatives keep KV in a remote memory tier and fetch it during attention, replacing one handoff with repeated remote reads; this only works when remote bandwidth, latency, and cache locality meet the per-token attention demand.</p>
+<p>The router must reserve decode capacity before admitting prefill, select a compatible model version and cache layout, and apply backpressure when decode queues or the KV-transfer fabric fill. Otherwise fast prefill creates completed prompts faster than decoders can accept them. On worker failure, the coordinator discards partial transfers, releases reservations idempotently, and either retries prefill or replays on a healthy compatible worker; a failed decoder loses its local cache unless a durable/remote copy exists.</p>
+<p>The break-even point is workload-dependent. Disaggregation wins when specialization and better batching save more time or GPUs than KV handoff, extra queueing, and failure complexity cost. Long prompts with short outputs favor efficient prefill but move large caches; short prompts with long outputs amortize a small handoff; very tight TTFT or a slow interconnect may favor co-location. Measure the actual prompt/output distribution and link contention rather than assuming separate pools are better.</p>
+<h2 id="distributed-moe-inference">Distributed MoE inference</h2>
+<p>MoE serving places different expert weights on an expert-parallel group while router and dense-layer state may be TP-replicated or sharded. For every MoE layer, tokens are packed by selected expert, sent in an all-to-all dispatch, processed by local expert MLPs, then returned in a second all-to-all and combined. The operation occurs per token step, so at low decode batch sizes messages are tiny, collective startup is exposed, and many experts receive zero or one token—poor GEMM utilization despite sparse arithmetic.</p>
+<p>Placement should keep frequently co-selected experts and their traffic on fast links without exceeding memory. Replicating hot experts lets the router choose the least-loaded copy; routing caps, load-aware assignment, or redundant placement can mitigate hotspots. Replication consumes weight memory and requires version-consistent copies. Rare experts still determine group membership, while a popular expert, slow rank, or imbalanced destination can hold up the all-to-all and inflate p99 ITL. Capacity planning therefore uses per-expert token histograms and tail latency, not only average active FLOPs. See <a href="moe.html">Mixture-of-Experts Models</a>.</p>
+<h2 id="fault-tolerance-and-consistency">Fault tolerance and consistency</h2>
+<ul>
+<li><strong>Worker loss:</strong> remove the worker from routing, fail or replay its in-flight requests, and create replacement replicas in the background. A TP-group member loss normally invalidates the entire replica because every layer step needs all ranks.</li>
+<li><strong>Pipeline-stage loss:</strong> the whole PP replica is unavailable until that stage is replaced and weights are loaded. Requests need the lost stage’s KV cache transferred from a surviving copy or reconstructed by replay; surviving stages’ partial caches alone are insufficient.</li>
+<li><strong>Request replay:</strong> persist prompt, accepted generated tokens, sampling parameters, tokenizer/version, and—when exact reproducibility matters—RNG state. Replay costs compute and may not reproduce nondeterministic kernels bit-for-bit, so clients must receive tokens idempotently.</li>
+<li><strong>Cache loss:</strong> local-only KV makes recovery cheap in infrastructure but expensive in recomputation. Remote or replicated KV reduces replay at memory/network cost; prefix caches can be regenerated independently of request-specific suffixes.</li>
+<li><strong>Model-version consistency:</strong> weights, tokenizer, adapters, quantization format, rope/scaling configuration, and cache layout form one version. Never continue decode using KV produced by incompatible weights; routers pin a request to a compatible version through completion or replay it from the prompt.</li>
+</ul>
+<h2 id="worked-topology-aware-layout-comparison">Worked topology-aware layout comparison</h2>
+<p>Consider a dense 70B GQA model: 80 layers, hidden size 8192, 64 query heads, 8 KV heads of dimension 128, BF16 weights and KV. Serve it on two nodes, each with 8×80-GB H100 GPUs connected by NVSwitch (roughly 900 GB/s aggregate GPU fabric); nodes connect at 400 Gb/s (about 50 GB/s before overhead). Weights occupy about 140 GB total. One 8192-token request uses 2.5 GiB of KV total, as calculated above. The concurrency figures below are rough <em>memory ceilings</em> after reserving only weight memory; runtimes, activations, fragmentation, CUDA graphs, and SLOs reduce them.</p>
+<table>
+<thead><tr><th>Layout on 16 GPUs</th><th>Weights and KV per GPU</th><th>Communication per decode token</th><th>Approximate concurrency and main latency risk</th></tr></thead>
+<tbody>
+<tr><td><strong>8 independent TP=2 replicas</strong> (replication-first)</td><td>70 GB weights; head-sharded KV ≈1.25 GiB/request/GPU</td><td>Each replica performs ≈160 two-rank intra-node reductions; ≈2.5 MiB/rank/token for 16-KiB activations</td><td>≈8 full-context requests/replica, ≈64 total. Best failure isolation and request concurrency, but little memory headroom and TP startup remains.</td></tr>
+<tr><td><strong>2 independent TP=8 replicas</strong> (one per node)</td><td>17.5 GB weights; one KV head/rank, ≈0.3125 GiB/request/GPU</td><td>≈160 intra-node reductions and ≈4.4 MiB/rank/token; all fine-grained traffic stays on NVSwitch</td><td>≈200 requests/replica by raw memory, ≈400 total. Larger batches are possible, but eight-way synchronization and narrower GEMMs threaten ITL.</td></tr>
+<tr><td><strong>PP=16</strong>, five layers/stage</td><td>8.75 GB weights; all 8 KV heads for 5 layers, ≈0.156 GiB/request/GPU</td><td>15 point-to-point sends of a 16-KiB hidden state/token; with contiguous mapping only one stage boundary crosses nodes</td><td>≈450 requests by the tightest stage’s raw memory. Very poor single-request utilization; needs many microbatches, careful stage balance, and every request depends on all 16 stages.</td></tr>
+<tr><td><strong>PP=2 × TP=8</strong>, one TP stage per node</td><td>8.75 GB weights; 40 layers × one KV head, ≈0.156 GiB/request/GPU</td><td>Each request traverses 160 TP reductions total, all intra-node, plus one 16-KiB inter-node activation send/token</td><td>≈450 requests by raw memory in one large replica. More headroom than TP=8, but only one failure domain, two-stage bubbles, and the cross-node handoff add tail risk.</td></tr>
+</tbody>
+</table>
+<p>A flat TP=16 layout is unattractive here: its per-layer collectives cross the 50-GB/s network 160 times per token, and 16 ranks exceed the 8 KV heads, forcing KV-head replication or awkward sharding. The PP or hybrid layouts cross the slow boundary once per token instead. If traffic consists of many moderate-context independent requests, eight TP=2 replicas are the simple throughput choice but are close to the 80-GB limit; TP=8 replicas buy cache capacity. If maximum context/concurrency is the binding constraint, PP/hybrid helps memory, at the cost of a larger failure domain and pipeline latency. Weight or KV <a href="quantization.html">quantization</a> can move these break points—for example, 8-bit weights roughly halve weight memory—but it does not remove collective startup or scheduling overhead.</p>
+<h2 id="evaluation">Evaluation</h2>
+<p>Use realistic prompt/output distributions and report:</p>
+<ul>
+<li>time to first token;</li>
+<li>inter-token latency;</li>
+<li>p50/p95/p99 end-to-end latency;</li>
+<li>output tokens/s and requests/s;</li>
+<li>goodput under the latency SLO;</li>
+<li>cache occupancy and eviction;</li>
+<li>failure behavior when a worker or stage disappears.</li>
+</ul>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>TP communication dominating decode;</li>
+<li>pipeline bubbles under low concurrency;</li>
+<li>uneven layer or cache memory across stages;</li>
+<li>request migration without cache state;</li>
+<li>MoE hot experts and all-to-all stragglers dominating p99;</li>
+<li>prefill workers overrunning decode capacity;</li>
+<li>reusing KV across incompatible model versions;</li>
+<li>scaling tests using only one convenient sequence length;</li>
+<li>peak throughput reported while tail latency violates the SLO;</li>
+<li>network topology omitted from conclusions.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Choose TP, PP, or replication for a model that barely fits one node.</li>
+<li>Explain where KV cache lives under TP and PP.</li>
+<li>Find the KV transfer volume and disaggregation break-even point for a given workload.</li>
+<li>Explain why low-batch MoE decode can be communication-bound.</li>
+<li>Define a realistic serving benchmark.</li>
+<li>Explain why training scaling results do not predict decode latency.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="inference.html">LLM Inference: Prefill, Decode and KV Cache</a></li>
+<li><a href="parallelism.html">Tensor, Pipeline, Context and Expert Parallelism</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="serving.html">LLM Serving and Request Scheduling</a></li>
+<li><a href="moe.html">Mixture-of-Experts Models</a></li>
+<li><a href="quantization.html">Quantization, Pruning and Distillation</a></li>
+</ul>
+</section>

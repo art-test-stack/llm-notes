@@ -1,0 +1,217 @@
+<section class="chapter-content" data-topic="distributed-training">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to reason from state placement and communication, explain DDP and FSDP/ZeRO execution, account for memory, diagnose collective failures, and design data and checkpoint semantics across ranks.</p>
+<h2 id="four-questions-for-any-distributed-design">Four questions for any distributed design</h2>
+<ol>
+<li>What is partitioned: data, parameters, tensor dimensions, layers, sequence, experts, or requests?</li>
+<li>What is replicated: parameters, optimizer state, activations, KV cache, or complete serving instances?</li>
+<li>What communication occurs: all-reduce, all-gather, reduce-scatter, all-to-all, broadcast, or point-to-point?</li>
+<li>Which bottleneck is being solved: capacity, throughput, latency, context length, or concurrency?</li>
+</ol>
+<h2 id="collective-primitives">Collective primitives</h2>
+<table>
+<thead>
+<tr>
+<th>Primitive</th>
+<th>Effect</th>
+<th>Typical use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Broadcast</td>
+<td>root sends the same value to all ranks</td>
+<td>initialization and metadata</td>
+</tr>
+<tr>
+<td>All-reduce</td>
+<td>reduce values and return result to all ranks</td>
+<td>DDP gradients, row-parallel outputs</td>
+</tr>
+<tr>
+<td>All-gather</td>
+<td>collect all shards on every rank</td>
+<td>FSDP parameter materialization</td>
+</tr>
+<tr>
+<td>Reduce-scatter</td>
+<td>reduce then leave one shard per rank</td>
+<td>sharded gradients or activations</td>
+</tr>
+<tr>
+<td>All-to-all</td>
+<td>every rank sends distinct slices to every rank</td>
+<td>MoE token dispatch</td>
+</tr>
+<tr>
+<td>Send/receive</td>
+<td>point-to-point transfer</td>
+<td>pipeline activations and gradients</td>
+</tr>
+</tbody>
+</table>
+<p>All participating ranks must call compatible collectives in the same order. Rank-divergent control flow, dtype/shape mismatch, or one rank performing fewer iterations can hang the job.</p>
+<h2 id="collective-cost-model">Collective cost model</h2>
+<p>Use the simple <code class="math-inline">\alpha -\beta</code> model: <code class="math-inline">\alpha</code> is the fixed startup latency of one communication step, <code class="math-inline">\beta</code> is seconds per byte (inverse effective bandwidth), <code>p</code> is the number of ranks, and <code class="math-inline">N</code> is the tensor size in bytes. These formulas describe idealized per-rank critical-path cost; protocol overhead, contention, topology, and imperfect chunking make real measurements worse.</p>
+<p>A ring all-reduce decomposes into a reduce-scatter followed by an all-gather. Split the tensor into <code>p</code> chunks of <code>N/p</code> bytes. In each phase, every rank performs <code>p−1</code> neighbor exchanges:</p>
+<div class="math-display">T_reduce-scatter ≈ (p−1)α + ((p−1)/p)Nβ
+T_all-gather     ≈ (p−1)α + ((p−1)/p)Nβ
+T_ring-allreduce ≈ 2(p−1)α + 2((p−1)/p)Nβ
+</div>
+<p>Therefore each rank sends and receives <code>2(p−1)N/p</code> bytes for ring all-reduce, approaching <code>2N</code> in each direction as <code>p</code> grows. Network-wide sent volume is <code>2(p−1)N</code>. For example, with four ranks and a 1 GiB gradient, each rank sends <code class="math-inline">2 \times  3/4 \times  1 = 1.5 \text{GiB}</code>: 0.75 GiB in reduce-scatter and 0.75 GiB in all-gather.</p>
+<p>Rings are bandwidth-efficient for large tensors because every link can stream chunks, but their <code class="math-inline">O(p)</code> startup steps hurt small messages. Tree or recursive-doubling collectives use roughly <code class="math-inline">O(\operatorname{log} p)</code> rounds and usually win when latency dominates; depending on the algorithm they may move larger messages on some links or use bandwidth less evenly. Libraries select hierarchical algorithms by message size and topology—for example, reduce within a node over NVLink/NVSwitch, then across nodes over the fabric, then broadcast locally.</p>
+<h2 id="memory-accounting">Memory accounting</h2>
+<table>
+<thead><tr><th>Class</th><th>Examples</th><th>Reasoning rule</th></tr></thead>
+<tbody>
+<tr><td>Persistent</td><td>local parameter, gradient, optimizer, and FP32 master-weight shards</td><td>live across iterations; sharding primarily reduces this class</td></tr>
+<tr><td>Temporary</td><td>saved activations, materialized FSDP parameters, gradient buckets, kernel workspaces, prefetched batches</td><td>lifetime depends on the schedule and may overlap with other temporaries</td></tr>
+<tr><td>Peak</td><td>maximum simultaneous persistent plus temporary allocations</td><td>the fit constraint; never estimate it by adding only steady-state shards</td></tr>
+</tbody>
+</table>
+<p>Unsharded Adam mixed-precision training often requires roughly 12–20 bytes per trainable parameter before activations, depending on dtype choices and retained master copies. Activation memory then grows with microbatch, sequence length, hidden size, and layer count.</p>
+<h2 id="ddp">DDP</h2>
+<p>Each rank stores a complete model replica, processes distinct data, runs local forward/backward, and synchronizes gradient buckets with all-reduce. Every rank then applies the same optimizer update.</p>
+<h3 id="ddp-execution-timeline">Execution timeline</h3>
+<pre><code class="language-text">time →
+forward:       [layer 1][layer 2][layer 3][layer 4]
+backward:                                  [L4][L3][L2][L1]
+parameter ready:                            ↓   ↓   ↓   ↓
+bucket A all-reduce:                            [launch======]
+bucket B all-reduce:                                    [launch======]
+optimizer step:                                                    [step]
+</code></pre>
+<p>Autograd discovers gradients in reverse execution order. DDP marks each parameter ready; when every gradient assigned to a bucket is ready, it launches that bucket's all-reduce while earlier layers are still backpropagating. The optimizer must wait for all buckets. A larger bucket amortizes <code class="math-inline">\alpha</code> and uses bandwidth well but becomes ready later and reduces overlap; a smaller bucket launches sooner but pays more latency and scheduling overhead.</p>
+<ul>
+<li><code>no_sync()</code> accumulates local gradients without collectives on early microsteps; leave the final microstep synchronized. It saves communication launches, not gradient or optimizer memory.</li>
+<li>A static graph lets DDP reuse the same readiness/order assumptions and avoid repeated graph discovery, but requires stable parameter usage and control flow.</li>
+<li>With unused parameters, DDP may need graph traversal to pre-mark them ready. Rank-dependent usage can produce mismatched reductions or gradients with different meanings; static-graph promises must not be violated.</li>
+<li>The slowest rank controls every bucket. Late input, a slow kernel, thermal throttling, or a bad network path creates exposed communication and idle time on all peers.</li>
+</ul>
+<p>DDP does not shard input automatically, reduce parameter/optimizer memory, or make a model fit when one replica exceeds one GPU. A common silent bug is every rank reading the same examples, which preserves execution while reducing effective data diversity.</p>
+<h2 id="fsdp">FSDP strategy matrix</h2>
+<table>
+<thead>
+<tr>
+<th>Strategy</th><th>Parameters between compute</th><th>Gradients</th><th>Optimizer state</th><th>Main trade-off</th>
+</tr>
+</thead>
+<tbody>
+<tr><td>Full sharding</td><td>sharded</td><td>reduce-scattered</td><td>sharded</td><td>lowest persistent model-state memory; all-gathers parameters for compute</td></tr>
+<tr><td>Shard gradients/optimizer</td><td>replicated</td><td>reduce-scattered</td><td>sharded</td><td>avoids parameter all-gathers but keeps full parameters per rank</td></tr>
+<tr><td>No sharding</td><td>replicated</td><td>all-reduced/replicated</td><td>replicated</td><td>DDP-like memory and communication; useful as a compatibility baseline</td></tr>
+</tbody>
+</table>
+<h3 id="fsdp-execution-timeline">Execution timeline for full sharding</h3>
+<pre><code class="language-text">forward:  AG(block 1) → compute 1 → reshard 1 → AG(block 2) → compute 2 → reshard 2
+backward:                         AG(block 2) → grad 2 → RS(grad 2) →
+                                  AG(block 1) → grad 1 → RS(grad 1) → local update
+AG = parameter all-gather; RS = gradient reduce-scatter
+</code></pre>
+<p>With reshard-after-forward enabled, full parameters are freed after each forward block and gathered again for backward: lower temporary residency, more communication. Disabling it retains materialized parameters through backward: fewer gathers, higher peak memory. Forward prefetch can gather the next block while the current block computes; backward prefetch does the analogous overlap around reverse-order execution. Prefetch too aggressively and several all-gathers coexist, turning an optimization into an OOM.</p>
+<p>Wrap granularity defines the unit of gathering, freeing, and prefetch. Tiny wraps cause many latency-bound collectives; huge wraps materialize large parameter sets and reduce overlap opportunities. Transformer blocks are a common starting point, then measured traces decide. The critical FSDP fit calculation is:</p>
+<div class="math-display">peak ≈ persistent local shards
+     + current full wrapped unit
+     + any prefetched next unit
+     + activations, gradients, buckets, and kernel workspaces
+</div>
+<p>Thus a model with small persistent shards can still OOM during a transient all-gather. Treat parameter dtype, reduction dtype, and buffer dtype as independent policies: low-precision parameters save gather bandwidth and compute memory; an FP32 reduction may improve robustness at more traffic; buffers such as normalization statistics need an explicit policy rather than inheriting by accident.</p>
+<h2 id="zero-and-offload">ZeRO and offload</h2>
+<table>
+<thead><tr><th>Mode</th><th>Optimizer state</th><th>Gradients</th><th>Parameters</th></tr></thead>
+<tbody>
+<tr><td>ZeRO-1</td><td>sharded</td><td>replicated</td><td>replicated</td></tr>
+<tr><td>ZeRO-2</td><td>sharded</td><td>sharded</td><td>replicated</td></tr>
+<tr><td>ZeRO-3</td><td>sharded</td><td>sharded</td><td>sharded</td></tr>
+</tbody>
+</table>
+<p>ZeRO-3 and FSDP full sharding share the core state-partitioning idea, though APIs, scheduling, and checkpoint formats differ. Offload adds a slower storage tier:</p>
+<ul>
+<li><strong>CPU optimizer offload:</strong> keep moments and often the update on host memory; saves substantial HBM but pays GPU↔CPU copies and CPU update time.</li>
+<li><strong>Parameter offload:</strong> keep parameter shards in host memory until needed; increases transfer demand on every materialization.</li>
+<li><strong>NVMe offload:</strong> extends capacity beyond DRAM, but requires staged NVMe↔DRAM↔GPU movement, deep buffering, and predictable sequential I/O.</li>
+</ul>
+<p>Offload helps when capacity is the binding constraint and compute is long enough to hide movement. It is counterproductive when PCIe, CPU memory bandwidth, NVMe, or the network is already saturated; when layers are too small to hide latency; or when extra transfers contend with inter-node collectives. A job that fits with checkpointing, a smaller microbatch, or better sharding usually runs faster without offload.</p>
+<h2 id="activation-checkpointing">Activation checkpointing</h2>
+<table>
+<thead><tr><th>Method</th><th>Saved state</th><th>Cost and use</th></tr></thead>
+<tbody>
+<tr><td>Full-block checkpointing</td><td>block inputs/boundaries</td><td>recomputes almost the whole block; simple and large memory saving</td></tr>
+<tr><td>Selective checkpointing</td><td>expensive or reuse-worthy intermediates</td><td>recomputes cheap operations while retaining costly ones; better trade-off, more planning</td></tr>
+<tr><td>Partitioned activations</td><td>only a shard per parallel rank</td><td>reduces replicated activation memory but adds gather/scatter or topology constraints</td></tr>
+</tbody>
+</table>
+<p>If the original forward costs <code class="math-inline">F</code> and checkpointed regions add recomputation <code class="math-inline">R</code>, the forward-work factor is <code>(F+R)/F</code>; checkpointing every block often makes <code class="math-inline">R</code> approach <code class="math-inline">F</code>, while total step FLOPs rise by less because backward already dominates. RNG state for dropout and other stochastic operations must be preserved or deterministically regenerated so recomputation uses the same masks; otherwise the backward pass differentiates a different function.</p>
+<p>With pipeline parallelism, activation lifetime also depends on the number of in-flight microbatches. Checkpointing can make more microbatches fit and shrink the bubble, but recomputation lengthens stage service time and may shift the bottleneck. Align checkpoint regions with stage boundaries so recomputation does not require remote activations that were already discarded. See <a href="parallelism.html">parallelism strategies</a> for pipeline schedules.</p>
+<h2 id="data-path">Data path</h2>
+<p>The model can be distributed correctly while the data path is wrong or slow. Requirements include:</p>
+<ul>
+<li>non-overlapping samples per data-parallel rank unless replication is deliberate;</li>
+<li>epoch/rank-aware shuffling;</li>
+<li>compatible step counts;</li>
+<li>explicit packing and document-boundary semantics;</li>
+<li>bounded prefetching;</li>
+<li>measured input-wait time.</li>
+</ul>
+<p>GPT-Lab assigns Parquet row groups by rank. This is simple and deterministic for fixed world size, but row-group counts do not guarantee token balance. Changing world size changes ownership and therefore replay semantics.</p>
+<p>For equal fixed-length local batches, the token-slot count is:</p>
+<div class="math-display">token slots/update = device_batch × sequence length × world size × accumulation steps
+</div>
+<p>This special case assumes equal batches and unique data across ranks. The general effective supervised-token count is the sum of loss-contributing mask entries across every rank and accumulation microstep. Input-token count, non-padding-token count, and supervised target-token count can differ. For example, two ranks with one length-8 slot each have 16 slots; if their non-padding lengths are 8 and 5 and response-only masks supervise 3 and 2 targets, the update contains 13 non-padding input tokens but only 5 supervised tokens.</p>
+<p>Loading, tokenization, packing, and replay semantics are developed further in <a href="pretraining-data.html">Pretraining Data Systems</a>. The chosen global token batch also changes the optimization regime and compute allocation discussed in <a href="scaling-laws.html">Scaling Laws and Compute-Optimal Training</a>.</p>
+<h2 id="topology-and-failures">Topology and failures</h2>
+<p>A process group defines exactly which ranks participate in a collective. Hybrid jobs create separate groups for data/FSDP, tensor, pipeline, context, or expert parallelism. Rank mapping should put frequent, high-volume communication on the fastest links: tensor parallelism within NVLink/NVSwitch domains, then less frequent data-parallel traffic across NICs when possible. Local rank, global rank, node, GPU, NUMA domain, and NIC affinity all matter; consecutive rank numbers do not guarantee physical proximity.</p>
+<ul>
+<li><strong>NCCL timeout:</strong> a watchdog reports that a collective exceeded its deadline. The timeout is evidence, not necessarily the cause; inspect the earliest slow or missing rank.</li>
+<li><strong>Collective mismatch:</strong> ranks call different operations, shapes, dtypes, counts, or order. Log a monotonically increasing collective/step identifier and compare all ranks.</li>
+<li><strong>Dead rank:</strong> process crash, OOM, hardware error, or lost node prevents peers from completing. Ordinary collectives cannot heal around it; tear down the affected group/job.</li>
+<li><strong>Elastic recovery:</strong> a coordinator detects membership loss, chooses a new world size/rank assignment, rebuilds every process group, restores a globally complete checkpoint, and reconstructs the data schedule. In-flight work is discarded.</li>
+<li><strong>Straggler:</strong> one live rank arrives late. Compare per-rank input wait, forward/backward kernel time, collective enqueue/completion, GPU clocks, errors/retries, NIC counters, and data-shard token counts. Correlate the first divergence rather than the final timeout.</li>
+</ul>
+<h2 id="distributed-checkpointing">Distributed checkpointing internals</h2>
+<p>Each rank writes bounded shards of model and optimizer tensors instead of gathering everything on rank 0. Global metadata records tensor names, full shapes, dtypes, shard offsets, replication, model configuration, optimizer parameter identity, and format version. A manifest maps logical tensors to shard files and checksums.</p>
+<ol>
+<li>Write every shard to a unique temporary path and flush it as required by the storage system.</li>
+<li>Collect shard sizes/checksums and validate that all required global tensor ranges are covered exactly once.</li>
+<li>Write the manifest last, also through a temporary path.</li>
+<li>Atomically publish a small completion marker or rename the manifest. Readers accept only checkpoints with that marker and a valid manifest.</li>
+</ol>
+<p>Missing temporary files, checksum mismatches, overlapping/gapped ranges, or an absent completion marker detect partial writes. A directory merely existing is not proof of a usable checkpoint.</p>
+<h3 id="changed-world-size-example">Changed-world-size example: 8 ranks to 4</h3>
+<p>Suppose an optimizer moment tensor has global shape <code>[8192, 4096]</code> and was saved as eight row shards, each covering 1024 rows. On restore with four ranks, new rank 0 reads old row ranges <code>[0,1024)</code> and <code>[1024,2048)</code>, concatenates or streams them into its new <code>[0,2048)</code> shard; ranks 1–3 do the same for the next pairs. This works because the manifest describes global coordinates, not “rank 0's opaque state.” A resharder may read directly from several old files so no rank materializes the full tensor.</p>
+<p>Optimizer portability is harder than weight portability: moments and master weights must be keyed to stable parameter identities and retain compatible shape, dtype, step counters, and optimizer hyperparameters. Flattened or reordered parameters need mapping metadata. Some optimizer layouts cannot be converted without a purpose-built migration.</p>
+<p>Model and optimizer recovery can be exact while data replay remains approximate. Worker prefetch queues, streaming-source cursors, randomized packing buffers, and partially consumed batches may not be serialized. After an elastic world-size change, sample ownership changes even when the global token counter is restored; document whether the loader guarantees exact replay, at-least-once replay, or only statistically equivalent continuation.</p>
+<h2 id="debugging-tree">Debugging tree</h2>
+<table>
+<thead><tr><th>Symptom</th><th>First split</th><th>High-value checks</th></tr></thead>
+<tbody>
+<tr><td>Hang</td><td>one rank stopped vs all ranks slow</td><td>last completed step/collective per rank; operation order and shapes; dataloader exhaustion; OOM/crash logs; NCCL watchdog and network errors</td></tr>
+<tr><td>OOM</td><td>persistent allocation vs transient peak</td><td>before/after forward/backward peaks; FSDP gather/prefetch overlap; activation size; bucket/workspace size; fragmentation; accidental rank-0 gather</td></tr>
+<tr><td>Numerical divergence</td><td>single-rank bug vs distributed-only</td><td>same batch/seed comparison; reduction dtype and scaling; loss normalization; overflow/scaler state; stale or unused gradients; RNG-preserving recomputation</td></tr>
+<tr><td>Poor scaling</td><td>compute, communication, or imbalance</td><td>strong vs weak scaling; bucket overlap; message sizes; topology/rank mapping; per-rank timings; kernel efficiency; offload traffic</td></tr>
+<tr><td>Input starvation</td><td>storage vs CPU transform vs imbalance</td><td>GPU idle gaps and input-wait timer; read throughput; worker utilization; queue depth; token counts per shard; cache and NUMA placement</td></tr>
+</tbody>
+</table>
+<p>Start by reproducing single-rank correctness, then verify unique rank-local data and equal step counts, then compare distributed numerics, and only then tune communication. For low-level compute gaps, continue with <a href="compile-kernels.html">torch.compile, Custom Kernels and GPU Performance</a>.</p>
+<h2 id="failure-modes">Failure modes to remember</h2>
+<ul>
+<li>duplicate data on all ranks;</li>
+<li>collective mismatch or rank divergence;</li>
+<li>synchronizing every accumulation microstep;</li>
+<li>unused parameters on only some ranks;</li>
+<li>rank-0 gathering that exhausts memory;</li>
+<li>transient FSDP peaks misunderstood as persistent state;</li>
+<li>topology-unaware placement;</li>
+<li>checkpoint format tied to one world size;</li>
+<li>reporting weak scaling as strong scaling.</li>
+</ul>
+<h2 id="project-connection">Project connection</h2>
+<p>GPT-Lab is primarily DDP-oriented on one node. The thesis exposes a real FSDP trade-off: parameter sharding conflicted with collecting global gradient diagnostics. A stronger future design computes shard-local sufficient statistics and aggregates only compact summaries.</p>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="parallelism.html">Tensor, Pipeline, Context and Expert Parallelism</a></li>
+<li><a href="compile-kernels.html">torch.compile, Custom Kernels and GPU Performance</a></li>
+<li><a href="pretraining-data.html">Pretraining Data Systems</a></li>
+<li><a href="scaling-laws.html">Scaling Laws and Compute-Optimal Training</a></li>
+</ul>
+</section>

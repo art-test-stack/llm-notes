@@ -9,7 +9,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from content_policy import scan_repository_with_optional_policy, validate_public_content
+from content_policy import scan_repository_with_optional_policy, validate_chapter_bundle, validate_public_content
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
@@ -23,13 +23,19 @@ class Page(HTMLParser):
         self.links: list[str] = []
         self.ids: list[str] = []
         self.h1 = 0
+        self.h2 = 0
+        self.chapter_topics: list[str] = []
 
     def handle_starttag(self, tag: str, attrs) -> None:
         values = dict(attrs)
         if tag == "h1":
             self.h1 += 1
+        if tag == "h2":
+            self.h2 += 1
         if values.get("id"):
             self.ids.append(values["id"])
+        if tag == "section" and values.get("data-topic"):
+            self.chapter_topics.append(values["data-topic"])
         if tag in {"a", "link"} and values.get("href"):
             self.links.append(values["href"])
         if tag in {"script", "img"} and values.get("src"):
@@ -54,17 +60,16 @@ def resolve(source: Path, href: str) -> tuple[Path, str] | None:
 
 
 def main() -> None:
-    subprocess.run([sys.executable, str(ROOT / "scripts/build_site.py")], check=True)
-
     topics_raw = json.loads((ROOT / "content/topics.json").read_text(encoding="utf-8"))
     glossary_raw = json.loads((ROOT / "content/glossary.json").read_text(encoding="utf-8"))
     topics, glossary = validate_public_content(topics_raw, glossary_raw)
+    chapter_manifest = validate_chapter_bundle(ROOT / "content", topics)
     scan_repository_with_optional_policy(ROOT)
+    subprocess.run([sys.executable, str(ROOT / "scripts/build_site.py")], check=True)
 
-    assert len(topics) == 39
-    assert len(glossary) >= 50
-    for topic in topics:
-        assert (SITE / "topics" / f'{topic["id"]}.html').is_file()
+    assert len(topics) == 39 and len(glossary) >= 50
+    assert chapter_manifest["chapter_count"] == len(topics)
+    assert chapter_manifest["total_characters"] >= 500_000
 
     manifest = json.loads((SITE / "manifest.webmanifest").read_text(encoding="utf-8"))
     assert manifest["start_url"].startswith("./")
@@ -85,11 +90,18 @@ def main() -> None:
         assert marker not in site_text, f"Forbidden runtime dependency: {marker}"
 
     parsed: dict[Path, Page] = {}
+    topic_ids = {topic["id"] for topic in topics}
     for path in sorted(SITE.rglob("*.html")):
         page = parse(path)
         parsed[path.resolve()] = page
         assert page.h1 == 1, f"Expected one h1 in {path.relative_to(ROOT)}"
         assert not [item for item, count in Counter(page.ids).items() if count > 1]
+        if path.parent.name == "topics" and path.name != "index.html":
+            topic_id = path.stem
+            assert topic_id in topic_ids
+            assert page.chapter_topics == [topic_id], f"Missing substantive chapter in {path.relative_to(ROOT)}"
+            assert page.h2 >= 3
+            assert path.stat().st_size >= 4_000
 
     for source, page in parsed.items():
         for href in page.links:
@@ -103,8 +115,9 @@ def main() -> None:
     library = json.loads((SITE / "precache-library.json").read_text(encoding="utf-8"))
     assert {f'topics/{topic["id"]}.html' for topic in topics} <= set(library)
     print(
-        f"Validated {len(topics)} topics, {len(glossary)} definitions, "
-        f"{len(parsed)} HTML pages, structural privacy policy, links, and PWA constraints."
+        f"Validated {len(topics)} substantive chapters "
+        f"({chapter_manifest['total_characters']:,} text characters), "
+        f"{len(glossary)} definitions, {len(parsed)} HTML pages, privacy policy, links, and PWA constraints."
     )
 
 

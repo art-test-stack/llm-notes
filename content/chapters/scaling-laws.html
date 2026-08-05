@@ -1,0 +1,231 @@
+<section class="chapter-content" data-topic="scaling-laws">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to explain empirical power-law scaling, distinguish parameter-, data-, and compute-limited regimes, use the <code>6ND</code> training-FLOP approximation with its caveats, and discuss why Chinchilla-style compute optimality changed model/data allocation.</p>
+<h2 id="empirical-power-law-models">Empirical power-law models</h2>
+<p>Scaling laws summarize an observed frontier; they are fitted models, not physical laws. A common separable approximation for a dense, well-optimized language model is:</p>
+<div class="math-display">L(N,D) = L∞ + A N^{-α} + B D^{-β} + ε
+</div>
+<p><code class="math-inline">N</code> is parameter count, <code class="math-inline">D</code> is the number of processed training tokens, and <code class="math-inline">L\infty</code> is the irreducible loss for the chosen data distribution, tokenizer, objective, and evaluation set. The parameter term measures finite-capacity error, the data term measures finite-data error, and <code class="math-inline">\varepsilon</code> collects optimization error, run noise, and model misspecification. Some studies fit envelopes or alternative coupled forms because the two resource effects need not be perfectly separable.</p>
+<h3 id="fitting-in-log-space">Fitting in log space</h3>
+<p>After choosing or jointly fitting <code class="math-inline">L\infty</code>, a one-variable slice gives <code class="math-inline">\operatorname{log}(L-L\infty ) = \operatorname{log} A - \alpha  \operatorname{log} N</code>. Thus a straight line on a log-log plot has slope <code class="math-inline">-\alpha</code>; similarly, <code class="math-inline">-\beta</code> is the slope with respect to data. Larger exponents mean the corresponding loss term falls faster as that resource grows. They do <em>not</em> directly say which resource deserves more compute: the coefficients, the other exponent, and the compute constraint also matter.</p>
+<p>Least-squares on logged points is convenient but can be misleading. Runs that share datasets, checkpoints, hyperparameters, or evaluation examples have correlated errors, so treating every point as independent produces confidence intervals that are too narrow. Noise is often heteroskedastic, and an uncertain <code class="math-inline">L\infty</code> strongly couples the fitted floor and exponents. Reasonable fits use weighted or generalized least squares, bootstrap whole runs or experimental groups, and report joint confidence intervals or posterior ranges for <code class="math-inline">L\infty , A, B, \alpha , \beta</code>.</p>
+<p>Finite-range effects matter: a curve can look linear across one decade while bending at very small models, near data exhaustion, or after an architecture or optimizer transition. Fit on pilot scales, reserve one or more larger <strong>held-out scales</strong>, and compare the predicted loss and uncertainty interval with the completed run. Residual plots should show no systematic curvature by model size, token budget, domain, or seed.</p>
+<p>Extrapolation can fail when the tokenizer, data mixture, data quality, architecture, context length, optimizer, training stability, or objective changes; when repeated data stops adding independent information; or when loss approaches a floor. A narrow-range fit may interpolate well yet forecast the wrong frontier outside its measured regime.</p>
+<h2 id="resource-limited-regimes">Parameter-, data-, and optimization-limited regimes</h2>
+<p>“Compute limited” is not a diagnosis. At the same nominal FLOP budget, a run can be short of capacity, short of useful unique data, or failing to convert resources into optimization progress.</p>
+<table>
+<thead>
+<tr>
+<th>Regime</th>
+<th>Training loss</th>
+<th>Validation loss</th>
+<th>Useful intervention</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Parameter limited</td>
+<td>Relatively high; train and validation losses are often close because the model underfits</td>
+<td>Improves when <code class="math-inline">N</code> grows at sufficient data and optimization</td>
+<td>Add capacity, then retune optimization</td>
+</tr>
+<tr>
+<td>Data limited</td>
+<td>Can keep falling, especially with replay</td>
+<td>Plateaus or worsens; the train-validation gap grows as the model memorizes or over-specializes</td>
+<td>Add diverse unique data, improve the mixture, deduplicate, or regularize</td>
+</tr>
+<tr>
+<td>Optimization limited</td>
+<td>Above the stable frontier; may still be falling when the run stops, plateau early, or show spikes/divergence</td>
+<td>Usually tracks the same failure and lags a stable, fully trained baseline</td>
+<td>Extend an incomplete run, or fix learning-rate schedule, batch/optimizer settings, numerics, or initialization</td>
+</tr>
+</tbody>
+</table>
+<p>A conceptual diagnostic plot uses tokens or FLOPs on the horizontal axis and both losses on the vertical axis. A high, shrinking train/validation pair suggests parameter limitation; a falling training curve with a flat validation curve suggests data limitation; and both curves still improving at cutoff, stalling early, or behaving unstably above comparable runs suggests optimization limitation. These signals are not proofs: distribution shift can imitate a data-limited gap, while an oversized learning rate can imitate a capacity floor. Controlled ablations distinguish them.</p>
+<h2 id="compute-optimal-allocation">Compute-optimal allocation</h2>
+<p>For a dense Transformer, impose the first-order training budget <code class="math-inline">C \approx  6ND</code>. Ignoring <code class="math-inline">L\infty</code>, minimize the reducible loss:</p>
+<div class="math-display">minimize    A N^{-α} + B D^{-β}
+subject to  6ND = C
+
+D = C/(6N)
+f(N) = A N^{-α} + B(6N/C)^β
+
+df/dN = 0
+⇒ α A N^{-α} = β B D^{-β}
+⇒ N*^{α+β} = (αA/βB)(C/6)^β
+
+Therefore:
+N* ∝ C^{β/(α+β)}
+D* ∝ C^{α/(α+β)}
+</div>
+<p>The optimum balances the <em>marginal</em> loss reduction from spending compute on parameters against spending it on tokens; it does not generally make the two loss terms equal. If <code class="math-inline">\alpha  = \beta</code>, both <code class="math-inline">N</code> and <code class="math-inline">D</code> grow roughly as <code class="math-inline">C^{1/2}</code>. If the fitted exponents differ, their compute-growth rates differ. Coefficients shift the ratio too, which is why a tokens-per-parameter number cannot be universal.</p>
+<h3 id="numerical-allocation-example">Numerical allocation example</h3>
+<p>Consider two candidates with equal first-order compute:</p>
+<table>
+<thead>
+<tr>
+<th>Candidate</th>
+<th>Parameters <code class="math-inline">N</code></th>
+<th>Tokens <code class="math-inline">D</code></th>
+<th><code>6ND</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A: smaller, longer trained</td>
+<td>7B</td>
+<td>300B</td>
+<td>1.26 × 10<sup>22</sup> FLOPs</td>
+</tr>
+<tr>
+<td>B: larger, shorter trained</td>
+<td>14B</td>
+<td>150B</td>
+<td>1.26 × 10<sup>22</sup> FLOPs</td>
+</tr>
+</tbody>
+</table>
+<p>Suppose a pilot fit, expressed in these units, predicts reducible loss <code>0.60(N/7B)<sup>-0.35</sup> + 0.40(D/300B)<sup>-0.28</sup></code>. Candidate A scores <code>1.000</code>. For candidate B, the parameter term falls from <code>0.600</code> to <code>0.471</code>, while the data term rises from <code>0.400</code> to <code>0.486</code>, giving about <code>0.956</code> overall. A different coefficient or exponent estimate could reverse the ranking. The example shows the decision procedure—not a reusable recommendation—and both candidates still need held-out-scale validation.</p>
+<h2 id="kaplan-and-chinchilla">Kaplan- and Chinchilla-style conclusions</h2>
+<p>Kaplan-style work established smooth empirical trends across model size, dataset size, and compute and fitted a frontier using the architectures, short training schedules, data, and envelope methods available in that study. Its estimated exponents implied that compute-optimal model size should grow relatively quickly, so the resulting prescription favored larger models and fewer tokens at a fixed training budget.</p>
+<p>Chinchilla-style work trained a broad grid of model sizes and token counts closer to convergence and used several estimation approaches to re-evaluate the fixed-compute optimum. It found many large models were undertrained and concluded that parameters and training tokens should grow more evenly: at equal training compute, a smaller model trained on substantially more data could win.</p>
+<p>The durable lesson is joint allocation, not a universal “20 tokens per parameter” constant. That ratio described a particular fitted regime and objective. Modern optima move with deduplication and domain mixture, the diminishing value of repeated epochs, synthetic-data filtering, tokenizer and architecture changes, context length, optimizer quality, and whether the goal is minimum training loss, best downstream score, low inference latency, or minimum lifecycle cost.</p>
+<h2 id="compute-accounting">Compute accounting</h2>
+<p>For a dense Transformer, counting a multiply and add as two FLOPs, large weight matrix multiplies cost roughly <code>2N</code> FLOPs per token in the forward pass. Backpropagation computes activation gradients and weight gradients and is roughly another <code>4N</code>, motivating:</p>
+<div class="math-display">dense training model FLOPs ≈ (2N forward + 4N backward)D ≈ 6ND
+</div>
+<p>This is a model-arithmetic approximation, not a complete job-cost measurement:</p>
+<ul>
+<li><strong>Attention:</strong> score and value operations include terms proportional to sequence length (roughly quadratic per sequence for full attention), so long-context runs depart from a parameter-only count.</li>
+<li><strong>Activation checkpointing:</strong> saves memory by recomputing some forward operations during backward, increasing executed hardware work beyond the nominal <code>6ND</code>.</li>
+<li><strong>Embeddings and vocabulary projection:</strong> tied or untied embeddings, large vocabularies, and output logits can be material and are not represented uniformly by a simple parameter count.</li>
+<li><strong>Optimizer work:</strong> parameter updates, norm calculations, gradient clipping, and state movement add operations and memory traffic, though usually fewer FLOPs than matmuls.</li>
+<li><strong>Communication:</strong> all-reduce, all-gather, reduce-scatter, pipeline transfers, and expert routing consume time and bandwidth; they are systems work, not model FLOPs.</li>
+<li><strong>MoE:</strong> total parameters describe storage and capacity, while active parameters per token better approximate expert compute. Routing, load imbalance, shared layers, and expert communication must be added explicitly.</li>
+<li><strong>Tokens:</strong> training tokens count every processed occurrence; unique tokens count distinct corpus positions before replay. Ten epochs multiply training tokens by ten without multiplying independent information by ten.</li>
+</ul>
+<p>Report the convention, what is included, sequence length, active versus total parameters, and processed versus unique tokens. Otherwise two identical “FLOP” numbers may describe different work.</p>
+<h2 id="hardware-efficiency">Hardware efficiency</h2>
+<p><strong>Theoretical/model FLOPs</strong> estimate the arithmetic required by the training algorithm. <strong>Achieved FLOP/s</strong> is that counted work divided by wall time. Neither is the accelerator's advertised <strong>peak FLOP/s</strong>, which is an upper bound for a specific datatype and operation shape.</p>
+<div class="math-display">MFU = nominal model FLOPs / (peak FLOP/s × devices × elapsed time)
+
+HFU = executed hardware FLOPs / (peak FLOP/s × devices × elapsed time)
+</div>
+<p>MFU measures how effectively the system turns peak capacity into useful model arithmetic. HFU, when reported, can include recomputation and other executed tensor operations, so checkpointing may raise HFU without raising MFU. Definitions vary across papers and profilers; always state the numerator. A high theoretical FLOP count says nothing about achieved efficiency.</p>
+<table>
+<thead>
+<tr>
+<th>Efficiency loss</th>
+<th>Typical symptom</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Data stalls</td>
+<td>Devices idle while storage, preprocessing, or host-to-device transfer catches up</td>
+</tr>
+<tr>
+<td>Communication</td>
+<td>Scaling efficiency drops as collective or pipeline time grows</td>
+</tr>
+<tr>
+<td>Kernel/shape inefficiency</td>
+<td>Small matmuls, poor fusion, padding, or low occupancy miss tensor-core peak</td>
+</tr>
+<tr>
+<td>Load imbalance</td>
+<td>Pipeline bubbles, uneven sequence lengths, or overloaded MoE experts leave workers waiting</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Strong scaling</strong> keeps the global workload fixed while adding devices; ideal wall time falls proportionally, but communication eventually dominates. <strong>Weak scaling</strong> increases the workload with device count, usually keeping work per device fixed; ideal step time stays constant. Report both throughput and scaling efficiency, since aggregate tokens/s can rise while per-device efficiency falls. See <a href="distributed-training.html">Distributed LLM Training</a> for parallelism and communication trade-offs.</p>
+<h2 id="data-quality-aware-scaling">Data-quality-aware scaling</h2>
+<p>Raw token count is not information content. Near duplicates, boilerplate, corrupted text, and repeated epochs supply less novelty than diverse, task-relevant examples. Deduplication can reduce nominal <code class="math-inline">D</code> while improving validation loss and reducing memorization. Domain mixtures change which validation distributions improve; oversampling a high-value domain may help its target metrics while harming broad coverage.</p>
+<p>Synthetic data can add targeted coverage, explanations, or hard examples, but correlated generator errors and low-diversity templates can saturate quickly. Filtering and mixing policy therefore belong in the scaling specification. See <a href="pretraining-data.html">Pretraining Data, Cleaning and Mixtures</a> and <a href="synthetic-data.html">Synthetic Data Generation and Filtering</a>.</p>
+<p>One can model an informal “effective data” budget through high-quality-token weighting based on quality, novelty, or target relevance, but those weights must be estimated from controlled experiments rather than declared. Repeating a corpus may still help optimization and expose rare patterns again, yet the marginal gain normally decays across epochs. Consequently, a scaling fit on mostly unique web tokens need not predict a replay-heavy or high-quality curated run, and the compute-optimal <code>N/D</code> balance can shift toward capacity or toward acquiring better data.</p>
+<h2 id="beyond-dense-pretraining">Beyond dense pretraining</h2>
+<table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>What scales</th>
+<th>Why dense <code>6ND</code> is insufficient</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mixture of Experts</td>
+<td>Total expert capacity and active experts per token</td>
+<td>Compute follows active parameters plus routing/shared layers; memory and communication follow total experts and placement. See <a href="moe.html">Mixture of Experts</a>.</td>
+</tr>
+<tr>
+<td>Retrieval augmentation</td>
+<td>Parametric model, index size/quality, retrieved tokens, and retrieval frequency</td>
+<td>Index construction, search, longer inputs, and freshness trade parametric memory for external memory.</td>
+</tr>
+<tr>
+<td>Distillation</td>
+<td>Teacher-generation compute, student size, and distillation tokens</td>
+<td>Extra upstream compute can produce a smaller, cheaper deployed model; lifecycle cost matters.</td>
+</tr>
+<tr>
+<td>Long-context training</td>
+<td>Context length, tokens, and position distribution</td>
+<td>Full attention has sequence-dependent cost and memory; equal token counts with different packing or lengths are not equal compute.</td>
+</tr>
+<tr>
+<td>Post-training</td>
+<td>Supervised, preference, verifier, and reinforcement-learning data and rollouts</td>
+<td>Outcome quality may scale with interaction or labeling compute rather than pretraining loss.</td>
+</tr>
+<tr>
+<td>Test-time compute</td>
+<td>Samples, reasoning tokens, search depth, tools, and verification</td>
+<td>Per-query compute becomes an allocation variable and gains depend on selection quality, not only generation volume.</td>
+</tr>
+</tbody>
+</table>
+<p>A training-optimal design minimizes loss under a one-time training budget. An inference-optimal design accounts for latency, memory, energy, request volume, and test-time strategy. A smaller, overtrained or distilled model can be cheaper across many requests; a sparse model can carry more capacity at similar active FLOPs; retrieval can update knowledge without retraining; and a stronger verifier may make additional test-time samples valuable. Compare total lifecycle cost and service constraints, not parameter count alone.</p>
+<h2 id="experimental-protocol">Experimental protocol</h2>
+<ol>
+<li><strong>Choose pilot scales:</strong> span enough <code class="math-inline">N</code> and <code class="math-inline">D</code> values to reveal curvature, include multiple allocations at matched compute, and reserve at least one larger scale for validation.</li>
+<li><strong>Match data:</strong> hold tokenizer, deduplication, ordering, mixture, quality filters, and validation distribution fixed. Record both processed and unique tokens.</li>
+<li><strong>Match optimization:</strong> use tuned but comparable learning-rate schedules, batch conventions, regularization, precision, and stopping rules. Verify that each run reaches its stable frontier.</li>
+<li><strong>Repeat where feasible:</strong> use multiple seeds, especially at small pilot scales, to estimate run variance and detect unstable recipes.</li>
+<li><strong>Measure both loss and utility:</strong> report training and held-out loss plus downstream metrics, contamination checks, and subgroup results. Loss improvements need not translate uniformly to tasks; see <a href="evaluation.html">LLM Evaluation and Benchmark Design</a>.</li>
+<li><strong>Diagnose the fit:</strong> plot raw and log-space curves, residuals, parameter correlations, sensitivity to excluded scales and alternative floors, and predictions on held-out scales.</li>
+<li><strong>Report uncertainty and compute:</strong> give confidence intervals for fitted quantities and predicted optima; disclose seeds, fit range, FLOP convention, hardware, elapsed time, achieved throughput, MFU/HFU definition, and failed or unstable runs.</li>
+</ol>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>treating fitted exponents or a tokens-per-parameter ratio as universal;</li>
+<li>confusing an optimization failure with a parameter or data limit;</li>
+<li>fitting too few or too narrow a range of scales and omitting held-out validation;</li>
+<li>ignoring correlated errors or reporting point estimates without uncertainty;</li>
+<li>equating repeated or low-quality tokens with independent information;</li>
+<li>using total MoE parameters in a dense FLOP formula;</li>
+<li>reporting theoretical compute without achieved throughput or hardware utilization;</li>
+<li>optimizing pretraining FLOPs while ignoring post-training, retrieval, or serving cost.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Explain why <code>6ND</code> is an approximation.</li>
+<li>Compare Kaplan- and Chinchilla-style conclusions.</li>
+<li>Design a small scaling experiment.</li>
+<li>Distinguish algorithmic FLOPs from wall-clock efficiency.</li>
+<li>Explain how MoE and retrieval complicate scaling.</li>
+<li>Discuss training-optimal versus inference-optimal models.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="pretraining-data.html">Pretraining Data, Cleaning and Mixtures</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="distributed-training.html">Distributed LLM Training</a></li>
+<li><a href="synthetic-data.html">Synthetic Data Generation and Filtering</a></li>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+</ul>
+</section>

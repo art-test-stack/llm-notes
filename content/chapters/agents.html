@@ -1,0 +1,178 @@
+<section class="chapter-content" data-topic="agents">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>By the end of this chapter, you should be able to define an agent precisely, explain the orchestration loop and state transitions, identify operational and safety failure modes, and design an evaluation that scores the complete trajectory rather than only the final text.</p>
+<h2 id="technical-framing">Technical framing</h2>
+<p>The timeline note distinguishes ordinary code completion from agentic software engineering: an agent must understand repository state, select tools, execute actions, and react to observations. The screening note also raises the practical question of how LLM and agent teams combine models with domain workflows. GPT-Lab provides an adjacent orchestration example: the trainer coordinates model, optimizer, dataloaders, schedules, logging, evaluation, and checkpointing without being the Transformer itself.</p>
+<p>That separation is a useful mental model. The model proposes; the orchestration layer owns state, permissions, execution, recovery, and termination.</p>
+<h2 id="detailed-treatment">Detailed treatment</h2>
+<p>An agent is a repeated decision loop:</p>
+<pre><code class="language-text">state → model/policy → proposed action → validation → execution → observation → updated state
+</code></pre>
+<p>The model proposes; the orchestrator validates actions against <a href="tool-calling.html">tool schemas</a>, permissions, current state, and budgets before execution. It then records the observation and decides whether to continue, stop, recover, or ask a human. <a href="reasoning.html">Reasoning techniques</a> may improve a proposal, but they do not replace deterministic orchestration controls.</p>
+<h2 id="agent-taxonomy">Agent taxonomy: choose the least autonomous pattern that works</h2>
+<table>
+<thead><tr><th>Pattern</th><th>Control structure</th><th>Good fit</th><th>Main trade-off</th></tr></thead>
+<tbody>
+<tr><td>One-shot tool calling</td><td>One model decision, zero or one tool call, then a response</td><td>Lookup, extraction, or a single typed operation</td><td>Lowest cost and easiest to test; cannot adapt through several observations</td></tr>
+<tr><td>ReAct-style loop</td><td>Interleave reasoning, action, and observation</td><td>Exploration when the next action depends on the last result</td><td>Flexible, but prone to repetition, drift, and prompt-injection exposure</td></tr>
+<tr><td>Plan-and-execute</td><td>Create a plan, then execute and revise steps</td><td>Multi-stage tasks with useful up-front decomposition</td><td>Improves legibility; early assumptions can make the whole plan stale</td></tr>
+<tr><td>State-machine agent</td><td>Allow only explicit states and guarded transitions</td><td>Repository changes, support operations, and regulated workflows</td><td>Predictable and recoverable; less flexible outside anticipated paths</td></tr>
+<tr><td>Workflow DAG</td><td>Run typed nodes when dependencies are satisfied</td><td>Stable pipelines with parallel branches</td><td>Efficient and observable; awkward for open-ended backtracking</td></tr>
+<tr><td>Event-driven agent</td><td>React to queued events and persist each transition</td><td>Long-running monitoring, asynchronous work, and external callbacks</td><td>Scales and resumes well; ordering, duplication, and eventual consistency are hard</td></tr>
+<tr><td>Code agent</td><td>Inspect, edit, run, and verify in a sandbox</td><td>Repository diagnosis or modification</td><td>Grounded by tests; carries filesystem, command, dependency, and supply-chain risk</td></tr>
+<tr><td>Browser or research agent</td><td>Search, navigate, retrieve, compare, and cite sources</td><td>Questions requiring current or dispersed evidence</td><td>Broad coverage; vulnerable to stale pages, weak sources, and indirect prompt injection</td></tr>
+</tbody>
+</table>
+<p>An agent is unnecessary when a deterministic function, database query, search endpoint, fixed workflow, or one-shot model call already solves the task. Extra loops add latency, cost, nondeterminism, and failure surface. Prefer a conventional program when the steps and rules are known; reserve model decisions for genuine ambiguity.</p>
+<h2 id="state-model">State model</h2>
+<p>Separate the append-only record of what happened from the mutable projection used to make the next decision. The event log is authoritative; current working state is a reconstructible cache.</p>
+<pre><code class="language-text">AgentState {
+  run_id, tenant_id, goal, status, state_version
+  event_log[]             // immutable, ordered proposals, decisions, executions, observations
+  working_state           // current files, facts, plan position, hypotheses
+  tool_observations[]     // value, source, captured_at, freshness, trust label
+  pending_actions[]       // action_id, tool, arguments hash, risk, idempotency key
+  budgets { steps_left, tokens_left, tool_cost_left, deadline }
+  approvals[]             // scope, approver, decision, expiry, consumed_by
+  checkpoints[]           // event offset, state snapshot hash, external-effect receipts
+  termination { goal_tests[], cycle_window, repeated_action_limit }
+}</code></pre>
+<p>Every proposed action receives a stable action ID and is appended before execution. Its observation includes timestamps, tool version, exit status, and any external side-effect receipt. Approvals are scoped to a specific action or narrow capability and expire; they are not a global Boolean.</p>
+<p>After process failure, load the latest valid checkpoint, replay later events to rebuild working state, and reconcile every pending action against its idempotency key or external receipt. Never assume that an absent observation means the action did not happen.</p>
+<h2 id="planning-strategies">Planning strategies</h2>
+<ul>
+<li><strong>Explicit plans</strong> expose intended steps, dependencies, success checks, and approval points. They are useful for auditability, not a promise that reality will cooperate.</li>
+<li><strong>Incremental planning</strong> chooses only the next safe step from fresh evidence. It handles uncertainty well but needs strong termination controls.</li>
+<li><strong>Hierarchical decomposition</strong> divides a goal into bounded subgoals, then into executable actions. Each child needs its own input, output, budget, and completion test.</li>
+<li><strong>Reflection</strong> asks the acting model to inspect its recent result and revise. It is cheap, but correlated with the original mistake.</li>
+<li><strong>Critic loops</strong> use a separate role, prompt, model, or deterministic checker to challenge an action or result. A critic advises; the orchestrator still decides.</li>
+<li><strong>Search</strong> explores several candidate plans or actions and scores them. Beam search, best-first search, or tree search can improve hard decisions at rapidly increasing inference and tool cost.</li>
+</ul>
+<p>Plans drift when observations invalidate assumptions but the agent continues following old steps. Replanning after every small surprise creates the opposite failure: useful work is discarded and the agent never commits. Replan only on a material invariant violation, failed goal test, blocked dependency, or changed risk; cap revisions and retain the reason for each change.</p>
+<h2 id="memory-models">Memory models</h2>
+<table>
+<thead><tr><th>Memory</th><th>Contents</th><th>Lifetime and control</th></tr></thead>
+<tbody>
+<tr><td>Conversation state</td><td>Current messages, tool results, and summarized context</td><td>Per run; compact carefully so constraints and unresolved decisions survive</td></tr>
+<tr><td>Episodic memory</td><td>Prior trajectories: what happened in a particular task</td><td>Retrieve similar episodes with provenance, outcome, and timestamp</td></tr>
+<tr><td>Semantic or vector memory</td><td>Facts and documents indexed by meaning</td><td>Use <a href="rag.html">RAG</a> with access filters, freshness checks, citations, and reranking</td></tr>
+<tr><td>Procedural memory</td><td>Skills, policies, playbooks, and tool instructions</td><td>Versioned and reviewed; higher trust than retrieved content, but never immutable policy by accident</td></tr>
+</tbody>
+</table>
+<p>Retrieval should combine relevance with tenant, authorization, freshness, source trust, and task scope. Forget duplicate, expired, disproven, low-value, or retention-limited entries; keep tombstones or audit records when deletion itself matters. More memory is not automatically better: stale facts anchor decisions, and poisoned memory can persist malicious instructions across runs. Treat retrieved text as data, not authority, and enforce strict tenant separation in storage, indexes, caches, embeddings, logs, and evaluation datasets.</p>
+<h2 id="termination-and-budgets">Termination and budgets</h2>
+<p>A bounded agent checks termination before and after every action. It stops successfully only when explicit goal tests pass—for example, the requested diff is present, targeted tests pass, and no unauthorized files changed. It stops unsuccessfully when any hard budget is exhausted: step limit, token limit, cumulative tool-cost limit, or wall-clock deadline.</p>
+<p><strong>Cycle detection</strong> computes a normalized signature from the control state, relevant working-state hash, action type, canonicalized arguments, and observation class. If the same signature appears more than a configured number of times inside a rolling window without measurable progress toward a goal test, the run is cycling. <strong>Repeated-action detection</strong> is the narrower rule: reject or escalate an identical side-effecting action with the same target and arguments unless the previous attempt is proven not to have executed.</p>
+<p>Progress must be observable, such as a newly satisfied goal predicate or reduced set of unresolved failures—not a new paraphrase of the plan. On cycles, ambiguous side effects, missing authority, irreducible uncertainty, or budgets nearing a destructive cutoff, preserve state and escalate to a human with the goal, evidence, attempted actions, receipts, remaining choices, and recommended next step.</p>
+<h2 id="bounded-repository-agent">Complete bounded state machine: repository modification</h2>
+<p>This agent may modify only an approved repository scope. The model can select files and commands inside that boundary; the orchestrator owns all transitions.</p>
+<pre><code class="language-text">RECEIVED
+  → SCOPE_CHECK          validate goal, repository, allowed paths, budgets
+  ├─ invalid or unsafe scope ──→ FAILED
+  └─ valid ──→ INSPECT   read status, instructions, target files, relevant tests
+       → PLAN            produce bounded edits + verification + risk classification
+       ├─ approval required ──→ APPROVAL
+       │    ├─ granted ──→ EDIT
+       │    └─ denied or expired ──→ HUMAN
+       └─ approval not required ──→ EDIT
+            → VERIFY     run scoped checks; inspect diff and changed paths
+            ├─ goal tests pass ──→ COMPLETE
+            ├─ recoverable failure and budget remains ──→ DIAGNOSE → PLAN
+            ├─ possible partial side effect ──→ RECONCILE
+            │    ├─ state made consistent ──→ VERIFY
+            │    ├─ safe compensation available ──→ ROLLBACK → VERIFY
+            │    └─ outcome remains ambiguous ──→ HUMAN
+            ├─ cycle, exhausted budget, or uncertain authority ──→ HUMAN
+            └─ impossible or unsafe task ──→ FAILED
+
+Terminal states: COMPLETE, FAILED, HUMAN.
+No terminal state may execute tools or mutate repository state.</code></pre>
+<table>
+<thead><tr><th>Guard or invariant</th><th>Enforcement</th></tr></thead>
+<tbody>
+<tr><td>Scope</td><td>Resolve paths before every write; reject changes outside the allowlist and fail verification if the final diff contains them</td></tr>
+<tr><td>Side effects</td><td>Read operations may retry; writes require an idempotency key, precondition hash, or explicit reconciliation</td></tr>
+<tr><td>Approval</td><td>Pause before the guarded action; bind approval to its action ID, arguments hash, scope, and expiry</td></tr>
+<tr><td>Progress</td><td>At least one goal predicate must improve within three PLAN–DIAGNOSE cycles; otherwise enter HUMAN</td></tr>
+<tr><td>Budgets</td><td>Maximum 20 model steps, 60,000 tokens, 15 tool-cost units, two plan revisions, and 20 minutes</td></tr>
+<tr><td>Goal tests</td><td>Requested behavior is present, required checks pass, diff matches allowed paths, and every pending action is resolved</td></tr>
+<tr><td>Crash resumption</td><td>Replay from checkpoint, compare repository and receipt hashes, then resume at RECONCILE rather than blindly rerunning EDIT or VERIFY</td></tr>
+</tbody>
+</table>
+<p>Example event sequence: <code>RunStarted → ScopeValidated → FileRead → PlanRecorded → EditProposed → EditApplied → TestFailed → DiagnosisRecorded → EditApplied → TestsPassed → DiffValidated → GoalSatisfied</code>. This trajectory can be replayed and evaluated even if the final response is missing.</p>
+<h2 id="recovery">Recovery and failure semantics</h2>
+<table>
+<thead><tr><th>Failure</th><th>Required response</th></tr></thead>
+<tbody>
+<tr><td>Tool timeout</td><td>Mark outcome unknown, query status using the action ID, then retry only if non-execution is proven or the operation is idempotent</td></tr>
+<tr><td>Partial side effect</td><td>Reconcile receipts and actual external state; complete safely, run a compensating action, or request manual intervention</td></tr>
+<tr><td>Stale observation</td><td>Check version, ETag, timestamp, or source revision before acting; refresh and invalidate dependent plan steps</td></tr>
+<tr><td>Process crash</td><td>Restore a checkpoint, replay the immutable log, rebuild projections, and resolve pending actions before continuing</td></tr>
+<tr><td>Retryable failure</td><td>Use bounded exponential backoff with jitter and a retry budget; do not retry invalid arguments or denied permissions</td></tr>
+<tr><td>Irreversible or ambiguous failure</td><td>Stop mutation, preserve evidence, and escalate with a concrete manual recovery procedure</td></tr>
+</tbody>
+</table>
+<p><strong>Idempotent replay</strong> means repeating an event or action produces the same externally visible result, normally through idempotency keys, compare-and-swap preconditions, deduplication, or upserts. When undo is impossible, a <strong>compensating action</strong> restores the business invariant rather than pretending history did not occur. Compensation is itself logged, authorized, and fallible.</p>
+<h2 id="multi-agent-systems">Multi-agent systems</h2>
+<p>Role decomposition can assign planning, research, execution, and criticism to separate agents, or partition work by independent subsystem. Shared state makes discoveries visible but increases contention, accidental coupling, and data exposure. Private state improves isolation and specialization but requires explicit, lossy communication. A practical design keeps an authoritative shared task ledger while agents retain private scratch context.</p>
+<p>Coordination consumes tokens and time: agents must delegate, serialize findings, resolve conflicts, and merge outputs. Common failures include ambiguous ownership, circular delegation, incompatible assumptions, message loss, stale shared state, conflicting writes, premature consensus, redundant searches, and several agents repeating the same work. Use unique task IDs, owners, dependency edges, leases, versioned artifacts, and a single merge authority.</p>
+<p>Multiple agents do not automatically improve quality. They may share the same model bias, amplify a false premise, dilute accountability, or spend the budget on communication. Add an agent only when work is genuinely parallel, roles need different permissions or context, independent evidence reduces correlated error, or the coordination cost is lower than the expected gain. Compare against a single-agent baseline at the same total budget.</p>
+<h2 id="trajectory-evaluation">Trajectory-level evaluation</h2>
+<p>Evaluate both outcome and process. A polished final answer can hide fabricated evidence, unsafe calls, unrecovered side effects, or excessive exploration. See also <a href="evaluation.html">evaluation and benchmark design</a> and <a href="security.html">agent security</a>.</p>
+<table>
+<thead><tr><th>Dimension</th><th>Trajectory-level measure</th><th>Example failure signal</th></tr></thead>
+<tbody>
+<tr><td>Final task success</td><td>Goal predicates and independent tests satisfied</td><td>Claims completion while a required test fails</td></tr>
+<tr><td>Trajectory validity</td><td>Every transition is legal, grounded in prior observations, and consistent with state</td><td>Uses a file or fact never observed</td></tr>
+<tr><td>Tool efficiency</td><td>Necessary successful calls divided by total calls; argument validity</td><td>Repeated broad searches or malformed calls</td></tr>
+<tr><td>Recovery</td><td>Fraction of injected failures reconciled without invariant violation</td><td>Blindly retries a timed-out write</td></tr>
+<tr><td>Cost</td><td>Tokens, model charges, tool charges, and external resource use</td><td>Success exceeds the declared budget</td></tr>
+<tr><td>Latency</td><td>End-to-end and per-state duration, including approval wait separately</td><td>Unbounded planning dominates runtime</td></tr>
+<tr><td>Repetition</td><td>Duplicate action rate, cycle count, and steps without goal progress</td><td>Same action-observation signature occurs three times</td></tr>
+<tr><td>Policy violations</td><td>Unauthorized proposals, blocked executions, and completed violations by severity</td><td>Attempts an out-of-scope write</td></tr>
+<tr><td>Human interventions</td><td>Count, reason, response time, and whether escalation was necessary</td><td>Human must repair an avoidable partial side effect</td></tr>
+<tr><td>Reproducibility</td><td>Replay success from logged versions, seeds, inputs, state, and receipts</td><td>Cannot reconstruct why a tool was called</td></tr>
+</tbody>
+</table>
+<p>Test with normal tasks and adversarial scenarios: tool timeouts, duplicate events, stale reads, corrupted memory, injected instructions in retrieved content, revoked approval, crash after side effect but before acknowledgment, and conflicting agent writes. Report distributions and worst cases, not only mean success. Re-run identical fixtures and compare both final outputs and normalized trajectories.</p>
+<h2 id="failure-modes">Failure modes and safety controls</h2>
+<ul>
+<li>infinite or oscillating loops;</li>
+<li>stale memory overriding current evidence;</li>
+<li>cascading dependency failures;</li>
+<li>indirect prompt injection through retrieved documents or tool output;</li>
+<li>repeated side effects after retries;</li>
+<li>over-broad credentials;</li>
+<li>missing termination conditions;</li>
+<li>state that cannot be replayed after a failure.</li>
+</ul>
+<p>Apply least-privilege credentials, tool allowlists, schema validation, sandboxing, output encoding, network and path restrictions, scoped approvals, secret redaction, immutable audit logs, and separation between untrusted observations and system policy. High-impact actions need deterministic preconditions and, where appropriate, human approval. Security decisions live outside the model so a prompt cannot negotiate them away.</p>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Distinguish a tool-calling model from an agent.</li>
+<li>Design a bounded research agent with explicit state and termination.</li>
+<li>Explain how to make a write operation idempotent.</li>
+<li>Define an evaluation suite for a repository-modification agent.</li>
+<li>Diagnose an agent that repeatedly calls the same failing tool.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="tool-calling.html">Tool Calling and Structured Outputs</a></li>
+<li><a href="rag.html">Retrieval-Augmented Generation</a></li>
+<li><a href="reasoning.html">Reasoning Models, Test-Time Compute and Process Supervision</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="security.html">LLM Security, Prompt Injection and Data Leakage</a></li>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+</ul>
+<h2 id="completion-checklist">Completion checklist</h2>
+<ul>
+<li>[ ] I can explain the orchestration loop without notes.</li>
+<li>[ ] I can compare one-shot, ReAct, plan-and-execute, state-machine, DAG, and event-driven agents.</li>
+<li>[ ] I can define state, memory, tools, permissions, checkpoints, budgets, and termination for one agent.</li>
+<li>[ ] I can specify cycle detection and recovery for an ambiguous side effect.</li>
+<li>[ ] I can evaluate final success, trajectory validity, efficiency, recovery, cost, and policy compliance.</li>
+<li>[ ] I can explain when a single deterministic workflow is better than one or many agents.</li>
+</ul>
+</section>

@@ -1,0 +1,223 @@
+<section class="chapter-content" data-topic="rope">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to construct RoPE frequencies, derive the relative-position identity in real and complex notation, implement the common layout and cache variants, and evaluate long-context extensions for both quality and numerical correctness.</p>
+<h2 id="frequency-construction">Frequency construction</h2>
+<p>Let the even rotary width be <code class="math-inline">d</code>, let <code class="math-inline">i=0,\ldots,d/2-1</code> index feature pairs, and usually set <code class="math-inline">b=10{,}000</code>. The angular frequency of pair <code class="math-inline">i</code>, in radians per token, is:</p>
+<div class="math-display">inverse_freq_i = base^(-2i/d)
+θ_i = inverse_freq_i</div>
+<p>For positions <code class="math-inline">p=(p_0,\ldots,p_{T-1})</code>, form the position-frequency outer product:</p>
+<pre><code class="language-text">angles[p, i] = p × inverse_freq_i
+angles = outer(position_ids, inverse_freq)     # [T, d/2]
+</code></pre>
+<p>The first pairs have the largest <code class="math-inline">\theta_i</code> and rotate fastest; later pairs have progressively smaller frequencies and rotate more slowly. A pair's wavelength is <code class="math-inline">\lambda_i=2\pi/\theta_i</code> tokens: positions separated by one wavelength have the same phase in that pair. Fast dimensions distinguish nearby offsets finely but wrap often. Slow dimensions vary little locally but retain phase information across longer spans. RoPE combines many wavelengths; no single pair uniquely identifies every possible offset.</p>
+<h2 id="core-rotation">Core rotation</h2>
+<p>For one pair <code class="math-inline">(x_0,x_1)</code> at position <code class="math-inline">p</code> and frequency <code class="math-inline">\theta</code>:</p>
+<div class="math-display">[x&#x27;₀]   [ cos(pθ)  -sin(pθ) ] [x₀]
+[x&#x27;₁] = [ sin(pθ)   cos(pθ) ] [x₁]
+</div>
+<p>Write this matrix as <code class="math-inline">R(p\theta)</code>. Since rotations are orthogonal and compose by adding angles:</p>
+<div class="math-display">(R(pθ)q)ᵀ(R(sθ)k)
+= qᵀ R(pθ)ᵀ R(sθ) k
+= qᵀ R((s - p)θ) k
+</div>
+<p>Summing this identity over all pairs makes each query-key dot product depend on the relative offset <code>s - p</code> through several frequencies.</p>
+<h2 id="complex-number-derivation">Complex-number derivation</h2>
+<p>Identify a real pair with a complex number: <code class="math-inline">z=x_0+ix_1</code>. Rotation at position <code class="math-inline">p</code> is multiplication by a unit phasor:</p>
+<div class="math-display">z̃_p = z exp(i pθ)
+        = (x₀ + i x₁)(cos(pθ) + i sin(pθ))</div>
+<p>For complex query and key pairs <code class="math-inline">q</code> and <code class="math-inline">k</code>, their two-dimensional real dot product is the real part of one value times the other's conjugate:</p>
+<div class="math-display">dot(q̃_p, k̃_s)
+= Re[(q exp(i pθ)) conjugate(k exp(i sθ))]
+= Re[q conjugate(k) exp(i (p - s)θ)]</div>
+<p>The phase therefore depends on relative displacement, not the two absolute indices separately. More precisely, RoPE makes this positional contribution to an attention logit invariant to a joint shift <code class="math-inline">(p,s)\mapsto(p+c,s+c)</code>. It does <em>not</em> make the whole model translation invariant: token content, causal and padding boundaries, finite windows, cache eviction, special tokens, and layers outside this dot product can distinguish absolute placement. Nor are logits invariant if only the query or only the key is shifted.</p>
+<h2 id="implementation-variants">Implementation variants</h2>
+<table>
+<thead>
+<tr>
+<th>Choice</th>
+<th>Common conventions and constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pairing layout</td>
+<td><strong>Interleaved</strong> pairs adjacent features <code>(0,1), (2,3), …</code>. <strong>Split-half</strong> pairs feature <code>j</code> with <code>j + d/2</code>. They implement the same mathematics after a permutation, but a checkpoint and backend must agree on the convention.</td>
+</tr>
+<tr>
+<td>Partial rotary width</td>
+<td>Only an even prefix <code>d_rot ≤ D_h</code> is rotated; the remaining features pass through unchanged. Construct frequencies using the checkpoint's configured rotary width and denominator convention.</td>
+</tr>
+<tr>
+<td>Rotated tensors</td>
+<td>Apply RoPE to Q and K only. V is not part of the query-key dot product and is normally left unrotated.</td>
+</tr>
+<tr>
+<td>GQA/MQA</td>
+<td>Q may have <code class="math-inline">H_{q}</code> heads while K has <code class="math-inline">H_{\text{kv}}</code>. Broadcast one position table across each tensor's head axis independently; do not require equal head counts or materialize repeated K merely to apply RoPE.</td>
+</tr>
+<tr>
+<td>Padded batches</td>
+<td>Pass explicit position IDs shaped <code>[B,T]</code>. With left padding, valid-token positions can be derived from <code>cumsum(attention_mask) - 1</code>, with pad entries clamped or ignored. Raw column indices incorrectly shift shorter prompts.</td>
+</tr>
+<tr>
+<td>Key-cache convention</td>
+<td>A <strong>rotated cache</strong> stores K after RoPE and never rotates old keys again. An <strong>unrotated cache</strong> stores projected K plus enough position metadata to rotate it when read. The latter permits some remapping schemes but costs work; mixing the two conventions silently corrupts logits.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="implementation-pseudocode">Implementation pseudocode</h2>
+<p>This sketch makes position IDs, rotary width, pairing convention, and cache state explicit. <code>pair</code>/<code>unpair</code> are layout adapters: adjacent even/odd features for interleaved layout, or corresponding first/second halves for split-half layout.</p>
+<pre><code class="language-python">def rope(x, position_ids, d_rot, base, pairing):
+    # x: [B, H, T, D_h]; position_ids: [B, T]; d_rot is even
+    x_rot, x_pass = x[..., :d_rot], x[..., d_rot:]
+
+    i = arange(0, d_rot // 2, dtype=float32)
+    inverse_freq = base ** (-2 * i / d_rot)
+    angles = position_ids.to(float32)[..., None] * inverse_freq[None, None, :]
+    cos = cos_fp32(angles)[:, None, :, :]       # [B, 1, T, d_rot/2]
+    sin = sin_fp32(angles)[:, None, :, :]
+
+    a, b = pair(x_rot.to(float32), convention=pairing)
+    y_rot = unpair(a * cos - b * sin,
+                   a * sin + b * cos,
+                   convention=pairing)
+    return concat(y_rot.to(x.dtype), x_pass, dim=-1)
+
+def project_and_cache(x, position_ids, cache):
+    q, k, v = project_qkv(x)                    # H_q may differ from H_kv
+    q = rope(q, position_ids, d_rot, base, pairing)
+    k = rope(k, position_ids, d_rot, base, pairing)
+    cache.append_rotated(k, v, position_ids)    # choose and document one convention
+    return attention(q, cache.k, cache.v)
+</code></pre>
+<p>Production kernels may fuse these operations and avoid temporary FP32 tensors. The observable contract—pairing, position mapping, precision, and cache convention—must remain the same.</p>
+<h2 id="cached-decoding-and-position-semantics">Cached decoding and position semantics</h2>
+<p>During ordinary prefill, valid tokens use positions <code>0 … T-1</code>. The next decoded token uses the next logical absolute position. With padding, batching, prefix reuse, or packed inputs, that value must come from per-sequence position metadata rather than a single tensor length.</p>
+<p>After sliding-window eviction, <code>len(cache)</code> is at most the window size and is no longer the total number of consumed tokens. Continue the model's absolute position counter unless it was explicitly trained with position resets. Resetting only the new query and key while retaining previously rotated keys changes their relative phases. A deliberate reset requires a coherent scheme—for example, rerotating every retained unrotated key with the same new origin—and must match training semantics.</p>
+<h2 id="long-context-extensions">Long-context extensions</h2>
+<p>All scaling names are implementation-dependent, so inspect the exact equations in a checkpoint's configuration. In particular, fixed-factor position interpolation and “linear RoPE scaling” are often two APIs for the same global transform, even though the motivation may be described differently.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Intuition</th>
+<th>Trade-offs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Position interpolation</td>
+<td>For extension factor <code class="math-inline">\alpha  = L_{\text{new}}/L_{\text{train}}</code>, use <code class="math-inline">p' = p/\alpha</code>, compressing the longer sequence into the trained position range.</td>
+<td>Avoids unseen maximum angles but reduces resolution between nearby positions; usually benefits from adaptation training.</td>
+</tr>
+<tr>
+<td>Linear scaling</td>
+<td>Use <code class="math-inline">\theta '_i = \theta _i/\alpha</code>. For a fixed factor this is mathematically equivalent to globally scaling positions.</td>
+<td>Simple and predictable, but applies the same stretch to fast and slow bands and can regress short-context behavior.</td>
+</tr>
+<tr>
+<td>NTK-aware scaling</td>
+<td>Adjust the RoPE base so dimensions are stretched non-uniformly, aiming to preserve more local resolution while extending slower modes.</td>
+<td>Often preserves short-range behavior better than uniform scaling, but the formula and calibration vary by implementation and model.</td>
+</tr>
+<tr>
+<td>Dynamic NTK variants</td>
+<td>Choose the scaling or base from the current sequence length, often leaving short sequences unchanged and activating beyond the training window.</td>
+<td>Adapts across lengths, but changing the frequency map after keys have been cached can invalidate their phases. Prefill, decode, and cache reuse must use one consistent map.</td>
+</tr>
+<tr>
+<td>YaRN-style band treatment</td>
+<td>Treat frequency bands differently: interpolate some wavelengths, extrapolate others, blend a correction range, and optionally rescale attention magnitude.</td>
+<td>Offers finer control over local versus global behavior, at the cost of more hyperparameters and backend/checkpoint compatibility requirements.</td>
+</tr>
+<tr>
+<td>Long-context continued training</td>
+<td>Expose the model to long sequences using the intended scaling rule and data with genuinely long dependencies.</td>
+<td>Can teach effective evidence use rather than merely valid phases, but consumes training compute and may shift the data mixture or short-context quality.</td>
+</tr>
+</tbody>
+</table>
+<p>No method is universally optimal. The choice depends on the extension factor, whether weights can be trained, required local resolution, cache behavior, serving kernels, and measured quality across both short and long inputs. Scaling only changes positional geometry; it does not solve quadratic attention cost, KV-cache memory, or weak use of distant evidence.</p>
+<h2 id="numerical-behavior">Numerical behavior</h2>
+<ul>
+<li><strong>Large positions:</strong> the product <code class="math-inline">p_{\theta_i}</code> grows, so finite-precision argument reduction for sine and cosine can accumulate phase error even though the returned values remain bounded.</li>
+<li><strong>BF16/FP16:</strong> large integers cannot represent every adjacent position in these formats. Casting positions or angles too early can make distinct tokens share a phase or introduce abrupt errors.</li>
+<li><strong>Wider angle path:</strong> construct inverse frequencies, multiply positions, and evaluate trigonometric functions in at least FP32 (or wider where justified), then cast sine/cosine or the rotated output to the model dtype. Validate fused kernels against this reference.</li>
+<li><strong>Cache offsets:</strong> track the logical per-request position separately from physical cache length, especially after eviction, prefix reuse, batching, or speculative rollback.</li>
+<li><strong>Sliding windows and resets:</strong> an absolute-position window retains the original phases of surviving keys. A reset-position window changes the model semantics and requires all compared Q/K positions to share the new origin; it is not a harmless bookkeeping optimization.</li>
+</ul>
+<h2 id="evaluation">Evaluation</h2>
+<table>
+<thead>
+<tr>
+<th>Probe</th>
+<th>What to report</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Perplexity by length</td>
+<td>Bucket held-out sequences by length, including below, near, and beyond the training window; report both mean and degradation curves.</td>
+</tr>
+<tr>
+<td>Needle retrieval</td>
+<td>Vary total length, needle position, number of needles, and distractor similarity. Separate exact retrieval from generation-format failures.</td>
+</tr>
+<tr>
+<td>Position-sensitive tasks</td>
+<td>Test order, recency, counting, and evidence at beginning/middle/end to reveal positional bias and phase-resolution failures.</td>
+</tr>
+<tr>
+<td>Multi-hop evidence</td>
+<td>Place required facts far apart and add plausible decoys; score synthesis separately from single-span lookup.</td>
+</tr>
+<tr>
+<td>Short-context regression</td>
+<td>Repeat the original short-context evaluation after scaling or continued training; an extension is not free if common-case quality falls.</td>
+</tr>
+<tr>
+<td>Accepted versus effective length</td>
+<td>Distinguish the longest input that completes a forward pass from the longest length at which quality meets a predeclared threshold. Also report memory and latency.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="implementation-test-suite">Implementation test suite</h2>
+<ol>
+<li><strong>Position zero:</strong> for random FP32 tensors and every supported pairing/layout, assert <code>rope(x, 0) == x</code>; include partial rotation and verify the pass-through tail bit-for-bit.</li>
+<li><strong>Norm preservation:</strong> compare the L2 norm of every rotated pair before and after RoPE at small and large positions. Use dtype-specific tolerances and a high-precision reference.</li>
+<li><strong>Relative/offset equivalence:</strong> check <code class="math-inline">\text{dot}(R_{p} q, R_{s} k) \approx  \text{dot}(q, R_(s-p) k)</code>, then jointly add several offsets <code>c</code> and verify the dot product is unchanged. Include negative relative offsets and non-contiguous position IDs.</li>
+<li><strong>Cached versus uncached logits:</strong> run a tiny deterministic decoder once on the full causal sequence and once token by token. Compare logits at every step, not just sampled tokens, for rotated and unrotated cache implementations.</li>
+<li><strong>Cache-offset cases:</strong> repeat the logit comparison with left-padded unequal prompts, a nonzero prefix offset, sliding-window eviction, and speculative append/rollback. Assert positions follow logical token count rather than physical cache length.</li>
+<li><strong>GQA shapes:</strong> test <code>H_q/H_kv</code> ratios such as <code>8/2</code> and MQA <code>8/1</code>, batch size greater than one, multiple sequence lengths, and partial rotary width. Assert Q and K shapes are preserved and each KV head receives the same position phases as its query-head group.</li>
+<li><strong>Padding positions:</strong> compare a sentence alone, right padded, and left padded. After masking pads, logits for its valid tokens should agree when explicit position IDs are constructed correctly.</li>
+<li><strong>Backend-convention compatibility:</strong> create golden outputs from a simple FP32 reference for interleaved and split-half pairing, rotary width, base/scaling rule, tensor layout, and cache convention. For each optimized backend, load only its matching fixture and compare forward and cached-decode outputs; also assert that a deliberately mismatched convention fails the comparison.</li>
+<li><strong>Precision stress:</strong> compare FP32 reference phases and logits against BF16/FP16 execution at positions around the training limit and the advertised maximum. Set tolerances from observed error budgets and fail on NaNs, infinities, or adjacent-position collapse.</li>
+</ol>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>using the wrong denominator or base for checkpoint frequencies;</li>
+<li>mixing interleaved and split-half pairing;</li>
+<li>applying RoPE to V or to an unconfigured feature tail;</li>
+<li>broadcasting K as if <code>H_kv == H_q</code> under GQA;</li>
+<li>deriving left-padded position IDs from raw tensor columns;</li>
+<li>resetting decode offsets or using physical cache length after eviction;</li>
+<li>storing rotated keys and rotating them again;</li>
+<li>changing a dynamic scaling map while reusing keys rotated under the old map;</li>
+<li>computing large angles directly in BF16/FP16;</li>
+<li>equating an accepted context length with reliable evidence use.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Construct the frequency grid and explain fast dimensions, slow dimensions, and wavelength.</li>
+<li>Derive the relative-offset identity using both rotation matrices and complex numbers.</li>
+<li>Implement partial RoPE for both pairing conventions and explain the GQA broadcast.</li>
+<li>Diagnose divergence between cached and uncached decoding after window eviction.</li>
+<li>Compare position interpolation, NTK-aware scaling, and YaRN-style treatment, then design an evaluation that separates accepted from effective length.</li>
+</ol>
+<h2 id="related-topics">Related topics</h2>
+<ul>
+<li><a href="long-context.html">Long-Context Modelling</a></li>
+<li><a href="inference.html">LLM Inference: Prefill, Decode and KV Cache</a></li>
+<li><a href="cross-attention.html">Encoder-Decoder Models and Cross-Attention</a></li>
+</ul>
+</section>

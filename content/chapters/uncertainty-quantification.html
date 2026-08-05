@@ -1,0 +1,112 @@
+<section class="chapter-content" data-topic="uncertainty-quantification">
+<p>Uncertainty quantification asks what a prediction does not know, how that uncertainty is measured, and how it should change a decision. A useful estimate must be attached to a prediction target, tested on the deployment distribution, and connected to an action such as answering, abstaining, retrieving evidence, escalating to a human, or gathering more data.</p>
+
+<h2 id="what-uncertainty-means">1. What uncertainty means</h2>
+<dl>
+<dt><strong>Predictive uncertainty</strong></dt>
+<dd>Uncertainty about the target <code>y</code> for a new input <code>x</code>, represented by <code>p(y | x, D)</code> or by a set, interval, or score derived from it. It is the uncertainty most directly relevant to a downstream prediction.</dd>
+<dt><strong>Aleatoric uncertainty</strong></dt>
+<dd>Variation attributed to the data-generating process after conditioning on the available features: measurement noise, stochastic outcomes, or missing predictors. It can be input-dependent (heteroscedastic) and is not generally removed by collecting more examples of the same kind.</dd>
+<dt><strong>Epistemic uncertainty</strong></dt>
+<dd>Variation attributed to limited knowledge of the predictor: finite data, uncertain parameters, or several plausible functions. More informative data can reduce it, at least within the assumed model class.</dd>
+<dt><strong>Distributional uncertainty</strong></dt>
+<dd>Uncertainty caused by deployment inputs or mechanisms differing from the training distribution. It includes covariate, label, concept, temporal, and domain shifts; an in-distribution posterior need not represent it correctly.</dd>
+</dl>
+<p>These labels are useful but are not uniquely identifiable from predictions alone. The split depends on what is observed, the model family, likelihood, prior, training procedure, and definition of “the same” data-generating process. Misspecification may appear as aleatoric noise, epistemic disagreement, or neither. Therefore, say <em>uncertainty under the model and assumptions</em>, not that a method has recovered the true decomposition.</p>
+
+<h2 id="probabilistic-prediction">2. Probabilistic prediction</h2>
+<ul>
+<li><strong>Predictive distributions</strong> assign probabilities or densities to possible outcomes. For a Bayesian model, <code class="math-inline">p(y \mid  x, D) = \int  p(y \mid  x, \theta )p(\theta  \mid  D)d\theta</code>; other models may estimate the same object without a posterior over weights.</li>
+<li><strong>Prediction intervals</strong> are numeric ranges intended to contain a future response at a stated rate. They concern observations, so they are wider than confidence intervals for a conditional mean.</li>
+<li><strong>Prediction sets</strong> extend intervals to discrete, multimodal, or structured outcomes—for example, a set of plausible class labels.</li>
+<li><strong>Calibration</strong> is statistical agreement between forecasts and outcomes: events assigned probability 0.8 should occur about 80% of the time under the evaluation protocol.</li>
+<li><strong>Sharpness</strong> is concentration of the forecast, assessed only after calibration. A vacuous distribution or set can cover almost everything and still be unhelpful.</li>
+<li><strong>Proper scoring rules</strong> reward honest probability reports in expectation. Log loss and the Brier score are proper; accuracy is not a scoring rule for the full predictive distribution.</li>
+</ul>
+<p>Calibration and sharpness are complementary: seek the sharpest predictions compatible with calibration. Neither alone determines utility; the best forecast also depends on the costs of false positives, false negatives, delay, and abstention.</p>
+
+<h2 id="calibration-metrics">3. Calibration metrics</h2>
+
+<p>Report multiple views: a proper score, calibration by slice, and a decision-facing curve. A system can have good NLL but poor coverage in one language, or low ECE while ranking correct and incorrect answers badly. For abstention, select the operating threshold on validation data using the relative costs of an error, an abstention, and escalation.</p>
+
+<h2 id="deep-ensemble-methods">4. Deep-ensemble methods</h2>
+<p>Train the same architecture several times with independent initializations and shuffled optimization. Diversity can be increased with bootstrap samples or other data resampling, though modern pipelines often use the full dataset for every member. For classification, average probability vectors; for probabilistic regression, form the predictive mixture</p>
+<div class="math-display">p(y | x, D) ≈ (1/M) Σₘ p(y | x, θₘ).</div>
+<p>For Gaussian regression members with means <code class="math-inline">\mu_m</code> and variances <code class="math-inline">\sigma_m^2</code>, the mixture variance decomposes as</p>
+<div class="math-display">total variance = meanₘ(σₘ²) + meanₘ((μₘ − μ̄)²)
+                 within-model      between-model</div>
+<p><strong>Worked calculation.</strong> Suppose three members predict means <code>8, 10, 12</code> and variances <code>1, 4, 1</code>. The mixture mean is <code class="math-inline">\bar\mu=10</code>. Average within-model variance is <code class="math-inline">(1+4+1)/3=2</code>; between-model variance is <code class="math-inline">(4+0+4)/3=8/3</code>. Total predictive variance is <code class="math-inline">2+8/3=14/3\approx4.67</code>, giving standard deviation <code class="math-inline">\approx2.16</code>. Under the ensemble construction, the first term represents member-level predictive noise and the second member disagreement; calling them true aleatoric and epistemic uncertainty requires additional modelling assumptions.</p>
+<p>Ensembles are strong empirical baselines but cost roughly <code class="math-inline">M</code> training runs and up to <code class="math-inline">M</code> inference passes. Shared architecture, data, pretrained checkpoints, and optimization biases correlate errors, so adding near-duplicate members does not yield <code class="math-inline">M</code> independent hypotheses. Distillation or parallel inference may reduce serving cost but can also erase useful diversity.</p>
+
+<h2 id="bayesian-approximations">5. Bayesian approximations</h2>
+<ul>
+<li><strong>Variational inference</strong> chooses a tractable <code class="math-inline">q(\theta )</code> to approximate the posterior, usually by optimizing an evidence lower bound. Mean-field families are scalable but often underrepresent correlations and posterior spread.</li>
+<li><strong>Laplace approximation</strong> fits a Gaussian around a mode using local curvature. Last-layer or low-rank variants are cheaper, but the result is local and sensitive to parameterization and curvature approximation.</li>
+<li><strong>MC dropout</strong> keeps dropout active at inference and treats repeated stochastic passes as approximate posterior samples. It is convenient when dropout is already present, but its Bayesian interpretation and calibration depend on training and hyperparameter choices.</li>
+<li><strong>SWAG-style weight distributions</strong> fit a low-rank-plus-diagonal Gaussian to SGD iterates and sample weights for prediction. They capture a local basin rather than arbitrary posterior modes.</li>
+</ul>
+<p>Posterior approximation error, prior misspecification, likelihood misspecification, and neural-network symmetries all affect the result. A precise approximate posterior can still be confidently wrong outside the model class. Evaluate predictive behavior—proper scores, coverage, shift robustness, and decisions—rather than treating “Bayesian” as a guarantee of calibrated uncertainty.</p>
+
+<h2 id="conformal-prediction">6. Conformal prediction</h2>
+<p>Conformal prediction wraps a fitted predictor with data-driven prediction sets. In split conformal, train the model on one subset and reserve an untouched <strong>calibration set</strong>. Compute a <strong>nonconformity score</strong> measuring how poorly each calibration example agrees with the model, take a finite-sample quantile, and include test outcomes whose scores do not exceed it.</p>
+<ol>
+<li><strong>Regression:</strong> use residual scores <code class="math-inline">s_{i} = \mid y_{i} - f(x_{i})\mid</code>. With <code>n</code> calibration points and miscoverage <code class="math-inline">\alpha</code>, choose the <code class="math-inline">⌈(n + 1)(1 - \alpha )⌉</code>-th smallest score (with the usual finite-sample convention), then return <code>[f(x) − q, f(x) + q]</code>.</li>
+<li><strong>Classification:</strong> a simple score is <code>1 − p(y | x)</code>. Include every label whose score passes the calibrated threshold, producing sets that may contain zero, one, or several labels depending on the construction.</li>
+</ol>
+<p><strong>Worked example.</strong> For 90% split-conformal regression coverage, let nine sorted calibration residuals be <code>0.1, 0.2, …, 0.9</code>. Here <code class="math-inline">⌈(9 + 1) \times  0.9⌉ = 9</code>, so <code class="math-inline">q = 0.9</code>. If the model predicts <code>7.2</code> for a new input, return <code>[6.3, 8.1]</code>. Under exchangeability of calibration and test examples, this construction has finite-sample <em>marginal</em> coverage of at least 90% over a new example and the calibration sample.</p>
+<p>The guarantee relies on <strong>exchangeability</strong>, which distribution shift, temporal dependence, or adaptive reuse of the calibration set can violate. Marginal coverage does not imply 90% coverage at every <code>x</code> or for every subgroup; exact distribution-free conditional coverage is generally impossible without restrictive assumptions. Group-conditional calibration, localized scores, covariate-shift weighting, or time-series conformal methods can target particular failures, but they change assumptions and guarantees. Set size or interval width must be reported alongside coverage.</p>
+
+<h2 id="out-of-distribution-detection">7. Out-of-distribution detection</h2>
+<ul>
+<li><strong>Predictive entropy</strong>, <code>H[p(y | x, D)]</code>, measures total class uncertainty but mixes ambiguity and model disagreement.</li>
+<li><strong>Mutual information</strong> between predictions and model parameters, often estimated as predictive entropy minus expected member entropy, targets disagreement under a posterior or ensemble approximation.</li>
+<li><strong>Energy scores</strong>, such as <code class="math-inline">-T \operatorname{log} \sum _{k} \operatorname{exp}(z_{k}/T)</code>, use the full logit vector and are commonly thresholded for detection; the sign convention must be stated.</li>
+<li><strong>Representation-based methods</strong> measure distance, density, or neighborhood structure in a learned feature space. Their quality depends on the layer, metric, reference data, and representation geometry.</li>
+</ul>
+<p>Density models have a major pitfall: high input likelihood need not mean the input is semantically in-distribution. Models may favor simple backgrounds or low-level statistics while missing task relevance; typicality or likelihood-ratio corrections help in some settings but are not universal.</p>
+<p><strong>Near-OOD</strong> examples resemble training data but differ in a decision-relevant way, such as a new medical protocol or a confusable intent. <strong>Far-OOD</strong> examples are visibly unrelated. Far-OOD benchmarks can overstate performance because superficial cues suffice. Evaluate both, plus shifted in-domain data, and set thresholds using the actual cost of missed OOD cases versus unnecessary abstentions.</p>
+
+<h2 id="llm-specific-uncertainty">8. LLM-specific uncertainty</h2>
+<ul>
+<li><strong>Token probabilities</strong> are local next-token probabilities. High probability can reflect fluent continuation rather than factual or task-level correctness.</li>
+<li><strong>Sequence likelihood</strong> multiplies token probabilities (or sums log-probabilities), so it falls with length and splits probability mass across equivalent phrasings.</li>
+<li><strong>Length normalization</strong> compares average log-probability or applies a length penalty, but no normalization converts likelihood into calibrated answer correctness automatically.</li>
+<li><strong>Semantic entropy</strong> groups sampled responses by meaning and measures probability mass across semantic alternatives. It can better reflect answer-level disagreement, but depends on sampling, equivalence clustering, and entailment quality.</li>
+<li><strong>Self-consistency</strong> uses agreement among independently sampled answers. Agreement is evidence only when samples are sufficiently diverse; correlated misconceptions can be unanimous.</li>
+<li><strong>Verifier scores</strong> estimate correctness, constraint satisfaction, or process quality. They need held-out calibration and adversarial tests because generator and verifier can share blind spots.</li>
+<li><strong>Retrieval support</strong> measures whether evidence entails answer claims, not merely whether a document was retrieved or cited. Source reliability and retrieval failure remain separate uncertainties.</li>
+<li><strong>Confidence verbalization</strong> (“likely,” “90% confident”) is generated text, not a calibrated probability unless mapped and validated against outcomes.</li>
+<li><strong>Selective answering</strong> answers only when an answer-level score passes a threshold; otherwise it abstains, retrieves, uses a tool, asks a clarifying question, or escalates.</li>
+</ul>
+<p>For answer-level confidence, define the event first—for example, “the final answer passes the hidden unit tests” or “every material claim is supported.” Build features such as semantic agreement, verifier output, retrieval entailment, tool success, and model likelihood; fit a calibrator on held-out, task-matched examples; then evaluate reliability and risk–coverage under shift. The operational threshold should minimize expected decision cost, not maximize raw answer rate.</p>
+
+<h2 id="structured-output-and-reasoning-uncertainty">9. Structured-output and reasoning uncertainty</h2>
+<p>Structured and reasoning tasks create several distinct events that should not be collapsed into one confidence score:</p>
+<ul>
+<li><strong>Multiple valid formulations:</strong> JSON field order, equivalent programs, proofs, or paraphrases may all be valid. String likelihood and exact-match disagreement can overstate uncertainty unless outputs are canonicalized or judged semantically.</li>
+<li><strong>Correct answer with inconsistent reasoning:</strong> a final answer can be correct while intermediate steps contradict it, use an invalid argument, or cite failed tool output. Evaluate answer correctness, reasoning validity, and faithfulness separately.</li>
+<li><strong><code>pass@k</code> versus selected-answer confidence:</strong> <code>pass@k</code> estimates the chance that at least one of <code>k</code> samples succeeds. It says nothing about whether the system can identify that sample. Deployment confidence concerns the answer actually selected, so the selector or verifier needs separate evaluation and calibration.</li>
+<li><strong>Tool and retrieval uncertainty:</strong> the model may choose the wrong tool, form a poor query, receive stale or partial evidence, misread the result, or face execution errors. Propagate status and provenance rather than treating a tool call as guaranteed truth.</li>
+</ul>
+<p>A useful system-level record keeps separate signals for schema validity, execution success, evidence support, final-answer correctness, and selection confidence. Their combination should follow the decision policy and failure costs.</p>
+
+<h2 id="evaluation-under-shift">10. Evaluation under shift</h2>
+<ul>
+<li><strong>Temporal shift:</strong> evaluate on future time windows and monitor drift, staleness, and event-driven failures. Random train/test splits can leak temporal structure.</li>
+<li><strong>Domain shift:</strong> test new sources, institutions, devices, user populations, and task mixtures rather than only perturbing familiar inputs.</li>
+<li><strong>Language shift:</strong> report performance and calibration per language and dialect; translated benchmarks do not reproduce every cultural or production difference.</li>
+<li><strong>Recalibration:</strong> temperature scaling, isotonic regression, Platt-style calibration, or conformal recalibration can repair some score-to-risk mismatch using fresh labeled data, but cannot restore missing capability or guarantee stability after further drift.</li>
+<li><strong>Worst-group coverage:</strong> report the minimum coverage across pre-specified groups together with group sizes and interval or set widths. Average coverage can hide a safety-critical failure.</li>
+<li><strong>Decision-cost evaluation:</strong> attach costs to wrong answers, missed detections, abstentions, latency, retrieval, and human review. Compare policies by expected cost and constraints, not confidence metrics alone.</li>
+</ul>
+<p>Freeze thresholds before the final test, use shift-specific slices, and include confidence intervals. Plot risk–coverage and cost–coverage curves for each important slice. When labels arrive slowly, monitor proxy drift but do not mistake it for evidence of maintained calibration. Uncertainty is useful only if the policy responds appropriately: answer when expected benefit exceeds risk, acquire information when it can change the decision, and abstain or escalate when residual risk is unacceptable.</p>
+
+<h2 id="related-topics">Related topics</h2>
+<ul>
+<li><a href="calibration.html">Hallucination, Grounding and Calibration</a></li>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+<li><a href="bayesian-variational-inference.html">Bayesian and Variational Inference</a></li>
+<li><a href="gaussian-processes.html">Gaussian Processes</a></li>
+<li><a href="probabilistic-modelling.html">Probabilistic Modelling</a></li>
+</ul>
+</section>

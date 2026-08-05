@@ -1,0 +1,168 @@
+<section class="chapter-content" data-topic="rag">
+<p>Related HTML notes: <a href="retrieval.html">retrieval and reranking</a>, <a href="long-context.html">long context</a>, <a href="agents.html">agents</a>, <a href="evaluation.html">evaluation</a>, <a href="security.html">security</a>, and <a href="calibration.html">calibration and abstention</a>.</p>
+
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to design the complete RAG pipeline, decompose retrieval and generation evaluation, reason about chunking and context construction, and handle access control, prompt injection, empty retrieval, and stale evidence.</p>
+<h2 id="technical-framing">Technical framing</h2>
+<p>RAG combines parametric generation with an external corpus or index, commonly called non-parametric memory; retrievers, rerankers, encoders, and generators may themselves be learned and parameterized. REALM explores retrieval during pretraining. In its reported setup, RETRO retrieved from a roughly two-trillion-token corpus and let a smaller model reach Pile performance comparable to named much larger baselines; this is a scoped empirical result, not a general substitution law between retrieval and parameters. Retrieval can support updates, grounding, and attribution, but access alone does not guarantee factuality, freshness, grounding, or correct attribution.</p>
+<p>It also lists key failures: irrelevant passages, ignored evidence, context overload, conflicting sources, retrieval latency, and prompt injection through retrieved text.</p>
+<h2 id="architecture-taxonomy">RAG architecture taxonomy</h2>
+<p>“RAG” names a family of systems. The useful distinctions are <em>when</em> retrieval happens, whether it can repeat, and how the generator receives or combines evidence.</p>
+<table>
+<thead><tr><th>Architecture</th><th>Where retrieval occurs</th><th>How evidence is integrated</th><th>Best fit and main trade-off</th></tr></thead>
+<tbody>
+<tr><td><strong>Retrieve-then-read</strong></td><td>Once, before generation.</td><td>Top passages are concatenated into one prompt; the reader attends to them with the question.</td><td>Simple, debuggable baseline; one weak retrieval call can starve generation.</td></tr>
+<tr><td><strong>Fusion-in-Decoder (FiD)</strong></td><td>Once, before decoding.</td><td>Each passage is encoded separately, then the decoder jointly attends to all passage representations.</td><td>Handles more passages without early concatenation, but costs more encoder/decoder compute and usually requires a specialized model.</td></tr>
+<tr><td><strong>Retrieval during pretraining</strong></td><td>Inside the training objective and often again at inference, as in REALM or RETRO-style systems.</td><td>Retrieved neighbors condition token representations or prediction through learned attention.</td><td>Teaches the model to use retrieval, but couples retriever, corpus, training, and serving infrastructure.</td></tr>
+<tr><td><strong>Iterative or multi-hop RAG</strong></td><td>Between reasoning steps: retrieve, inspect, form a new subquery, and retrieve again.</td><td>Evidence is accumulated in state or a scratchpad and synthesized after enough hops.</td><td>Questions whose answer spans documents; risks loops, compounding drift, and latency.</td></tr>
+<tr><td><strong>Query-decomposition RAG</strong></td><td>After a planner splits a complex question; subqueries may run in parallel or by dependency order.</td><td>Per-subquery evidence and answers are joined into a final answer.</td><td>Composable questions; a bad decomposition can omit a necessary dependency.</td></tr>
+<tr><td><strong>Corrective RAG</strong></td><td>Initial retrieval is scored or criticized; weak results trigger rewritten retrieval, another corpus, or web/tool fallback.</td><td>Only accepted or corrected evidence reaches final generation.</td><td>Robustness to poor first results, at the cost of evaluator errors and extra calls.</td></tr>
+<tr><td><strong>Self-reflective RAG</strong></td><td>The model decides when to retrieve and critiques relevance and support during generation.</td><td>Reflection or control tokens govern retrieve, use, continue, revise, or abstain decisions.</td><td>Adaptive evidence use; control decisions are model outputs and need calibration.</td></tr>
+<tr><td><strong>Agentic RAG</strong></td><td>An <a href="agents.html">agent</a> chooses among indexes, search, databases, and APIs over multiple steps.</td><td>Tool observations enter managed state; the agent plans, verifies, cites, and may take actions.</td><td>Heterogeneous research tasks; the largest attack surface, latency variance, and observability burden.</td></tr>
+</tbody>
+</table>
+<p>Start with retrieve-then-read. Add decomposition, correction, reflection, or agency only when evaluation shows that a single bounded retrieval stage cannot solve the target question distribution.</p>
+<h2 id="end-to-end-pipeline">End-to-end pipeline</h2>
+<pre><code class="language-text">ingestion → parsing/OCR → cleaning → chunking → metadata
+→ embedding/indexing → query transformation → retrieval → filtering
+→ reranking → context assembly → generation → evidence validation
+</code></pre>
+<h3 id="ingestion-and-parsing">Ingestion and parsing</h3>
+<p>Preserve document identity, version, timestamps, section hierarchy, page/span location, permissions, and provenance. Parsing errors can destroy tables, code blocks, mathematical structure, or associations between headings and paragraphs.</p>
+<h3 id="chunking">Chunking</h3>
+<p>Small chunks improve localization but lose context. Large chunks preserve context but add noise and consume the prompt budget. Common algorithms have distinct failure modes:</p>
+<table>
+<thead><tr><th>Method</th><th>Mechanism</th><th>Use and risk</th></tr></thead>
+<tbody>
+<tr><td><strong>Fixed-token windows</strong></td><td>Split every <em>N</em> tokens.</td><td>Fast baseline with predictable cost; may cut sentences, tables, or definitions from their qualifiers.</td></tr>
+<tr><td><strong>Sentence-aware / heading-aware</strong></td><td>Pack whole sentences under a limit and retain section ancestry.</td><td>Preserves discourse and provenance; headings can be too coarse or inconsistently authored.</td></tr>
+<tr><td><strong>Overlap</strong></td><td>Repeat boundary tokens in adjacent chunks.</td><td>Recovers facts near boundaries, but inflates the index and creates duplicate retrieval.</td></tr>
+<tr><td><strong>Parent-child retrieval</strong></td><td>Search small child chunks, then return a larger parent section.</td><td>Combines precise matching with readable context; parents can reintroduce noise and consume budget.</td></tr>
+<tr><td><strong>Late chunking</strong></td><td>Encode a long document first, then pool token embeddings into chunks.</td><td>Chunk vectors retain broader document context; requires a long-input embedding model and more indexing compute.</td></tr>
+<tr><td><strong>Semantic splitting</strong></td><td>Cut where adjacent sentence embeddings or topic signals change sharply.</td><td>Adapts to topic boundaries; thresholds are corpus-specific and unstable on short or repetitive prose.</td></tr>
+</tbody>
+</table>
+<p>Structure-specific parsing comes first: preserve table headers with rows and optionally serialize a compact table view; keep code with signatures, comments, and enclosing symbol/module metadata; retain PDF page, bounding-box, column, footnote, and reading-order information; and store diagram captions plus OCR or a separately generated visual description linked to the image. A flat text splitter cannot reliably reconstruct these relationships later.</p>
+<p><strong>Numerical chunking example.</strong> A 10,000-token document split into 900-token windows with 120-token overlap advances 780 tokens per chunk and needs about 13 chunks. The 12 repeated boundaries add 1,440 indexed tokens, roughly 14.4% duplication. Compare that baseline against sentence/heading-aware, parent-child, and semantic variants on retrieval recall, reranker precision, answer quality, citation-span accuracy, index size, and latency. Select chunk size, overlap, and parser per corpus from an end-to-end validation set—not from a universal rule of thumb.</p>
+<h3 id="query-transformation">Query transformation</h3>
+<table>
+<thead><tr><th>Transformation</th><th>What it does</th><th>Risk and guardrail</th></tr></thead>
+<tbody>
+<tr><td><strong>Multi-query retrieval</strong></td><td>Generate several paraphrases or perspectives, retrieve for each, then fuse and deduplicate rankings.</td><td>Higher recall but more cost and false positives; retain the original query and cap variants.</td></tr>
+<tr><td><strong>Query expansion</strong></td><td>Add aliases, acronyms, entities, translations, or domain terms.</td><td>An added term can change scope; log expansions and require entity/constraint preservation.</td></tr>
+<tr><td><strong>HyDE</strong></td><td>Generate a hypothetical answer/document, embed it, and retrieve real documents near it.</td><td>The hypothetical may invent the wrong premise; use it only as a retrieval key, never as evidence.</td></tr>
+<tr><td><strong>Decomposition</strong></td><td>Split a compound question into atomic or dependent subqueries.</td><td>Improves multi-hop coverage but may drop a constraint; verify that subanswers cover the original question.</td></tr>
+<tr><td><strong>Routing</strong></td><td>Choose a corpus, tenant index, SQL/API tool, or search engine using intent and metadata.</td><td>Misrouting creates false empty results; allow bounded fallback and trace the router decision.</td></tr>
+</tbody>
+</table>
+<p>All transformations trade recall against semantic drift. Measure whether retrieved evidence answers the <em>original</em> question, preserve dates, negation, tenant, and named entities as hard constraints, and compare transformed retrieval with an untransformed baseline.</p>
+<h3 id="retrieval-and-reranking">Retrieval and reranking</h3>
+<p>Use sparse, dense, or hybrid candidate generation, then an optional reranker; see <a href="retrieval.html">Embeddings, Retrieval and Reranking</a>. Apply tenant and authorization filters inside candidate retrieval, not merely after ranking, so forbidden content never reaches caches, logs, rerankers, or the model. Deduplicate overlapping passages and retain stable source spans for citation.</p>
+<h2 id="multi-hop-control">Multi-hop control</h2>
+<pre><code class="language-text">retrieve → inspect evidence and gaps → generate one constrained subquery
+→ retrieve again → merge evidence → answer, abstain, or continue
+</code></pre>
+<ul>
+<li><strong>Termination:</strong> stop when every required subclaim has sufficient evidence, the answer is known to be unanswerable, the next query adds no novel evidence, confidence improvement is below a threshold, or the hop/time/token budget is exhausted.</li>
+<li><strong>Evidence accumulation:</strong> keep source IDs, versions, spans, timestamps, permissions, supported subclaims, and retrieval hops—not only a prose scratchpad.</li>
+<li><strong>Duplicates:</strong> cluster near-identical passages and avoid counting mirrors as independent corroboration.</li>
+<li><strong>Contradictions:</strong> retain both sides, prefer authoritative and current sources according to an explicit policy, and expose unresolved disagreement instead of silently averaging it away.</li>
+<li><strong>Loop and latency limits:</strong> cap hops, subqueries per hop, wall-clock time, tool calls, and repeated query similarity. A practical default might allow three hops and stop if a hop adds no new source or supported claim.</li>
+</ul>
+<h3 id="context-assembly">Context assembly</h3>
+<p>Context construction is a constrained optimization problem: maximize claim coverage and source quality under a token budget while minimizing redundancy. Relevance alone is insufficient: five near-duplicate high-scoring passages may cover less than three diverse passages.</p>
+<ul>
+<li><strong>Ordering:</strong> group evidence by subquestion or claim, keep titles and provenance adjacent, and put the most decision-relevant evidence in positions the model reliably attends to. Do not assume the middle of a long prompt receives equal attention; test for <em>lost-in-context</em> effects.</li>
+<li><strong>Compression:</strong> remove navigation, boilerplate, and duplicate sentences, or extract only query-relevant spans. Compression output is derived data: link it to the original span and test that qualifiers, negation, dates, and attribution survive.</li>
+<li><strong>Citation spans:</strong> assign stable source and span IDs before generation. Ask the model to attach IDs to individual claims rather than placing one citation at the end of a mixed paragraph.</li>
+<li><strong>Contradictions:</strong> label sources, dates, and authority; present incompatible passages together and require the answer to state the conflict or follow a declared precedence rule.</li>
+</ul>
+<p><strong>Worked context-budget example.</strong> With a 16,384-token window, reserve 1,800 for system/tool instructions, 1,200 for the question and history, and 2,200 for the answer. Evidence receives at most 11,184 tokens. Twenty 650-token candidates would require 13,000 tokens before metadata. Instead choose ten diverse direct chunks (6,500), two compressed parent summaries (2,600), and 800 tokens of source labels and separators: 9,900 tokens, leaving a 1,284-token safety margin. The objective is coverage, not filling the window. Compare this approach with the trade-offs in <a href="long-context.html">Long-Context LLMs</a>.</p>
+<h2 id="evaluation-decomposition">Evaluation decomposition</h2>
+<table>
+<thead><tr><th>Layer</th><th>Question</th><th>Representative measures</th></tr></thead>
+<tbody>
+<tr><td><strong>Retrieval</strong></td><td>Did candidate retrieval find the necessary authorized evidence?</td><td>Evidence/answer-bearing <strong>recall@k</strong>, rank metrics, freshness, and tenant-filter correctness.</td></tr>
+<tr><td><strong>Context construction</strong></td><td>Did the final prompt retain the useful evidence without crowding it out?</td><td><strong>Context relevance</strong>, claim coverage, redundancy, contradiction preservation, ordering sensitivity, and token utilization.</td></tr>
+<tr><td><strong>Claim support</strong></td><td>Does each externally verifiable answer claim follow from a supplied span?</td><td><strong>Claim-level support</strong> and <strong>faithfulness</strong>; entailment must include qualifiers, dates, and entities.</td></tr>
+<tr><td><strong>Citations</strong></td><td>Are cited spans supportive, and are supported claims cited?</td><td><strong>Citation precision</strong> = supportive cited spans / cited spans; <strong>citation recall</strong> = verifiable claims with a supporting citation / verifiable claims.</td></tr>
+<tr><td><strong>Answer</strong></td><td>Is the response actually right and appropriately uncertain?</td><td><strong>Answer correctness</strong>, completeness, calibrated <strong>abstention</strong>, and usefulness. A faithful answer can still repeat a false source.</td></tr>
+<tr><td><strong>Operations and policy</strong></td><td>Was the system current, authorized, and reliable?</td><td><strong>Freshness</strong>, latency, cost, cache behavior, fallback behavior, and <strong>access-control correctness</strong>, including zero leakage into intermediate systems.</td></tr>
+</tbody>
+</table>
+<p><strong>Claim/evidence example.</strong> An answer contains three verifiable claims: C1 “Policy A started in 2024,” C2 “it covers contractors,” and C3 “approval is automatic.” Span S1 directly supports C1, S2 directly supports C2, and cited S3 discusses approvals but does not support C3. Claim-level support is 2/3. Three spans are cited and two support their attached claims, so citation precision is 2/3. Two of three verifiable claims have a supporting citation, so citation recall is 2/3. C3 is unfaithful even though it displays a citation; if the reference answer says manual approval is required, C3 also lowers correctness. The system should qualify or abstain on C3, with thresholds validated as described in <a href="calibration.html">Calibration, Confidence and Abstention</a>.</p>
+<p>A RAG system does not inherently eliminate hallucination. Evaluate the full system, an oracle-context generator, the answer without retrieval, and retrieval alone. This decomposition localizes the failure:</p>
+<table>
+<thead><tr><th>Failure class</th><th>Diagnostic signature</th><th>Owner or fix</th></tr></thead>
+<tbody>
+<tr><td><strong>Retrieval failure</strong></td><td>The authorized, current answer-bearing source never appears in candidates.</td><td>Parsing/indexing, query transformation, router, filters, embedding, sparse search, or candidate depth.</td></tr>
+<tr><td><strong>Context-construction failure</strong></td><td>The source was retrieved but deduplication, reranking, compression, ordering, or truncation removed or distorted it.</td><td>Reranker and context builder; inspect the exact final prompt.</td></tr>
+<tr><td><strong>Generation failure</strong></td><td>The final prompt contains clear evidence, but the model ignores, misreads, contradicts, or fails to cite it.</td><td>Prompt/decoder/model choice, structured claim checks, or abstention policy.</td></tr>
+</tbody>
+</table>
+<p>Use the broader methodology in <a href="evaluation.html">LLM Evaluation and Benchmark Design</a>, stratified by question type, corpus, tenant, freshness, and number of hops.</p>
+<h2 id="security">Security</h2>
+<p>Retrieved documents are untrusted data. Indirect prompt injection can be stored inside a document and activated only when retrieved. Mitigations include instruction/data separation, least-privilege tools, sanitization, provenance, explicit authorization, output validation, and adversarial tests. Prompt wording alone is not a sufficient defense; see <a href="security.html">LLM Security, Prompt Injection and Data Leakage</a>.</p>
+<h2 id="operational-design">Operational design</h2>
+<ul>
+<li><strong>Versioning:</strong> record parser, chunker, document snapshot, embedding model, vector dimension, index schema, retriever, and reranker versions. Use immutable index generations and atomically switch an alias after validation.</li>
+<li><strong>Freshness invalidation:</strong> propagate source create/update/delete and permission events, tombstone deleted chunks, re-index affected documents, and define a measurable freshness service-level objective.</li>
+<li><strong>Caches:</strong> separate query/result, embedding, reranker, and answer caches. Include corpus/index version, tenant, permissions, transformation, and model/prompt version in keys; use short TTLs or event invalidation for volatile data. Never share authorization-sensitive cache entries across principals.</li>
+<li><strong>Tenant filtering:</strong> enforce tenant and document ACLs in every index and tool call, test deny-by-default behavior, and re-check authorization when serving cached sources or citations.</li>
+<li><strong>Fallbacks:</strong> on empty, stale, timed-out, or low-confidence retrieval, retry a bounded lexical/hybrid path, route to an authoritative API, ask a clarifying question, or abstain. Do not silently answer from model memory as though grounded.</li>
+<li><strong>Tracing:</strong> log trace IDs, sanitized original/transformed queries, router choices, filters, candidate and reranker scores, selected spans, compression lineage, prompt budget, citations, model response, hop/latency/cost breakdown, and evaluation outcome. This makes failure attribution reproducible without logging forbidden content.</li>
+</ul>
+<h2 id="peer-programming-concerns">Peer-programming concerns</h2>
+<p>A realistic implementation should include:</p>
+<ul>
+<li>typed request and response schemas;</li>
+<li>asynchronous calls with deadlines;</li>
+<li>bounded retries and backoff;</li>
+<li>empty-result and partial-result behavior;</li>
+<li>tenant or permission filters;</li>
+<li>a context-token budget;</li>
+<li>source-span citations;</li>
+<li>structured logging and trace IDs;</li>
+<li>tests for stale, contradictory, duplicated, and malicious documents.</li>
+</ul>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>answer-bearing information split across chunks;</li>
+<li>semantically similar but non-answering results;</li>
+<li>stale index after source updates;</li>
+<li>cross-tenant leakage;</li>
+<li>context truncation removing the best evidence;</li>
+<li>model ignoring a relevant passage;</li>
+<li>unsupported claims despite correct citations;</li>
+<li>dependency retries causing duplicate side effects.</li>
+</ul>
+<h2 id="decision-matrix">Decision matrix</h2>
+<table>
+<thead><tr><th>Choice</th><th>Prefer RAG when</th><th>Prefer the alternative when</th><th>Often best combined design</th></tr></thead>
+<tbody>
+<tr><td><strong>RAG vs <a href="long-context.html">long context</a></strong></td><td>The corpus is large, changes often, needs selective ACL filtering, or citations must point to stable spans.</td><td>A small known document set fits comfortably, cross-document global structure matters, and retrieval omission is riskier than added prompt cost.</td><td>Retrieve documents or sections first, then give the model a longer local context.</td></tr>
+<tr><td><strong>RAG vs fine-tuning</strong></td><td>Facts change, provenance matters, and knowledge must be added or removed without retraining.</td><td>The goal is stable behavior, style, format, classification, or domain procedure rather than injecting current factual memory.</td><td>Fine-tune behavior and tool use; retrieve changing facts at inference.</td></tr>
+<tr><td><strong>RAG vs direct API/tool lookup</strong></td><td>The answer requires fuzzy search or synthesis across unstructured documents.</td><td>The value is structured, authoritative, transactional, or must be exact/current—price, inventory, account state, or permission.</td><td>Use RAG to identify entities/policy context, then call the authoritative tool for the live value; an <a href="agents.html">agent</a> can orchestrate both under bounded permissions.</td></tr>
+</tbody>
+</table>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Design RAG for private engineering manuals.</li>
+<li>Compare long context with retrieval.</li>
+<li>Build an evaluation that separates retrieval from generation.</li>
+<li>Handle contradictory documents and source freshness.</li>
+<li>Explain indirect prompt injection and the authorization boundary.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="retrieval.html">Embeddings, Retrieval and Reranking</a></li>
+<li><a href="long-context.html">Long-Context LLMs</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="agents.html">Agents, Orchestration and Agent Evaluation</a></li>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+<li><a href="security.html">LLM Security, Prompt Injection and Data Leakage</a></li>
+<li><a href="calibration.html">Calibration, Confidence and Abstention</a></li>
+</ul>
+</section>

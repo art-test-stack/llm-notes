@@ -1,0 +1,248 @@
+<section class="chapter-content" data-topic="path-signatures">
+<p class="lede">A path signature turns an ordered, possibly irregular stream into a hierarchy of geometric features. Level one records displacement, level two records ordered pairwise effects and area, and higher levels record increasingly detailed order interactions.</p>
+
+      <div class="callout">
+        <strong>Core idea.</strong> For a path <code class="math-inline">X</code>, its signature is the collection of all iterated integrals of its coordinate differentials. A truncated signature is a finite feature vector; a log-signature is a less redundant coordinate system for the same group-like object; a Neural CDE is a learned dynamical model driven by the path, not another name for either feature vector.
+      </div>
+
+      <h2 id="paths-and-streams">1. Paths and streams</h2>
+
+      <h3>Continuous paths</h3>
+      <p>A <em>path</em> is a map <code>X : [0,T] → ℝ<sup>d</sup></code>. The parameter is often time, but it may be any variable that orders observations. A path is continuous if nearby parameter values produce nearby points. For ordinary Riemann–Stieltjes integration, bounded variation is a convenient regularity assumption; rough-path theory extends the construction to much more irregular signals.</p>
+
+      <h3>Piecewise-linear interpolation</h3>
+      <p>A discrete sequence <code>(t<sub>n</sub>, x<sub>n</sub>)</code> does not specify a continuous path until an interpolation rule is chosen. Piecewise-linear interpolation joins consecutive observations by straight segments and gives an exact finite computation of a truncated signature. It is causal offline or once a segment endpoint has arrived, but not for continuous strict-online queries inside that segment: with observations <code class="math-inline">(t_{0},x_{0})</code> and <code class="math-inline">(t_{1},x_{1})</code>, the interpolated value at <code class="math-inline">t_{0}\lt t\lt t_{1}</code> uses the future endpoint <code class="math-inline">x_{1}</code> before it is observed. Previous-value, rectilinear/time-joined, delayed, or explicitly online schemes avoid that look-ahead.</p>
+
+      <h3>Irregularly sampled time series</h3>
+      <p>Signatures naturally accept irregular observations because they operate on a path rather than a fixed grid. However, if only values are supplied, a reparameterization-invariant signature cannot distinguish slow from fast traversal. Add the actual observation time as a channel when gaps or sampling density carry information.</p>
+
+      <h3>Multichannel paths</h3>
+      <p>For <code>d</code> channels, <code class="math-inline">X_t=(X_t^1,\ldots,X_t^d)</code>. Cross-channel iterated integrals encode ordering: “channel <code>i</code> moved, then channel <code>j</code> moved” differs from the reverse. This is why signatures capture more than per-channel summary statistics.</p>
+
+      <h3>Time augmentation</h3>
+      <p>Replace <code>X<sub>t</sub></code> by <code class="math-inline">\widetilde X_t=(t,X_t)</code> to retain duration, speed relative to the clock, and irregular sampling gaps. Normalize time only if absolute duration should not matter. Other common augmentations include observation-count, missingness masks, and lead–lag channels.</p>
+
+      <h2 id="iterated-integrals">2. Iterated integrals</h2>
+
+      <p>Assume first that <code class="math-inline">X</code> has bounded variation. For a multi-index <code class="math-inline">I=(i_1,\ldots,i_k)</code>, define</p>
+      <div class="formula"><code class="math-inline">S^I(X)_{0,T}=\int_{0&lt;t_1&lt;\cdots&lt;t_k&lt;T}dX_{t_1}^{i_1}\cdots dX_{t_k}^{i_k}.</code></div>
+      <p>The ordered simplex <code class="math-inline">t_{1} \lt  \cdots  \lt  t_{k}</code> is essential: it makes the feature sensitive to the order in which coordinates move.</p>
+
+      <h3>First-level increments</h3>
+      <div class="formula"><code class="math-inline">S^i(X)_{0,T}=\int_0^T dX_t^i=X_T^i-X_0^i.</code></div>
+      <p>Geometrically, level one is the displacement vector. It knows the endpoints’ difference but not the route between them.</p>
+
+      <h3>Second-level signed areas</h3>
+      <div class="formula"><code class="math-inline">S^{ij}(X)=\int_{0&lt;s&lt;t&lt;T}dX_s^i\,dX_t^j.</code></div>
+      <p>The full second level records ordered pairs of movements. Its symmetric part is fixed by level one through the shuffle identity:</p>
+      <div class="formula"><code class="math-inline">S^{ij}+S^{ji}=S^iS^j.</code></div>
+      <p>The antisymmetric part</p>
+      <div class="formula"><code class="math-inline">A^{ij}=\tfrac12\bigl(S^{ij}-S^{ji}\bigr)</code></div>
+      <p>is the signed Lévy area in the <code>(i,j)</code> plane, relative to the chord closing the path. Its sign reverses when the order of the two channel movements reverses. Thus level two distinguishes “<code>i</code> then <code>j</code>” from “<code>j</code> then <code>i</code>” even when both paths have the same increment.</p>
+
+      <h3>Higher levels</h3>
+      <p>Level <code>k</code> contains <code>d<sup>k</sup></code> coordinates before algebraic compression. These measure ordered <code>k</code>-way interactions and refine the geometric description. Individual coordinates become harder to interpret, but collectively the hierarchy can characterize a path up to specific equivalences.</p>
+
+      <h3>Multi-index notation</h3>
+      <p>Writing <code>S<sup>(2,1,2)</sup></code> means: integrate a movement in channel 2, followed later by one in channel 1, followed later by one in channel 2. The word or multi-index length <code>|I|</code> is the signature level.</p>
+
+      <h3>Geometric interpretation</h3>
+      <table>
+        <thead><tr><th>Level</th><th>Geometric content</th><th>What it adds</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>Scalar <code>1</code></td><td>Multiplicative identity</td></tr>
+          <tr><td>1</td><td>Net displacement</td><td>Where the path ended relative to its start</td></tr>
+          <tr><td>2</td><td>Ordered pair effects; antisymmetric signed areas</td><td>Which coordinate tended to move first and how the path swept planes</td></tr>
+          <tr><td>3+</td><td>Higher-order ordered geometry</td><td>Finer route information and channel interactions</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="signature-definition">3. Signature definition</h2>
+
+      <h3>Tensor-series representation</h3>
+      <p>Let <code class="math-inline">V=\mathbb{R}^d</code>. The signature is the formal tensor series</p>
+      <div class="formula"><code class="math-inline">\begin{aligned}\operatorname{Sig}(X)_{0,T}&amp;=\bigl(1,S^1(X),S^2(X),\ldots\bigr)\in T((V)),\\S^k(X)&amp;=\int_{0&lt;t_1&lt;\cdots&lt;t_k&lt;T}dX_{t_1}\otimes\cdots\otimes dX_{t_k}\in V^{\otimes k}.\end{aligned}</code></div>
+      <p>The scalar level zero makes tensor multiplication and Chen’s identity work cleanly.</p>
+
+      <h3>Truncated signatures</h3>
+      <p>In computation, retain only levels <code>0,…,m</code>:</p>
+      <div class="formula"><code class="math-inline">\operatorname{Sig}^{\le m}(X)=\bigl(1,S^1(X),\ldots,S^m(X)\bigr).</code></div>
+
+      <h3>Factorial decay</h3>
+      <p>For a bounded-variation path with total variation <code class="math-inline">L</code>, a standard bound is</p>
+      <div class="formula"><code class="math-inline">\lVert S^k(X)\rVert\le\frac{L^k}{k!}.</code></div>
+      <p>The factorial denominator arises from integrating over the ordered simplex, whose volume is <code>1/k!</code> of the full cube. The bound depends on the chosen tensor norm and does not mean high levels are always numerically negligible after arbitrary scaling.</p>
+
+      <h3>Why truncation is practical</h3>
+      <p>Factorial decay and task-dependent finite resolution often make low levels useful. The raw feature dimension through depth <code>m</code>, excluding level zero, is</p>
+      <div class="formula"><code class="math-inline">D(d,m)=\sum_{k=1}^m d^k=\frac{d^{m+1}-d}{d-1},\qquad d\ne1.</code></div>
+      <div class="callout">
+        <strong>Dimension calculation.</strong> With <code class="math-inline">d = 4</code> channels and depth <code class="math-inline">m = 3</code>, the levels contain <code>4</code>, <code>16</code>, and <code>64</code> coordinates: <code class="math-inline">4 + 16 + 64 = 84</code> features, or <code>85</code> if the constant level zero is stored. At depth 5 this becomes <code class="math-inline">4 + 16 + 64 + 256 + 1024 = 1364</code>, illustrating why depth and channel count must be chosen together.
+      </div>
+
+      <h2 id="chens-identity">4. Chen’s identity</h2>
+
+      <h3>Signature of concatenated paths</h3>
+      <p>If <code>X * Y</code> follows path <code class="math-inline">X</code> and then path <code class="math-inline">Y</code>, with the endpoint of <code class="math-inline">X</code> joined to the start of a translated copy of <code class="math-inline">Y</code>, then</p>
+      <div class="formula"><code class="math-inline">\operatorname{Sig}(X*Y)=\operatorname{Sig}(X)\otimes\operatorname{Sig}(Y).</code></div>
+
+      <h3>Algebraic product</h3>
+      <p>The product is tensor-series multiplication, not elementwise multiplication. At level <code>k</code>,</p>
+      <div class="formula"><code class="math-inline">\bigl(S(X)\otimes S(Y)\bigr)^k=\sum_{r=0}^k S^r(X)\otimes S^{k-r}(Y).</code></div>
+      <p>In particular, <code class="math-inline">S^1(X*Y)=S^1(X)+S^1(Y)</code> and</p>
+      <div class="formula"><code class="math-inline">S^2(X*Y)=S^2(X)+S^1(X)\otimes S^1(Y)+S^2(Y).</code></div>
+      <p>The cross term records that every movement in <code class="math-inline">X</code> occurs before every movement in <code class="math-inline">Y</code>.</p>
+
+      <h3>Worked small example</h3>
+      <p>Let <code class="math-inline">X</code> move one unit along the first coordinate, so its increment is <code class="math-inline">a = (1,0)</code>. Let <code class="math-inline">Y</code> then move two units along the second coordinate, with increment <code class="math-inline">b = (0,2)</code>. A straight segment with increment <code>v</code> has second level <code>v⊗v/2</code>. Chen’s identity gives</p>
+      <div class="math-display">Level 1: a + b = (1, 2)
+
+Level 2: ½a⊗a + a⊗b + ½b⊗b
+         = [[1/2, 2],
+            [  0, 2]]</div>
+      <p>Therefore <code class="math-inline">S12 = 2</code> while <code class="math-inline">S21 = 0</code>: the horizontal movement happened before the vertical movement. The antisymmetric area is <code class="math-inline">\tfrac{1}{2}(2-0) = 1</code>, the signed area of the right triangle closed by the chord. Reversing the two segments swaps the off-diagonal entries and changes the area’s sign.</p>
+
+      <h3>Streaming and windowed computation</h3>
+      <p>Maintain a running truncated signature <code class="math-inline">G</code>. When a new path piece arrives, compute its signature <code class="math-inline">H</code> and update <code>G ← G⊗H</code>. This supports online processing without replaying the full history. Windowed systems can combine signatures of blocks in a tree. Removing an old prefix requires the group inverse, or more simply recomputing from cached blocks; it is not ordinary coordinate-wise subtraction.</p>
+
+      <h2 id="invariances-and-information">5. Invariances and information</h2>
+
+      <h3>Translation invariance</h3>
+      <p>Because signatures integrate <code>dX</code>, adding a constant vector to every point leaves the signature unchanged. If absolute position matters, retain the initial point as a separate feature or add a reference channel.</p>
+
+      <h3>Reparameterization invariance</h3>
+      <p>For an orientation-preserving, sufficiently regular change of parameter, the path traverses the same geometric trace in the same order and has the same signature. This is valuable when sampling speed is nuisance variation. It is harmful when speed, duration, or dwell time is predictive; time augmentation then restores this information.</p>
+
+      <h3>Tree-like equivalence</h3>
+      <p>For bounded-variation (finite-length) paths, equal signatures characterize tree-like equivalence. Each tree-like equivalence class has a tree-reduced representative unique up to orientation-preserving reparameterization. Translation invariance is a separate fact because the signature integrates increments <code>dX</code>; retain the initial point separately when absolute location matters. These statements do not reconstruct a unique timestamped raw series and require different machinery for rougher path classes.</p>
+
+      <h3>Why time or lead–lag augmentation may be needed</h3>
+      <p>Time augmentation separates paths with identical geometric order but different timing. Lead–lag augmentation duplicates channels into lagged and leading copies, turning discrete ordering and quadratic variation into geometric area. It is especially useful when the raw piecewise-linear path would erase discrete effects such as volatility or when repeated points create ambiguity.</p>
+
+      <h3>What information signatures can lose</h3>
+      <ul>
+        <li>Absolute starting location, unless stored separately.</li>
+        <li>Traversal speed and calendar gaps, unless time is included.</li>
+        <li>Tree-like backtracking excursions.</li>
+        <li>Fine detail above the chosen truncation depth.</li>
+        <li>Sampling and missingness patterns, unless represented as channels.</li>
+      </ul>
+
+      <h2 id="log-signatures">6. Log-signatures</h2>
+
+      <h3>Redundancy in raw signatures</h3>
+      <p>Signature coordinates obey shuffle identities; for example, <code class="math-inline">S^iS^j=S^{ij}+S^{ji}</code>. Raw tensor coordinates are therefore not algebraically independent.</p>
+
+      <h3>Free Lie algebra intuition</h3>
+      <p>The tensor logarithm <code>log Sig(X)</code> lies in the free Lie algebra generated by the path channels. Informally, it keeps primitive directions and their nested noncommutative interactions: channels <code>e<sub>i</sub></code>, brackets <code>[e<sub>i</sub>,e<sub>j</sub>]</code>, then nested brackets such as <code>[e<sub>i</sub>,[e<sub>j</sub>,e<sub>k</sub>]]</code>. The bracket captures order effects that vanish in a commutative summary.</p>
+
+      <h3>Dimensionality reduction</h3>
+      <p>A basis such as a Lyndon or Hall basis stores only independent Lie coordinates. By Witt’s formula, the number at homogeneous level <code>k</code> is</p>
+      <div class="formula"><code class="math-inline">\ell k(d) = (1/k) \sum r\mid k \mu (r)d k/r.</code></div>
+      <p>For <code class="math-inline">d=4</code>, levels 1–3 contain <code>4</code>, <code>6</code>, and <code>20</code> log-signature coordinates, for <code>30</code> total rather than <code>84</code> raw signature coordinates.</p>
+
+      <h3>Computational trade-offs</h3>
+      <p>Log-signatures reduce feature dimension and remove shuffle redundancy, but computing the tensor logarithm and converting to a Lie basis add cost and implementation complexity. The log-signature of a concatenation is not simple addition when increments do not commute; it is combined through the Baker–Campbell–Hausdorff series. Raw signatures are often simpler for Chen updates and kernels.</p>
+
+      <table>
+        <thead><tr><th>Object</th><th>What it is</th><th>Typical role</th></tr></thead>
+        <tbody>
+          <tr><td>Signature</td><td>Iterated-integral tensor series, usually truncated</td><td>Fixed geometric feature map with easy concatenation</td></tr>
+          <tr><td>Log-signature</td><td>Lie-algebra coordinates of a signature</td><td>Less redundant fixed feature map</td></tr>
+          <tr><td>Neural CDE</td><td>Learned hidden state driven by <code>dX</code></td><td>End-to-end nonlinear sequence model</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="rough-paths">7. Rough paths</h2>
+
+      <h3>Why highly irregular paths require enhanced information</h3>
+      <p>For smooth or bounded-variation controls, integrals against <code>dX</code> are classical. For signals as irregular as Brownian motion, first-level increments alone do not determine limits of nonlinear differential equations driven by smooth approximations. One must also specify consistent higher-order iterated integrals—most notably area. A rough path is this enhanced path.</p>
+
+      <h3><em>p</em>-variation</h3>
+      <p>The <code>p</code>-variation of <code class="math-inline">X</code> measures accumulated roughness:</p>
+      <div class="formula"><code class="math-inline">\lVert X\rVert_{p\text{-var};[0,T]}=\left(\sup_{\Pi}\sum_{[u,v]\in\Pi}\lVert X_v-X_u\rVert^p\right)^{1/p}.</code></div>
+      <p>Smaller admissible <code>p</code> means greater regularity. A finite <code>p</code>-variation driver is enhanced through at least level <code>⌊p⌋</code> in the basic rough-path construction. Brownian sample paths have finite <code>p</code>-variation for every <code class="math-inline">p\gt 2</code>, so level-two area is essential.</p>
+
+      <h3>Controlled differential equations</h3>
+      <p>A controlled differential equation (CDE) has the form</p>
+      <div class="formula"><code class="math-inline">dz_t=f(z_t)\,dX_t,\qquad z_0\ \text{given}.</code></div>
+      <p>The solution responds to the ordered geometry of the control path. Rough-path theory makes the solution map continuous in a suitable rough-path metric: close enhanced drivers yield close solutions. This stability is the pathwise foundation behind learning from irregular controls.</p>
+
+      <h3>Signature as a universal feature set at an appropriate level</h3>
+      <p>On suitable compact sets of reduced paths, linear functionals of signatures can approximate continuous path functionals. The shuffle algebra supplies products of coordinates, enabling a Stone–Weierstrass-type universality argument. This does not say a shallow truncation solves every task: the enhancement level required to define the driver and the truncation depth required for prediction are separate choices.</p>
+
+      <h2 id="machine-learning-use">8. Machine-learning use</h2>
+
+      <h3>Linear models on signatures</h3>
+      <p>Compute <code class="math-inline">\operatorname{Sig}^{\le m}(X)</code> or <code class="math-inline">\log\operatorname{Sig}^{\le m}(X)</code>, then fit linear or generalized-linear models. The feature map contains nonlinear path interactions while the predictor remains convex, data-efficient, and inspectable. Regularization is important because feature counts grow rapidly.</p>
+
+      <h3>Neural CDEs</h3>
+      <p>A Neural CDE parameterizes the vector field with a neural network:</p>
+      <div class="formula"><code class="math-inline">dz_t=f_\theta(z_t)\,dX_t,\qquad \widehat y=g_\theta(z_T).</code></div>
+      <p>It consumes a continuously interpolated control and learns a nonlinear state update. Unlike a precomputed signature, its representation is task-trained and solver-dependent. The relationship is structural: CDE solutions can be expanded in iterated integrals, but a Neural CDE is a model, not a log-signature.</p>
+
+      <h3>Signature kernels</h3>
+      <p>A signature kernel evaluates an inner product between potentially very high or infinite signature feature maps without explicitly materializing every coordinate. Kernel methods can preserve the signature geometry, though kernel-matrix memory, numerical approximation, and large dataset scaling remain concerns.</p>
+
+      <h3>Hybrid neural-signature models</h3>
+      <p>Options include feeding windowed log-signatures to an MLP or Transformer, using signatures to summarize local blocks before attention, learning a channel embedding before signature computation, or using signature layers inside a differentiable model. These hybrids trade explicit geometric inductive bias against end-to-end flexibility.</p>
+
+      <h3>Online and irregular time-series applications</h3>
+      <p>Chen updates make signatures natural for streaming classification, event data, finance, sensor monitoring, and medical records. Time and missingness channels preserve irregular observation structure. Windowed or decayed summaries are often preferable when the data distribution changes over time.</p>
+
+      <h2 id="practical-design">9. Practical design</h2>
+
+      <dl>
+        <dt>Interpolation choice</dt>
+        <dd>Use piecewise linear as a transparent baseline. Use rectilinear, causal, spline, or domain-specific interpolation only when its between-sample assumptions match the process. Avoid letting future observations affect past interpolated values in forecasting.</dd>
+
+        <dt>Missing values</dt>
+        <dd>Distinguish “unobserved” from “observed at zero.” Add masks and time-since-last-observation channels; fit imputation parameters on training data only. A path library generally expects finite values, so unresolved <code>NaN</code>s need an explicit policy.</dd>
+
+        <dt>Scaling</dt>
+        <dd>Standardize or nondimensionalize channels before taking signatures. A channel scaled by <code>c</code> scales a level-<code>k</code> word containing it <code>r</code> times by <code>c<sup>r</sup></code>. Fit scalers within each training fold.</dd>
+
+        <dt>Truncation depth</dt>
+        <dd>Start at depth 2 or 3, then tune using validation data. Deeper is not automatically better: it raises dimension, variance, and numerical range.</dd>
+
+        <dt>Channel dimension</dt>
+        <dd>Every extra channel multiplies high-level growth. Remove redundant channels, project to a justified lower dimension, or use grouped/local signatures when the raw dimension is large.</dd>
+
+        <dt>Windowing</dt>
+        <dd>Choose windows according to the prediction horizon and causal information set. Overlapping windows increase sample dependence; split by entity and time before constructing them when leakage is possible.</dd>
+
+        <dt>Computational growth</dt>
+        <dd>A raw depth-<code>m</code> signature has <code class="math-inline">\sum d k</code> nonconstant coordinates. Runtime and memory also depend on path length, batching, algorithm, and whether log-signatures or kernels are used. Measure end-to-end cost rather than relying only on feature-count formulas.</dd>
+      </dl>
+
+      <h2 id="evaluation-and-failure-modes">10. Evaluation and failure modes</h2>
+
+      <h3>Leakage from interpolation</h3>
+      <p>A noncausal spline or bidirectional imputation can allow a feature at prediction time to depend on future observations. Construct the full preprocessing pipeline separately inside each training fold and audit which timestamps contribute to every prediction.</p>
+
+      <h3>Excessive feature dimension</h3>
+      <p>Large <code>d</code> and <code>m</code> cause exponential raw-feature growth, multicollinearity, and overfitting. Compare raw signatures with log-signatures, regularize, lower the depth, reduce channels, and report memory and latency alongside accuracy.</p>
+
+      <h3>Time-order ambiguity</h3>
+      <p>A poor embedding of discrete events can make distinct sequences trace the same or tree-like-equivalent path. Time, lead–lag, event-count, or visibility transforms can disambiguate order—but each changes the inductive bias and must be validated.</p>
+
+      <h3>Lack of invariance when needed</h3>
+      <p>Augmentations deliberately break invariances. Absolute time may make a model sensitive to harmless clock changes; retaining starting value may hurt shift robustness. Decide from the task which transformations should leave predictions unchanged, then test those transformations explicitly.</p>
+
+      <h3>Benchmarking against simpler sequence models</h3>
+      <p>Compare against domain baselines, summary statistics, lag features, linear autoregression, trees, RNNs, temporal convolutions, and attention or state-space models as appropriate. Match splits, parameter tuning, input information, and compute budgets. A signature method earns its complexity only if it improves predictive quality, sample efficiency, robustness, interpretability, or streaming cost.</p>
+
+      <div class="warning callout">
+        <strong>Evaluation checklist.</strong> Use entity- and time-aware splits; fit interpolation, imputation, scaling, channel selection, and truncation on training data; test timing and translation perturbations; ablate each augmentation; measure feature count and latency; and include a simple sequence baseline.
+      </div>
+
+      <h2 id="related-notes">Related notes</h2>
+      <ul>
+        <li><a href="hmm-state-space.html">Hidden Markov and state-space models</a></li>
+        <li><a href="stochastic-processes-sdes.html">Stochastic processes and SDEs</a></li>
+        <li><a href="ssm.html">State-space sequence models</a></li>
+        <li><a href="probabilistic-modelling.html">Probabilistic modelling</a></li>
+      </ul>
+
+      ← All HTML notes
+</section>

@@ -1,0 +1,368 @@
+<section class="chapter-content" data-topic="long-context">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to distinguish nominal and effective context length, calculate dense-attention and KV-cache costs, compare efficient attention patterns, explain positional extension and distributed execution, choose between long context and retrieval, and design an evaluation that measures evidence use rather than accepted length.</p>
+<h2 id="four-separate-problems">Four separate problems</h2>
+<p>“Long context” can mean different things:</p>
+<ol>
+<li>the model accepts large position indices;</li>
+<li>attention computation and activation memory fit;</li>
+<li>the KV cache fits at production concurrency;</li>
+<li>the model reliably finds and uses distant evidence.</li>
+</ol>
+<p>Solving one does not guarantee the others. A successful 1M-token forward pass establishes nominal support, not useful 1M-token reasoning.</p>
+<h2 id="dense-attention-scaling">Dense-attention scaling</h2>
+<p>Let batch size be <code class="math-inline">B</code>, sequence length <code class="math-inline">L</code>, hidden width <code>d</code>, query-head count <code>h</code>, layer count <code class="math-inline">N</code>, KV-head count <code>h_kv</code>, head dimension <code>d_h</code>, and bytes per stored element <code>s</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Cost</th>
+<th>Approximate scaling</th>
+<th>Operational meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Attention-score memory</td>
+<td><code>B h L² s</code> per layer</td>
+<td>A naïve implementation materializes a score for every head and query-key pair. Flash-style exact attention tiles the calculation and avoids keeping the full matrix, reducing memory without removing the quadratic arithmetic.</td>
+</tr>
+<tr>
+<td>Other activations</td>
+<td>Mostly <code class="math-inline">O(B L d)</code> for each saved tensor</td>
+<td>Residuals, Q/K/V, normalization, and MLP intermediates are linear in length but numerous. Training retains tensors for backward unless recomputed with activation checkpointing.</td>
+</tr>
+<tr>
+<td>Attention prefill FLOPs</td>
+<td>About <code>4 B L² d</code> per layer</td>
+<td><code>QKᵀ</code> and <code>softmax(QKᵀ)V</code> each contribute about <code>2 B L² d</code> FLOPs under full-square accounting. A causal kernel that skips the masked triangle can approach half this attention-pair arithmetic. Projections and MLPs add terms linear in <code class="math-inline">L</code>.</td>
+</tr>
+<tr>
+<td>Decode KV storage</td>
+<td><code>2 N L h_kv d_h s</code> per sequence</td>
+<td>The factor 2 stores keys and values. Each decoded token appends one position at every layer, so cache memory grows linearly with generated-plus-prompt length.</td>
+</tr>
+<tr>
+<td>Dense decode attention</td>
+<td><code class="math-inline">O(L)</code> per new token</td>
+<td>The new query attends to all cached keys and values. Per-token latency therefore rises with the current context even though only one token is generated.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="worked-128k-example">Worked 128K example</h3>
+<p>Consider one sequence with <code class="math-inline">L = 131,072</code>, <code class="math-inline">d = 4,096</code>, <code class="math-inline">h = 32</code>, <code class="math-inline">N = 32</code>, grouped-query attention with <code>h_kv = 8</code>, <code>d_h = 128</code>, and bf16 storage (<code class="math-inline">s = 2</code> bytes):</p>
+<ul>
+<li>A materialized attention-score tensor for one layer is <code class="math-inline">32 \times  131,072^{2} \times  2 \text{bytes} = 1 \text{TiB}</code>. Across 32 layers, naïvely saving one such tensor per layer would total 32 TiB.</li>
+<li>One bf16 hidden-state tensor is <code class="math-inline">131,072 \times  4,096 \times  2 \text{bytes} = 1 \text{GiB}</code>. Training saves several activation tensors per layer, so linear terms remain substantial even with tiled attention.</li>
+<li>Under full-square accounting, the attention core of prefill costs about <code class="math-inline">4 \times  131,072^{2} \times  4,096 = 2.81 \times  10^{14}</code> FLOPs per layer, or about <code class="math-inline">9.0 \times  10^{15}</code> FLOPs (9 PFLOPs) across 32 layers, before projections and MLPs. Skipping the masked causal triangle can roughly halve this pairwise term.</li>
+<li>The decode KV cache is <code class="math-inline">2 \times  32 \times  131,072 \times  8 \times  128 \times  2 \text{bytes} = 16 \text{GiB}</code> per sequence. Each added token grows it by 128 KiB; 16 concurrent sequences at that length would require 256 GiB just for KV.</li>
+</ul>
+<p>These are arithmetic and storage quantities, not latency predictions: kernel efficiency, quantized KV, tensor parallelism, and memory bandwidth determine observed performance. See <a href="inference.html">inference and KV cache</a> and <a href="serving.html">serving and request scheduling</a>.</p>
+<h2 id="efficient-attention-architectures">Efficient attention architectures</h2>
+<table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Long-range mechanism</th>
+<th>Main gain</th>
+<th>Main limitation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Dense attention</td>
+<td>Every query can directly read every earlier token</td>
+<td>Maximum flexibility and one-hop access</td>
+<td>Quadratic prefill and linearly growing decode KV</td>
+</tr>
+<tr>
+<td>Sliding-window attention</td>
+<td>Each layer reads the most recent <code class="math-inline">W</code> positions</td>
+<td><code class="math-inline">O(LW)</code> attention; old KV can be evicted when every relevant layer is local</td>
+<td>Distant evidence requires propagation through many layers</td>
+</tr>
+<tr>
+<td>Global/local hybrid</td>
+<td>Local tokens plus selected global tokens or occasional global layers</td>
+<td>Fast local processing with short paths to summaries or anchors</td>
+<td>Global capacity can bottleneck; global layers still incur dense cost</td>
+</tr>
+<tr>
+<td>Block sparse attention</td>
+<td>Predefined or routed block-to-block edges</td>
+<td>Hardware-friendly sparsity and task-specific connectivity</td>
+<td>The sparsity graph can omit an unforeseen dependency</td>
+</tr>
+<tr>
+<td>Dilated or strided attention</td>
+<td>Heads sample increasingly distant offsets</td>
+<td>Large receptive field with few edges</td>
+<td>Fine evidence may fall between sampled positions</td>
+</tr>
+<tr>
+<td>Landmark or memory tokens</td>
+<td>Segments write compressed representations to special tokens</td>
+<td>Bounded communication channel across long spans</td>
+<td>Compression is lossy and landmarks can become congested</td>
+</tr>
+<tr>
+<td>Recurrent memory</td>
+<td>Carry hidden state or cached summaries from one segment to the next</td>
+<td>Potentially unbounded streaming with bounded per-step memory</td>
+<td>Old details are compressed; training must teach state use and reset semantics</td>
+</tr>
+<tr>
+<td>Retrieval</td>
+<td>Search an external corpus or earlier chunks, then attend densely to selected evidence</td>
+<td>Small active prompt and independently updateable knowledge</td>
+<td>Retriever, chunking, or indexing errors can remove needed evidence</td>
+</tr>
+<tr>
+<td>State-space alternatives</td>
+<td>Update a fixed-size recurrent state with linear-time scans</td>
+<td>Linear sequence processing and compact streaming state</td>
+<td>Selective recall and arbitrary pairwise comparison are less direct than attention</td>
+</tr>
+</tbody>
+</table>
+<h3 id="receptive-field-growth">Receptive-field growth across layers</h3>
+<p>Efficient patterns should be compared as connectivity graphs, not only by FLOPs. With a causal local window of width <code class="math-inline">W</code>, one layer directly reaches <code class="math-inline">W</code> previous positions and <code>m</code> stacked layers reach roughly <code>mW</code>; the path from old evidence to the current token grows with distance. Exponentially increasing dilation can grow the reachable span roughly exponentially with depth, but uses sparse paths. A global token can connect two distant local regions in about two hops, provided it actually preserves the needed information. Block-sparse patterns depend on their graph diameter, while recurrent and state-space models can have formally unbounded history but a fixed-capacity information channel.</p>
+<p>A sliding-window cache may evict old KV only for layers whose pattern never reads it. Hybrid models with global layers need a layer-specific eviction policy; applying one window to every layer is a semantic bug. For a deeper comparison, see <a href="ssm.html">state-space models</a> and <a href="rag.html">retrieval-augmented generation</a>.</p>
+<h2 id="long-context-positional-methods">Long-context positional methods</h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Extension idea</th>
+<th>Trade-off</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RoPE position interpolation</td>
+<td>Compress new position indices into the range seen during training</td>
+<td>Extends the range but reduces short-distance angular resolution</td>
+</tr>
+<tr>
+<td>NTK-aware or frequency-aware RoPE scaling</td>
+<td>Scale rotary frequencies non-uniformly so high- and low-frequency dimensions extrapolate differently</td>
+<td>Preserves more local resolution but introduces a length- and spectrum-dependent design choice</td>
+</tr>
+<tr>
+<td>Piecewise or ramped RoPE families</td>
+<td>Leave some frequencies unchanged, interpolate others, and blend between them; scaling may be fixed or dynamic</td>
+<td>Can balance local and global behavior, but configuration and maximum target length matter</td>
+</tr>
+<tr>
+<td>ALiBi</td>
+<td>Add head-specific linear penalties based on query-key distance</td>
+<td>Extrapolates without a learned position table, but its distance prior can discourage very remote evidence</td>
+</tr>
+<tr>
+<td>Learned relative bias or buckets</td>
+<td>Bias attention by relative distance, often grouping large distances into buckets</td>
+<td>Translation-friendly, but all distances in a coarse far-away bucket may become indistinguishable</td>
+</tr>
+</tbody>
+</table>
+<p>Changing the positional rule makes longer indices numerically valid; it does not teach the model to use them. Continued pretraining or staged adaptation on long sequences is normally required to calibrate attention, recover quality, and expose the model to actual long-range dependencies. Training only on repeated or concatenated short documents can teach length tolerance without teaching long-range use.</p>
+<p>Always recheck short-context quality. Interpolation compresses nearby positions, aggressive frequency changes alter a representation the model already uses, and a curriculum dominated by long samples can shift the data mixture and optimization regime. Retain a mixture of short and long examples and report quality by length. See <a href="rope.html">RoPE and positional extrapolation</a>.</p>
+<h2 id="long-context-training">Long-context training</h2>
+<ul>
+<li><strong>Length curriculum:</strong> increase maximum length in stages and mix lengths within stages. This lowers early cost and avoids an abrupt distribution shift, but the final stages must contain enough target-length examples.</li>
+<li><strong>Batch size and token-batch control:</strong> longer sequences reduce the number of sequences that fit per device. Hold global tokens per optimizer step approximately constant with gradient accumulation or an explicit token budget; otherwise learning-rate, gradient-noise, and data-mixture comparisons are confounded.</li>
+<li><strong>Packing and leakage:</strong> packing reduces padding waste, but unrelated documents need boundary-aware attention masks, position resets where appropriate, and loss masking. Allowing one packed document to read another creates cross-document leakage and unrealistic dependencies.</li>
+<li><strong>Genuine long dependencies:</strong> include books, code repositories, long conversations, scientific records, or synthetic tasks where the answer truly depends on remote spans. Mere document concatenation does not supply the learning signal.</li>
+<li><strong>Optimizer-state continuity:</strong> preserve optimizer moments when continuing from a short-context checkpoint unless there is a deliberate reason to reset. Change length, batch, learning rate, and data mixture gradually enough to identify the cause of regressions.</li>
+<li><strong>Memory techniques:</strong> activation checkpointing recomputes forward activations during backward, trading FLOPs for memory. Context parallelism partitions the sequence across devices so no device holds all long-sequence activations.</li>
+</ul>
+<h2 id="distributed-long-context-execution">Distributed long-context execution</h2>
+<p><strong>Context parallelism</strong> partitions the sequence dimension across devices. With <code class="math-inline">P</code> devices, each device owns roughly <code>L/P</code> query positions and their activations, unlike tensor parallelism, which partitions model dimensions. Attention is still exact only if each query can incorporate every causally permitted key/value block.</p>
+<ol>
+<li>Each rank computes Q, K, and V for its local sequence block.</li>
+<li>In ring attention, each rank keeps its Q block and circulates K/V blocks around a device ring.</li>
+<li>For each received block, it applies the causal mask, computes a partial attention result, and updates an online softmax using running maxima and normalization sums.</li>
+<li>After the required blocks have visited, each rank holds the exact output for its local queries; later collectives or sequence-parallel layers exchange only what the next operation requires.</li>
+</ol>
+<p>This reduces per-device activation and local K/V residency from <code class="math-inline">O(L)</code> to roughly <code class="math-inline">O(L/P)</code>, but it does not remove dense attention's total <code class="math-inline">O(L^{2})</code> work. It trades memory capacity for communication, and is most attractive when transfers overlap with attention kernels.</p>
+<ul>
+<li><strong>Causal imbalance:</strong> early query blocks can attend to few key blocks while late query blocks attend to many. A naïve partition leaves early ranks idle; balanced or zigzag sequence assignment pairs early and late blocks to equalize useful work.</li>
+<li><strong>Sequence partitioning:</strong> layouts must align with tensor, pipeline, and data parallel groups. Transposing between sequence-sharded and hidden-dimension-sharded layouts adds collectives.</li>
+<li><strong>KV placement at decode:</strong> KV may remain sharded by sequence position, reducing per-rank memory but requiring partial attention reductions for every token, or be replicated, spending memory to reduce communication. Grouped-query attention and KV quantization change the break-even point.</li>
+<li><strong>Communication trade-off:</strong> rings offer regular point-to-point traffic and low peak memory, whereas all-gather variants can be simpler but materialize more remote K/V. Interconnect bandwidth, topology, kernel overlap, and small-message latency determine the winner.</li>
+</ul>
+<p>See <a href="parallelism.html">parallelism strategies</a> and <a href="serving.html">serving</a> for the surrounding execution trade-offs.</p>
+<h2 id="long-context-versus-rag">Long context versus RAG</h2>
+<table>
+<thead>
+<tr>
+<th>Criterion</th>
+<th>Long context</th>
+<th>Retrieval</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Evidence-recall risk</td>
+<td>Avoids a separate retrieval miss, but the model may fail to notice available evidence</td>
+<td>Can omit evidence because of embedding, chunking, query, or top-k errors</td>
+</tr>
+<tr>
+<td>Prompt and serving cost</td>
+<td>High prefill, KV, and repeated-input cost</td>
+<td>Search overhead, but a smaller active prompt and cache</td>
+</tr>
+<tr>
+<td>Updateability</td>
+<td>Prompt contents are current, but repeatedly sending a changing corpus is expensive</td>
+<td>Index can be updated independently of model weights and most prompts</td>
+</tr>
+<tr>
+<td>Distractors</td>
+<td>Many irrelevant tokens can dilute attention and worsen position effects</td>
+<td>Filtering reduces distractors, but plausible irrelevant chunks may rank highly</td>
+</tr>
+<tr>
+<td>Global synthesis</td>
+<td>Preserves order, transitions, and broad cross-document relationships</td>
+<td>Top-k chunks can lose global structure and omitted counter-evidence</td>
+</tr>
+</tbody>
+</table>
+<p>Hybrid systems are often strongest: retrieve candidate sections, include neighboring context and source metadata, deduplicate results, and give the model a moderate long window for cross-source synthesis. Retrieval can also page older conversation or memory segments into a recurrent or local-attention model.</p>
+<h2 id="decision-framework">Decision framework</h2>
+<table>
+<thead>
+<tr>
+<th>Choose</th>
+<th>When it fits</th>
+<th>Validate first</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Dense long context</td>
+<td>The corpus fits, arbitrary token-to-token comparisons matter, and misses are costly</td>
+<td>Prefill/KV budget, concurrency, and middle-position evidence use</td>
+</tr>
+<tr>
+<td>Local or sparse attention</td>
+<td>Dependencies are mostly nearby or follow a known sparse structure</td>
+<td>Required receptive-field paths and layer-specific cache eviction</td>
+</tr>
+<tr>
+<td>Retrieval</td>
+<td>The corpus is large, changes often, and queries need a small identifiable subset</td>
+<td>End-to-end recall under realistic queries, chunking, and distractors</td>
+</tr>
+<tr>
+<td>Recurrence or state space</td>
+<td>Streaming or unbounded history matters more than exact access to every old token</td>
+<td>Memory retention horizon, reset behavior, and compression failures</td>
+</tr>
+<tr>
+<td>Hybrid</td>
+<td>Workloads mix local detail, remote facts, and global synthesis</td>
+<td>Component interfaces and end-to-end failure attribution, not only isolated scores</td>
+</tr>
+</tbody>
+</table>
+<p>A practical selection sequence is: identify the dependency graph; estimate prefill, decode, KV, and communication budgets at target concurrency; decide whether evidence can be indexed; choose the cheapest mechanism that preserves the required paths; then evaluate it on position, length, distractor, and synthesis slices.</p>
+<h2 id="evaluation-beyond-maximum-length">Evaluation beyond maximum accepted length</h2>
+<p>Needle-in-a-haystack is a useful smoke test for addressability, but a single unique string is easy to match and does not test ambiguity, aggregation, causal reasoning, or sustained generation. “Lost in the middle” is a position-dependent failure pattern: evidence near the middle can be used less reliably than evidence near the beginning or end even though every position is nominally visible.</p>
+<p>A RULER-style suite broadens the test surface to retrieval with one or several keys or values, multi-hop variable tracing, aggregation, and question answering under long distractor contexts.</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Example test</th>
+<th>Metric</th>
+<th>Required slices</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Nominal support</td>
+<td>Forward pass and generation at target length</td>
+<td>Success rate, numerical stability</td>
+<td>Length and batch/concurrency</td>
+</tr>
+<tr>
+<td>Single-span retrieval</td>
+<td>Needle with paraphrases and plausible decoys</td>
+<td>Exact match or span F1</td>
+<td>Beginning/middle/end positions × context length</td>
+</tr>
+<tr>
+<td>RULER-style retrieval and tracing</td>
+<td>Retrieve keys, follow variable chains, or resolve multi-hop references</td>
+<td>Accuracy by task category</td>
+<td>Hop count, key count, position, and length</td>
+</tr>
+<tr>
+<td>Aggregation</td>
+<td>Count, rank, or summarize facts distributed across the context</td>
+<td>Exact count, set F1, or calibrated error</td>
+<td>Number and spacing of evidence spans</td>
+</tr>
+<tr>
+<td>Multi-evidence reasoning</td>
+<td>Combine supporting and conflicting spans from several documents</td>
+<td>Answer accuracy plus citation recall/precision</td>
+<td>Evidence order, distance, distractor similarity</td>
+</tr>
+<tr>
+<td>Long-form consistency</td>
+<td>Generate a report, story, or code change constrained by earlier details</td>
+<td>Contradiction rate, constraint retention, entity consistency</td>
+<td>Output length and dependency distance</td>
+</tr>
+<tr>
+<td>Quality across the training boundary</td>
+<td>Perplexity and downstream tasks below, near, and beyond trained length</td>
+<td>Quality curves, not one endpoint</td>
+<td>Short baseline, interpolation range, extrapolation range</td>
+</tr>
+<tr>
+<td>System efficiency</td>
+<td>Prefill and decode at realistic concurrency</td>
+<td>TTFT, inter-token latency, tokens/s, peak memory, communication volume</td>
+<td>Prompt length, output length, batch size, hardware count</td>
+</tr>
+</tbody>
+</table>
+<p>Keep model, decoding, data, and token budget fixed when comparing lengths. Report full curves or length-position heatmaps: a single average can hide a middle-position collapse, and a single maximum length can hide unacceptable latency or memory.</p>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>extrapolating positions without long-length training or validation;</li>
+<li>claiming useful context support from a successful forward pass;</li>
+<li>ignoring quadratic prefill after fixing score-matrix memory;</li>
+<li>cache OOM at production concurrency;</li>
+<li>local or sparse paths blocking required dependencies;</li>
+<li>distractors overwhelming evidence;</li>
+<li>cross-document leakage in packed sequences;</li>
+<li>comparing lengths while changing global token batch, data mixture, or decoding;</li>
+<li>adding context parallelism without budgeting communication or causal imbalance;</li>
+<li>treating RAG and long context as mutually exclusive.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Separate nominal context, compute feasibility, KV capacity, and effective evidence use.</li>
+<li>Calculate the score memory, prefill FLOPs, and KV cache for a proposed 128K model.</li>
+<li>Compare dense, sliding-window, global/local, recurrent, retrieval, and state-space approaches by connectivity.</li>
+<li>Explain exact ring attention and why causal sequence partitioning can be imbalanced.</li>
+<li>Design a lost-in-the-middle evaluation with multiple evidence spans and decoys.</li>
+<li>Explain why RoPE scaling alone is insufficient and how to protect short-context quality.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="inference.html">LLM Inference: Prefill, Decode and KV Cache</a></li>
+<li><a href="parallelism.html">Parallelism Strategies for Large Models</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="rope.html">RoPE and Positional Extrapolation</a></li>
+<li><a href="rag.html">Retrieval-Augmented Generation</a></li>
+<li><a href="serving.html">LLM Serving and Request Scheduling</a></li>
+<li><a href="ssm.html">State-Space Models and Alternative Sequence Architectures</a></li>
+</ul>
+</section>

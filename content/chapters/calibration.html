@@ -1,0 +1,149 @@
+<section class="chapter-content" data-topic="calibration">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to distinguish hallucination, grounding, confidence, and calibration; define and diagnose probabilistic calibration; evaluate abstention and evidence support; construct task-level confidence from imperfect LLM signals; and state what uncertainty and conformal methods do and do not guarantee.</p>
+<h2 id="technical-framing">Technical framing</h2>
+<p>The applied engineering technical framing emphasizes deterministic evaluation, data semantics, distribution shift, and the need to separate a hypothesis from a validated target. The training-method note recommends stage-specific evaluation rather than one universal metric. The Transformer-family note highlights horizon-dependent error, temporal leakage, calibration, interval coverage, and retrieval failures such as irrelevant passages, conflicting sources, and injected context.</p>
+<p>These observations imply that confidence must be evaluated on the same unit and distribution as the downstream decision.</p>
+<h2 id="detailed-treatment">Detailed treatment</h2>
+<h2 id="core-distinctions">Core distinctions</h2>
+<ul>
+<li><strong>Hallucination:</strong> a generated claim is unsupported, contradicted, fabricated, or incorrectly synthesized.</li>
+<li><strong>Grounding:</strong> the answer is supported by a specified evidence set.</li>
+<li><strong>Confidence:</strong> the system's stated or derived belief in an answer.</li>
+<li><strong>Calibration:</strong> among predictions assigned probability <code>p</code>, approximately a fraction <code>p</code> should be correct.</li>
+</ul>
+<p>Grounding does not prove that the evidence itself is true. A perfectly grounded answer can reproduce a false source. Conversely, an answer can be factually correct without being grounded in the context it cites.</p>
+<h2 id="calibration-definitions">Calibration definitions</h2>
+<h3 id="binary-calibration">Binary calibration</h3>
+<p>For a binary outcome <code>Y ∈ {0,1}</code> and predicted probability <code class="math-inline">P</code>, perfect calibration means <code class="math-inline">\operatorname{Pr}(Y = 1 \mid  P = p) = p</code> for every relevant <code>p</code>. Operationally, among many cases scored near <code>0.8</code>, about 80% should be positive. This is a population property; finite samples only estimate it.</p>
+<h3 id="multiclass-calibration">Multiclass calibration</h3>
+<p>For class-probability vector <code class="math-inline">p = (p_{1},\ldots ,p_K)</code>, full multiclass calibration requires <code class="math-inline">\operatorname{Pr}(Y = k \mid  P = p) = p_{k}</code> for every class <code>k</code> and probability vector <code>p</code>. This is stronger than <strong>top-label confidence calibration</strong>, which asks only whether <code class="math-inline">\operatorname{Pr}(Y = \operatorname{argmax}(P) \mid  \operatorname{max}(P) = c) = c</code>.</p>
+<ul>
+<li><strong>Marginal calibration:</strong> the average forecast for each class matches its observed base rate, <code class="math-inline">E[P_{k}] = \operatorname{Pr}(Y = k)</code>. It can hold while individual predictions are badly calibrated.</li>
+<li><strong>Classwise calibration:</strong> for every class separately, <code class="math-inline">\operatorname{Pr}(Y = k \mid  P_{k} = p) = p</code>. Pooling all classes or examining only the winning class can hide a severe error for a rare class.</li>
+</ul>
+<h3 id="sequence-and-task-level-confidence">Sequence and task-level confidence</h3>
+<p>For generation, first define the event whose probability matters: “the entire answer is correct,” “all material claims are supported,” “the program passes hidden tests,” or “the tool action succeeds.” A task-level confidence score is calibrated only against that same binary or graded outcome. Token calibration does not imply sequence, claim, or task calibration because errors are dependent and many surface forms can express the same answer.</p>
+<h3 id="calibration-under-distribution-shift">Calibration under distribution shift</h3>
+<p>Calibration is distribution-specific. A score calibrated on one domain, language, time period, retrieval stack, prompt template, or decoding policy need not remain calibrated after any of those change. Report in-distribution and shifted slices separately, monitor score and outcome drift, and recalibrate with fresh labeled deployment-like data. Without timely labels, drift detection is only a warning; it does not demonstrate maintained calibration.</p>
+<h2 id="calibration-metrics">Calibration metrics</h2>
+<p>Use complementary metrics. Proper scoring rules assess the whole probability forecast, while binned diagnostics visualize a particular kind of miscalibration.</p>
+<h3 id="negative-log-likelihood">Negative log likelihood</h3>
+<p>For multiclass labels, <code class="math-inline">\mathrm{NLL} = -(1/n) \sum _{i} \operatorname{log} p_{i},y_{i}</code>. It is a strictly proper scoring rule: in expectation, reporting the true distribution is optimal. It strongly penalizes confident errors, which is useful but can make the average sensitive to a few probabilities near zero.</p>
+<h3 id="brier-score">Brier score and decomposition</h3>
+<p>For binary predictions, the Brier score is the mean squared probability error:</p>
+<p><code class="math-inline">BS = (1/n) \sum _{i} (p_{i} - y_{i})^{2}.</code></p>
+<p>For multiclass predictions, use <code class="math-inline">BS = (1/n) \sum _{i} \sum _{k} (p_{\text{ik}} - 1[y_{i} = k])^{2}</code>. Lower is better. With predictions grouped into bins <code>b</code>, the binary score has the approximate Murphy decomposition</p>
+<p><code class="math-inline">BS = \text{uncertainty} - \text{resolution} + \text{reliability}</code>,</p>
+<p>where <code class="math-inline">\text{uncertainty} = \bar{y}(1-\bar{y})</code>, <code>resolution = Σ_b (n_b/n)(ȳ_b−ȳ)²</code>, and <code>reliability = Σ_b (n_b/n)(p̄_b−ȳ_b)²</code>. Thus the score rewards separating cases with different outcome frequencies and penalizes gaps between forecast probability and observed frequency. “Reliability” here is the calibration-error term, so smaller is better.</p>
+<h3 id="ece-and-related-diagnostics">ECE and related diagnostics</h3>
+<p>Partition predictions into bins <code class="math-inline">B_{1},\ldots ,BM</code>. For top-label calibration, let <code>acc(B_m)</code> be empirical accuracy and <code>conf(B_m)</code> mean confidence in bin <code>m</code>. Expected calibration error is</p>
+<p><code class="math-inline">ECE = \sum _m (\mid B_{m}\mid /n) \mid \text{acc}(B_{m}) - \text{conf}(B_{m})\mid .</code></p>
+<ul>
+<li><strong>Adaptive ECE:</strong> chooses quantile or otherwise data-dependent bins, commonly with roughly equal counts. It gives sparse confidence regions more influence than fixed-width ECE, but remains bin-dependent.</li>
+<li><strong>Maximum calibration error:</strong> <code>MCE = max_m |acc(B_m) − conf(B_m)|</code>. It surfaces the worst bin but is noisy when bins contain few cases.</li>
+<li><strong>Reliability diagram:</strong> plots empirical accuracy against mean confidence per bin, with the diagonal representing perfect calibration. Include bin counts or a confidence histogram so tiny bins are visible.</li>
+</ul>
+<p><strong>Binning sensitivity.</strong> Boundaries can merge opposite errors, split a small sample into noisy estimates, or leave tail bins nearly empty. Fixed-width, equal-frequency, and classwise bins can therefore tell different stories. ECE is not a proper scoring rule and a single top-label ECE can hide within-bin, per-class, subgroup, and distribution-shift failures. Report bin choices, uncertainty intervals, sample counts, NLL or Brier score, and important slices rather than treating one ECE value as definitive.</p>
+<h2 id="selective-prediction">Selective prediction</h2>
+<p>A selective predictor answers only when its score passes a policy threshold. Let <code>aᵢ ∈ {0,1}</code> indicate that case <code>i</code> is answered and let <code>ℓᵢ</code> be its loss.</p>
+<ul>
+<li><strong>Coverage:</strong> <code class="math-inline">C = (1/n) \sum _{i} a_{i}</code>, the fraction answered.</li>
+<li><strong>Selective risk:</strong> <code class="math-inline">R = \sum _{i} a_{i}\ell _{i} / \sum _{i} a_{i}</code>, the average loss among answered cases. Define the zero-coverage endpoint separately.</li>
+<li><strong>Risk–coverage curve:</strong> sort cases by confidence and plot selective risk as progressively lower-scoring cases are included. A good ranking keeps risk low at a given coverage.</li>
+<li><strong>Area under the risk–coverage curve (AURC):</strong> summarizes that curve; lower is better for a fixed loss and evaluation distribution. State whether the area is a discrete average or an interpolated integral because conventions differ.</li>
+</ul>
+<h3 id="worked-risk-coverage-example">Worked numerical example</h3>
+<p>Five predictions, ordered by confidence, have scores <code>0.95, 0.85, 0.75, 0.60, 0.40</code> and correctness <code>1, 1, 0, 1, 0</code>. With threshold <code class="math-inline">\tau  = 0.70</code>, the system answers the first three: coverage is <code>3/5 = 60%</code> and 0–1 selective risk is <code>1/3 ≈ 33.3%</code>. The empirical risks at coverages <code>20%, 40%, 60%, 80%, 100%</code> are <code>0, 0, 1/3, 1/4, 2/5</code>. Using their discrete mean gives <code class="math-inline">AURC \approx  (0 + 0 + .333 + .25 + .4)/5 = .197</code>. Notice that empirical risk need not decrease at every finite-sample step: removing the correct 0.60 case raises risk from 25% at 80% coverage to 33.3% at 60%.</p>
+<h3 id="abstention-policy">Abstention and cost-sensitive rejection</h3>
+<p>Choose the abstention threshold on held-out deployment-like data, then freeze it for final testing. If an incorrect answer costs <code class="math-inline">C_{\text{error}}</code>, abstention costs <code class="math-inline">C_{\text{abstain}}</code>, and a calibrated score <code>p</code> is the probability of correctness, answer when <code class="math-inline">(1-p)C_{\text{error}} \le  C_{\text{abstain}}</code>. For <code class="math-inline">C_{\text{error}} = 10</code> and <code class="math-inline">C_{\text{abstain}} = 1</code>, this rule answers at <code class="math-inline">p \ge  0.9</code>. Real policies may also include the cost of a correct answer, delayed escalation, class-specific harms, latency, and capacity constraints. Report both risk–coverage and cost–coverage curves.</p>
+<h2 id="llm-confidence-signals">Confidence signals for LLMs</h2>
+<p>No single signal is automatically an answer-level probability. Construct a score on the unit the policy consumes, label that unit with an independently measured outcome, and calibrate the mapping on held-out data.</p>
+<table>
+<thead><tr><th>Signal</th><th>Construction</th><th>Why it may fail</th></tr></thead>
+<tbody>
+<tr><td><strong>Token log probability</strong></td><td>Use <code>log p(t_j | t_&lt;j, x)</code> for a token or aggregate selected answer-bearing tokens.</td><td>Measures next-token likelihood, not truth. Common wording can be confidently wrong; tokenization and prompt wording change the value.</td></tr>
+<tr><td><strong>Sequence probability</strong></td><td>Sum token log probabilities: <code>log p(y|x) = Σ_j log p(t_j|t_&lt;j,x)</code>.</td><td>Penalizes long answers, assigns probability mass separately to equivalent paraphrases, and depends on the generation policy. Raw products also underflow numerically.</td></tr>
+<tr><td><strong>Length normalization</strong></td><td>Use mean log probability <code>(1/L)Σ_j log p_j</code>, a length penalty, or answer-span normalization.</td><td>Corrects one length effect but does not produce a correctness probability; verbosity and a few decisive low-probability tokens can be obscured.</td></tr>
+<tr><td><strong>Verifier score</strong></td><td>Train or prompt a separate model to score correctness, constraints, execution, or evidence support.</td><td>Generator and verifier may share blind spots, the verifier can reward style shortcuts, and adversarial or shifted outputs can break calibration.</td></tr>
+<tr><td><strong>Self-consistency</strong></td><td>Sample <code class="math-inline">K</code> solutions and use the fraction supporting the selected answer or reasoning outcome.</td><td>Correlated samples can agree on the same misconception; temperature and semantic matching change the estimate; rare correct modes may be missed.</td></tr>
+<tr><td><strong>Semantic entropy</strong></td><td>Cluster sampled answers by meaning, sum probability or frequency within each cluster, then compute <code>H = −Σ_c q_c log q_c</code>.</td><td>Semantic equivalence is itself estimated, sampling is incomplete, and low entropy can reflect a shared confident error rather than knowledge.</td></tr>
+<tr><td><strong>Retrieval support</strong></td><td>Score whether retrieved evidence entails each claim, plus source quality, retrieval rank, and contradiction features.</td><td>Retrieval may miss evidence, return poisoned or false sources, or provide passages that share words without entailing the claim.</td></tr>
+<tr><td><strong>Ensembles</strong></td><td>Combine independently trained models, checkpoints, prompts, or adapters; use mean prediction and disagreement features.</td><td>Members often share data, architecture, and failure modes; disagreement depends on ensemble diversity and is not inherently calibrated.</td></tr>
+</tbody>
+</table>
+<p>A practical confidence model can combine normalized generation score, verifier output, semantic agreement, retrieval entailment, and model disagreement in a small supervised meta-model. Train it on cases excluded from generator and verifier fitting, calibrate its output, and evaluate per task and slice. Record the prompt, model, retriever, decoding settings, and answer-selection rule: changing them changes the score distribution. Do not train the confidence model and report calibration on the same examples.</p>
+<h2 id="epistemic-and-aleatoric-uncertainty">Epistemic and aleatoric uncertainty</h2>
+<ul>
+<li><strong>Aleatoric uncertainty</strong> is irreducible variation or ambiguity under the stated data-generating and observation model: noisy measurements, multiple acceptable labels, or genuinely stochastic outcomes. Better data about the same case does not necessarily remove it.</li>
+<li><strong>Epistemic uncertainty</strong> is uncertainty about the model, parameters, or functions supported by limited or shifted evidence. It may shrink with informative data, a better-specified model, or broader training coverage.</li>
+</ul>
+<p>This is an <strong>operational, model-relative distinction</strong>, not a uniquely observable partition. Misspecification can appear as either type. Predictive entropy alone measures total dispersion of one predictive distribution and does not reveal whether that dispersion comes from ambiguous outcomes or uncertainty over models.</p>
+<p>In Bayesian-style classification, a useful identity is <code class="math-inline">H[p(y\mid x,D)] = E_\theta  H[p(y\mid x,\theta )] + I(y;\theta  \mid  x,D)</code>. The expected member entropy is often interpreted as within-model ambiguity, while the mutual-information term measures disagreement across parameter samples. Deep ensembles and Bayesian approximations such as variational inference or Monte Carlo dropout provide analogous within-member and between-member signals. These interpretations depend on the posterior approximation, ensemble construction, likelihood, and model specification; they do not recover “true” uncertainty by definition.</p>
+<p>To model data noise explicitly, use an outcome distribution appropriate to the task: heteroscedastic regression variance, annotator or label distributions, repeated measurements, or latent ambiguity classes. Then validate the decomposition against interventions such as adding relevant training data, repeating measurements, changing domains, or checking whether disagreement falls where evidence increases. See <a href="uncertainty-quantification.html">uncertainty quantification</a>, <a href="bayesian-variational-inference.html">Bayesian methods and variational inference</a>, and <a href="probabilistic-modelling.html">probabilistic foundations</a>.</p>
+<h2 id="claim-level-grounding">Claim-level grounding</h2>
+<p>Answer-level citation presence is too coarse. Evaluate grounding as a claim–evidence relationship:</p>
+<ol>
+<li><strong>Segment claims:</strong> split the answer into atomic, externally verifiable propositions. Exclude or separately label opinions, instructions, and purely connective text. Human-audit the segmenter because compound claims can hide partial support.</li>
+<li><strong>Attach evidence:</strong> map each claim to its cited passages and record uncited retrieved evidence separately.</li>
+<li><strong>Judge entailment:</strong> label each claim–passage pair as entailed, contradicted, or insufficient. An NLI model can assist, but domain experts and exact checks are needed for numbers, dates, negation, tables, and safety-critical claims.</li>
+<li><strong>Assess source quality:</strong> score authority, freshness, provenance, and independence separately from entailment.</li>
+</ol>
+<p>One explicit convention is <strong>citation precision</strong> <code class="math-inline">= \text{supported} \text{cited} \text{claim}-\text{citation} \text{pairs} / \text{all} \text{evaluated} \text{cited} \text{pairs}</code>, and <strong>citation recall</strong> <code class="math-inline">= \text{verifiable} \text{claims} \text{with} \text{at} \text{least} \text{one} \text{supporting} \text{citation} / \text{all} \text{verifiable} \text{claims}</code>. State the counting unit and treatment of redundant citations. Also report claim support rate, contradiction rate, and unsupported material-claim rate.</p>
+<table>
+<thead><tr><th>Case</th><th>Correctness</th><th>Grounding</th><th>Interpretation</th></tr></thead>
+<tbody>
+<tr><td>Correct claim with no support in the specified evidence</td><td>Correct</td><td>Ungrounded</td><td>The model may know the fact, but the RAG answer did not establish it from the required context.</td></tr>
+<tr><td>Claim faithfully repeats a false source</td><td>Incorrect</td><td>Grounded to that source</td><td>Entailment is high, but source truth or authority failed.</td></tr>
+<tr><td>Citation discusses the topic but does not imply the claim</td><td>Unknown or incorrect</td><td>Unsupported</td><td>Citation presence and lexical overlap are not entailment.</td></tr>
+<tr><td>Sources directly disagree</td><td>Requires adjudication</td><td>Conflict must be exposed</td><td>Prefer authoritative and current sources, describe the conflict, narrow the claim, or abstain.</td></tr>
+</tbody>
+</table>
+<p>For contradictory sources, retain provenance and timestamps, detect claim-level contradiction, apply a documented authority policy, and score whether the answer acknowledges unresolved conflict. Do not let majority vote among duplicated or mutually dependent documents masquerade as independent corroboration. See <a href="rag.html">RAG</a> for retrieval evaluation and <a href="security.html">security</a> for poisoned evidence and prompt injection.</p>
+<h2 id="calibration-methods">Calibration methods</h2>
+
+<p>Fit calibrators on an independent labeled calibration set drawn from the intended operating distribution. The set must cover relevant classes, confidence ranges, domains, languages, and policy slices; keep a final test set untouched. Calibrating token scores against answer labels, or evidence scores against overall correctness, silently changes the target and is generally invalid.</p>
+<p>After model, prompt, retrieval, decoding, label-policy, or population drift, re-check reliability and decision cost. Recalibrate only with sufficiently fresh labeled data and version the calibrator with the entire pipeline. Recalibration can repair a score-to-frequency mapping; it cannot create missing capability, detect every out-of-distribution case, or make a false source true.</p>
+<h2 id="conformal-prediction">Conformal prediction</h2>
+<p>Conformal prediction converts a fitted score into prediction sets using a held-out calibration set. Define a <strong>nonconformity score</strong> <code>s(x,y)</code> that is larger when candidate output <code>y</code> fits input <code>x</code> poorly. For split conformal with <code>n</code> calibration examples and target miscoverage <code class="math-inline">\alpha</code>, take the finite-sample quantile at rank <code class="math-inline">⌈(n+1)(1-\alpha )⌉</code>. For multiclass classification, one simple score is <code>s(x,y)=1−p_y(x)</code>, producing the prediction set <code>Γ(x)={k: 1−p_k(x) ≤ q}</code>.</p>
+<p>Under exchangeability of calibration and future examples, the standard construction provides finite-sample <strong>marginal coverage</strong> of at least <code class="math-inline">1-\alpha</code>, subject to the usual tie convention. It does not promise conditional coverage for every input or subgroup. Temporal dependence, distribution shift, adaptive reuse of the calibration set, and pipeline changes can violate exchangeability. Report set size along with coverage: a set containing every label is valid but uninformative.</p>
+<p>Structured generation makes the output space enormous. Tokenwise conformal coverage does not compose into sequence-level coverage, and conformalizing only sampled candidates cannot cover valid outputs that the generator never proposes without additional assumptions. Semantic equivalence is hard to define, exact-match sets can contain many paraphrases, and sequence-level nonconformity scores may be dominated by length. For selective generation, a set of plausible answers is not the same as an abstention policy: the system still needs a rule for set size, ambiguity, user presentation, and escalation. Grammar or schema constraints can ensure validity, but they do not make exchangeability hold or guarantee factual correctness.</p>
+<h2 id="thesis-connection">Thesis connection</h2>
+<p>Gradient regimes may be structured and predictive, but they should not be called epistemic uncertainty without an independent uncertainty target. The HTML thesis note reports interpretable structure in training dynamics, not validated uncertainty estimation. A follow-up could test whether gradient-derived scores predict held-out error, ensemble disagreement, data-scarcity interventions, or selective risk under shift, with calibration performed on separate data. Until then, the careful claim is correlation with structured training regimes rather than an identified epistemic quantity.</p>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>measuring only citation presence rather than claim support;</li>
+<li>treating verbal confidence as calibrated probability;</li>
+<li>using in-distribution calibration on shifted data;</li>
+<li>collapsing all hallucination types into one score;</li>
+<li>allowing retrieval to inject unsupported claims;</li>
+<li>interpreting predictive entropy as isolated epistemic uncertainty;</li>
+<li>reporting one aggregate ECE without bin, class, or slice diagnostics;</li>
+<li>calibrating and evaluating on the same examples;</li>
+<li>mistaking conformal marginal coverage for per-input correctness;</li>
+<li>optimizing coverage without pricing the harm of errors and abstentions.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Define binary, full multiclass, marginal, classwise, and top-label calibration.</li>
+<li>Derive the ECE estimate and Brier decomposition, then explain their different failure modes.</li>
+<li>Compute coverage, selective risk, and a cost-sensitive abstention threshold.</li>
+<li>Design claim-level grounding evaluation for a RAG answer with conflicting sources.</li>
+<li>Construct task-level LLM confidence from token, verifier, semantic, retrieval, and ensemble signals.</li>
+<li>Explain why self-consistency and low semantic entropy are not proof of correctness.</li>
+<li>State the conformal coverage guarantee and the assumptions that generation or shift can break.</li>
+<li>Relate epistemic uncertainty to the thesis without overstating the reported validation.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+<li><a href="probabilistic-modelling.html">Probabilistic Modelling Foundations</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="rag.html">Retrieval-Augmented Generation</a></li>
+<li><a href="security.html">LLM Security, Prompt Injection and Data Leakage</a></li>
+<li><a href="uncertainty-quantification.html">Uncertainty Quantification</a></li>
+<li><a href="bayesian-variational-inference.html">Bayesian Methods and Variational Inference</a></li>
+</ul>
+</section>

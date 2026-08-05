@@ -1,0 +1,134 @@
+<section class="chapter-content" data-topic="reasoning">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to explain how reasoning behavior can be trained and elicited, distinguish outcome and process supervision, define RL with verifiable rewards, and evaluate gains as a function of inference-time compute.</p>
+<h2 id="types-of-reasoning-supervision">Types of reasoning supervision</h2>
+<p>“Reasoning training” is not one objective. The following routes supervise different objects and make different assumptions:</p>
+<table>
+<thead><tr><th>Type</th><th>Training signal</th><th>Main strength</th><th>Main limitation</th></tr></thead>
+<tbody>
+<tr><td><strong>Worked-solution SFT</strong></td><td>Token-level imitation of complete demonstrations</td><td>Directly teaches format, strategies, and tool protocols</td><td>Copies teacher errors and style; likelihood is not correctness</td></tr>
+<tr><td><strong>Rejection-sampling fine-tuning</strong></td><td>SFT on sampled solutions retained by a checker or judge</td><td>Turns search successes into demonstrations</td><td>Biased toward traces the sampler and filter can already produce</td></tr>
+<tr><td><strong>Outcome supervision</strong></td><td>Reward or label for the final result</td><td>Cheap and objective when a robust verifier exists</td><td>Sparse credit: it does not identify which steps helped</td></tr>
+<tr><td><strong>Process supervision</strong></td><td>Labels or rewards on intermediate steps</td><td>Denser feedback and error localization</td><td>Expensive labels; can reward plausible-looking but non-causal traces</td></tr>
+<tr><td><strong>Pairwise preferences</strong></td><td>Relative ranking of two responses or traces</td><td>Captures qualities without an absolute score</td><td>May conflate correctness, style, verbosity, and presentation</td></tr>
+<tr><td><strong>Programmatic verifiers</strong></td><td>Executable checks such as tests, compilers, or proof kernels</td><td>Scalable, repeatable feedback</td><td>Only as sound and complete as the specification and parser</td></tr>
+<tr><td><strong>Distillation</strong></td><td>Imitation of outputs, traces, logits, or tool behavior from a teacher</td><td>Transfers expensive behavior into a cheaper model</td><td>Teacher mistakes and artifacts become the student’s ceiling</td></tr>
+<tr><td><strong>Self-training</strong></td><td>Model-generated pseudo-labels, often filtered or weighted</td><td>Scales data without proportional human labeling</td><td>Can reinforce existing shortcuts and narrow the strategy distribution</td></tr>
+</tbody>
+</table>
+<p>These methods compose: for example, a teacher can generate worked solutions, a verifier can reject failures, and the survivors can feed SFT before online RL. The provenance and reliability of each signal should remain explicit.</p>
+<h2 id="rlvr-mechanics">RLVR mechanics</h2>
+<p>Reinforcement learning with verifiable rewards (RLVR) trains on tasks whose outputs can be checked automatically. A typical update has the following stages:</p>
+<ol>
+<li><strong>Prompt sampling:</strong> draw tasks from a mixture whose topics and difficulty define the effective curriculum.</li>
+<li><strong>Multiple rollouts:</strong> sample a group of responses per prompt; temperature and group size control behavioral diversity.</li>
+<li><strong>Sparse rewards:</strong> run a verifier, often yielding a binary reward only after the final answer or executed artifact.</li>
+<li><strong>Group-relative advantages:</strong> compare rewards within the prompt’s rollout group, as in GRPO-style updates. This avoids a separate critic but gives little signal when every rollout has the same reward.</li>
+<li><strong>Regularized policy update:</strong> increase probability of higher-advantage trajectories while using a KL penalty, clipped update, or reference-policy constraint to limit drift.</li>
+</ol>
+<p><strong>Exploration is essential:</strong> if the policy never samples a successful strategy, the verifier supplies no positive example. A difficulty curriculum can keep the success rate in a learnable range, then move toward harder prompts as competence rises. Too-easy groups have all-positive rewards; too-hard groups have all-negative rewards; both produce weak relative signal.</p>
+<p><strong>Credit-assignment limit:</strong> an outcome reward attaches to an entire sampled trajectory. It cannot determine whether an early derivation, a late correction, a lucky guess, or a formatting trick caused success. More rollouts improve the estimate of which complete trajectories work, but do not by themselves provide step-level causal credit. Process rewards, temporal decomposition, or verifier feedback at intermediate states can densify the signal, at the cost of new labeling and attack surfaces.</p>
+<h2 id="verifiers">Verifiers</h2>
+<table>
+<thead><tr><th>Verifier</th><th>What it checks</th><th>Typical blind spot</th></tr></thead>
+<tbody>
+<tr><td><strong>Exact-answer verifier</strong></td><td>Canonical final answer after parsing or normalization</td><td>Equivalent forms, ambiguous extraction, or a leaked target string</td></tr>
+<tr><td><strong>Unit tests</strong></td><td>Observed program behavior on chosen cases</td><td>Uncovered inputs, state, performance, or security properties</td></tr>
+<tr><td><strong>Compiler</strong></td><td>Syntax and static constraints</td><td>Compiling does not imply semantic correctness</td></tr>
+<tr><td><strong>Theorem checker</strong></td><td>A formal proof against stated axioms and goals</td><td>Misformalized statements, unsafe axioms, or kernel boundary bugs</td></tr>
+<tr><td><strong>Learned outcome reward model</strong></td><td>Predicted quality of the complete response</td><td>Distribution shift, superficial cues, and confident misgrading</td></tr>
+<tr><td><strong>Learned process reward model</strong></td><td>Predicted validity of steps or transitions</td><td>Locally plausible steps that do not reflect causal computation</td></tr>
+</tbody>
+</table>
+<p>A <strong>false positive</strong> rewards an incorrect solution and directly teaches the exploit; a <strong>false negative</strong> rejects a valid solution, suppressing useful strategies and reducing exploration. Precision matters especially during optimization because the policy actively searches for verifier weaknesses rather than sampling ordinary mistakes.</p>
+<h3 id="verifier-attacks">Verifier attacks</h3>
+<ul>
+<li><strong>Parser exploitation:</strong> place multiple answers, unusual encodings, NaNs, comments, or delimiters so the checker extracts a favorable value while a human reads something else.</li>
+<li><strong>Specification gaming:</strong> satisfy visible unit tests with hard-coded cases, undefined behavior, timeouts, or side effects instead of solving the intended problem.</li>
+<li><strong>Learned-judge manipulation:</strong> use verbosity, authoritative phrasing, copied rubric language, or adversarial strings that score well without improving correctness.</li>
+<li><strong>Environment attacks:</strong> read fixtures, cached answers, hidden state, files, network resources, or tool outputs that the task intended to withhold.</li>
+</ul>
+<p>Defenses include strict canonical parsers, sandboxing and resource limits, hidden and mutation-generated tests, independent verifier implementations, canary tasks, proof-kernel minimization, and <strong>adversarial verifier testing</strong>: deliberately search for high-reward wrong answers, fuzz input formats, test disagreement among checkers, and audit accepted edge cases. Reward hacking is an optimization result, not merely model misbehavior; verifier quality is part of the task specification.</p>
+<h2 id="test-time-algorithms">Test-time algorithms</h2>
+<table>
+<thead><tr><th>Algorithm</th><th>Selection or expansion rule</th><th>Best fit</th><th>Key failure or cost</th></tr></thead>
+<tbody>
+<tr><td><strong>Best-of-n</strong></td><td>Sample <code>n</code> complete candidates; select the highest judge/verifier score</td><td>Independent solution attempts with a useful ranker</td><td>Linear generation cost; gains saturate or reverse under a weak selector</td></tr>
+<tr><td><strong>Self-consistency</strong></td><td>Sample diverse solutions; majority vote on the normalized answer</td><td>Problems with one short answer and varied valid derivations</td><td>Correlated errors can dominate the vote; no external correctness signal</td></tr>
+<tr><td><strong>Verifier reranking</strong></td><td>Score complete candidates with tests, rules, or a learned model</td><td>Tasks with a discriminative checker</td><td>Selection inherits false positives and adversarial vulnerabilities</td></tr>
+<tr><td><strong>Iterative refinement</strong></td><td>Critique and revise one or more drafts over several rounds</td><td>Errors that feedback can localize and repair</td><td>May entrench a bad premise; sequential rounds increase latency</td></tr>
+<tr><td><strong>Beam search over reasoning states</strong></td><td>Keep the top <code>b</code> partial traces at each depth</td><td>Dense step scores and fairly smooth progress</td><td>Premature pruning, low diversity, and score-model bias</td></tr>
+<tr><td><strong>Tree search</strong></td><td>Branch on candidate next steps, score states, backtrack, and expand promising paths</td><td>Problems requiring alternative decompositions</td><td>Branching explosion and unreliable intermediate-state evaluation</td></tr>
+<tr><td><strong>Monte Carlo tree search</strong></td><td>Balance exploration and exploitation using repeated selection, expansion, rollout, and backup</td><td>Search spaces with useful state values or terminal simulations</td><td>Many model calls; non-stationary language states make value estimates noisy</td></tr>
+<tr><td><strong>Tool-assisted reasoning</strong></td><td>Interleave model decisions with calculators, code, retrieval, proof tools, or environments</td><td>Tasks where external execution or information reduces uncertainty</td><td>Tool errors, injection, hidden state, and orchestration overhead</td></tr>
+<tr><td><strong>Adaptive stopping</strong></td><td>Allocate more samples or depth only while expected gain exceeds cost</td><td>Mixed-difficulty workloads or latency budgets</td><td>Requires calibrated uncertainty or marginal-value estimates</td></tr>
+</tbody>
+</table>
+<p>These algorithms operate at different granularities. Best-of-n, self-consistency, and reranking compare completed answers; refinement revises a trajectory; beam and tree methods search partial reasoning states; tool use changes the available operations; adaptive stopping is a budget policy that can wrap any of them.</p>
+<h2 id="compute-normalized-evaluation">Compute-normalized evaluation</h2>
+<p>Report capability and selection separately:</p>
+<ul>
+<li><strong><code>pass@1</code>:</strong> probability that one sampled attempt is correct.</li>
+<li><strong><code>pass@k</code>:</strong> probability that at least one of <code>k</code> attempts is correct. This measures candidate-set coverage, not whether the system can identify the correct candidate.</li>
+<li><strong>Majority-vote accuracy:</strong> accuracy of the answer occurring most often after normalization.</li>
+<li><strong>Selected-answer accuracy:</strong> accuracy of the single response actually returned after voting, reranking, search, or refinement.</li>
+</ul>
+<p>Every result should include generated tokens, wall-clock latency, model calls, verifier calls, and monetary or hardware-normalized cost. Plot <strong>accuracy–compute curves</strong> rather than reporting only the best point, and compare methods under fixed budgets such as equal total generated tokens, equal latency, or equal dollar cost. State whether parallel calls are counted by total compute, user-visible latency, or both.</p>
+<h3 id="compute-normalized-example">Example</h3>
+<p>On 1,000 problems, suppose greedy decoding uses one 1,000-token model call and gets 52% <code>pass@1</code>. Best-of-8 produces eight 1,000-token candidates and reaches 76% <code>pass@8</code>, but its learned reranker returns a correct answer only 67% of the time. Self-consistency with the same eight calls gets 64% majority-vote accuracy. The 76% figure therefore describes <em>coverage</em>, 67% describes <em>selected-answer quality</em>, and neither establishes that any visible trace is faithful.</p>
+<p>A fixed-token comparison gives each method 8,000 generated tokens per problem: eight independent 1,000-token samples, four two-round 2,000-token refinement paths, or a tree search whose expansions sum to 8,000 tokens. Report verifier calls and latency alongside accuracy: a tree search making 40 verifier calls may have equal generation tokens but higher cost, while eight samples generated in parallel may have similar latency but eight times the model compute of greedy decoding.</p>
+<h2 id="trace-faithfulness">Trace faithfulness</h2>
+<p>Three questions must remain distinct:</p>
+<ol>
+<li><strong>Correctness:</strong> is a candidate’s final answer actually right?</li>
+<li><strong>Selected-answer quality:</strong> does the system’s search and selection procedure return the best or a correct candidate from those generated?</li>
+<li><strong>Trace faithfulness:</strong> does the visible reasoning accurately reflect the causal computation that produced the answer?</li>
+</ol>
+<p>Readable reasoning is useful for debugging and communication, but it is not proof of faithfulness. A model can generate a <strong>post-hoc explanation</strong> after reaching an answer through another mechanism, use a <strong>shortcut solution</strong> while narrating the intended algorithm, or omit causal inputs such as hidden tool use, retrieved data, or memorized benchmark solutions. Conversely, a messy or incomplete explanation can accompany a correct internal computation. Process supervision checks properties of the emitted trace; without interventions or causal tests, it cannot establish that the trace caused the answer.</p>
+<p>Useful probes include counterfactual changes to intermediate facts, forced commitments before later evidence, hidden-information controls, tool-access ablations, and testing whether answer changes follow trace changes. These provide evidence about faithfulness but rarely a complete proof.</p>
+<h2 id="data-and-curriculum">Data and curriculum</h2>
+<ul>
+<li><strong>Difficulty estimation:</strong> use empirical success rates, solution length, search effort, or prerequisite structure, but recompute difficulty as the policy improves.</li>
+<li><strong>Synthetic task generation:</strong> create controllable variants and hard negatives, then validate solvability, uniqueness, and distribution coverage with independent checks.</li>
+<li><strong>Solution leakage:</strong> prevent answers, tests, generator templates, or near-duplicate benchmark items from entering prompts or train data.</li>
+<li><strong>Successful-trace selection bias:</strong> filtering only passing rollouts overrepresents lucky, short, verifier-friendly, or already-common strategies and hides informative near misses.</li>
+<li><strong>Diversity of strategies:</strong> preserve multiple valid decompositions, algorithms, languages, trace lengths, and tool choices rather than distilling to one stylistic template.</li>
+</ul>
+<p>A useful curriculum mixes learnable frontier tasks with easier retention items and periodic hard probes. Synthetic generation scales volume, but held-out human-written tasks and contamination checks are needed to detect generator-specific shortcuts.</p>
+<h2 id="failure-cases">Failure cases</h2>
+<ul>
+<li><strong>Verbosity inflation:</strong> preference or process models may mistake longer traces for more careful reasoning, increasing tokens without accuracy.</li>
+<li><strong>Reward hacking:</strong> the policy finds parser, test, judge, or environment loopholes that score better than genuine solutions.</li>
+<li><strong>Overfitting verifiable domains:</strong> gains in math, code, or formal tasks may not transfer to open-ended reasoning where the reward is learned or ambiguous.</li>
+<li><strong>Base-capability regression:</strong> aggressive specialization or KL drift can damage language quality, knowledge, instruction following, calibration, or safety.</li>
+<li><strong>Search amplifying false confidence:</strong> many correlated samples, a biased value model, or repeated self-critique can converge on the same wrong answer and make agreement look like evidence.</li>
+</ul>
+<h2 id="evaluation-checklist">Evaluation checklist</h2>
+<ul>
+<li>Measure final correctness, candidate coverage, selected-answer accuracy, and trace faithfulness as separate properties.</li>
+<li>Include pass@1, pass@k, majority vote, and selector performance at several budgets.</li>
+<li>Normalize by tokens, latency, model calls, verifier calls, and cost; publish accuracy–compute curves.</li>
+<li>Attack the verifier and parser; report false-positive and false-negative rates on adversarial and distribution-shifted cases.</li>
+<li>Test calibration, paraphrase robustness, contamination, tool ablations, and regressions on non-reasoning tasks.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Define RLVR without implying step-level verification.</li>
+<li>Compare outcome and process rewards.</li>
+<li>Explain pass@k and its selection limitation.</li>
+<li>Design a code-generation reward and attack it.</li>
+<li>Compare rejection sampling, DPO, GRPO, and online RL.</li>
+<li>Define a fair test-time-compute comparison.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="post-training.html">Post-Training: SFT, Reward Models, PPO, DPO and GRPO</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+<li><a href="synthetic-data.html">Synthetic Data Generation and Filtering</a></li>
+<li><a href="calibration.html">Hallucination, Grounding and Calibration</a></li>
+<li><a href="agents.html">Agents, Orchestration and Agent Evaluation</a></li>
+</ul>
+</section>

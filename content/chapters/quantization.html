@@ -1,0 +1,137 @@
+<section class="chapter-content" data-topic="quantization">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to explain floating-point formats, affine quantization, granularity, calibration, PTQ versus QAT, weight/activation/KV quantization, and why compression does not automatically imply latency improvement.</p>
+<h2 id="precision-before-quantization">Precision before quantization</h2>
+<p>Numeric formats trade range, precision, storage, and hardware throughput:</p>
+<ul>
+<li>FP32: large range and precision; common reference and accumulation format.</li>
+<li>FP16: narrower exponent range; often needs loss scaling during training.</li>
+<li>BF16: FP32-like exponent range with fewer mantissa bits; often easier for training.</li>
+<li>FP8: several formats with different range/precision trade-offs; requires scaling and supported kernels.</li>
+<li>INT8/INT4: quantized integer representations with explicit scales and zero points.</li>
+</ul>
+<p>Mixed precision is not simply “make everything low precision.” Sensitive reductions, optimizer state, or accumulations may remain in a wider format.</p>
+<h2 id="affine-quantization">Affine quantization</h2>
+<p>Affine quantization first clips a real value to <code>x_c = clamp(x, &alpha;, &beta;)</code>, rounds it to an integer code, and saturates any code outside the target range:</p>
+<div class="math-display">q = clamp(round(x_c / s) + z, q_min, q_max)
+x̂ = s (q - z)
+</div>
+<p>For asymmetric quantization, <code>s = (&beta; - &alpha;) / (q_max - q_min)</code> and <code>z = clamp(round(q_min - &alpha;/s), q_min, q_max)</code>. The integer zero point makes real zero exactly representable when possible and uses the available codes efficiently for an off-center range. Symmetric signed quantization instead takes <code class="math-inline">a = \operatorname{max}(\mid \alpha \mid , \mid \beta \mid )</code>, <code>s = a/q_max</code>, and <code class="math-inline">z = 0</code>, commonly using codes <code>[-127, 127]</code>. It simplifies kernels and avoids zero-point correction, but may waste range for skewed data.</p>
+<p>Rounding-to-nearest contributes at most about <code>s/2</code> error for an unclipped scalar; deterministic rounding can introduce bias, while stochastic rounding is unbiased in expectation but costs randomness. Clipping creates overload error, and saturation maps every value beyond the chosen range to an endpoint. With <code>x_c = clamp(x, &alpha;, &beta;)</code>, the signed error decomposes as:</p>
+<div class="math-display">x - x̂ = (x - x_c) + (x_c - x̂)
+          clipping error   rounding / grid error
+</div>
+<p>The terms trade off: a tighter range gives a smaller <code>s</code> and less grid error for central values, but more clipping error in the tails.</p>
+<h3 id="worked-quantization-example">Worked quantization-error example</h3>
+<p>Quantize the calibrated range <code>[-1, 2]</code> to unsigned 4-bit codes <code>[0, 15]</code>. Then <code class="math-inline">s = 3/15 = 0.2</code> and <code class="math-inline">z = \operatorname{round}(0 - (-1/0.2)) = 5</code>. For <code class="math-inline">x = 0.34</code>, <code class="math-inline">q = \operatorname{round}(0.34/0.2) + 5 = 7</code>, so <code class="math-inline">\widehat{x} = 0.2(7 - 5) = 0.4</code> and <code class="math-inline">x - \widehat{x} = -0.06</code>, entirely grid error. For <code class="math-inline">x = 2.4</code>, clipping gives <code>x_c = 2</code> and saturation gives <code class="math-inline">q = 15</code>; <code class="math-inline">\widehat{x} = 2</code>, so the <code>0.4</code> error is entirely clipping error.</p>
+<h3 id="scale-granularity">Scale granularity</h3>
+<ul>
+<li><strong>Per-tensor:</strong> one scale and zero point for the full tensor; minimal metadata, most vulnerable to heterogeneous channels.</li>
+<li><strong>Per-channel:</strong> a scale per weight output channel, or sometimes activation channel; better local fit, with scale application built into the kernel.</li>
+<li><strong>Per-group:</strong> a scale for each contiguous group of weights within a channel. Smaller groups reduce error but consume more scale metadata and work.</li>
+<li><strong>Per-token:</strong> a dynamically computed activation scale for each token row; follows token-to-token range changes but adds reductions and synchronization.</li>
+<li><strong>Blockwise:</strong> a scale per small multidimensional tile, used by block floating-point and microscaling formats; tile shape must match the GEMM layout.</li>
+</ul>
+<p>Finer granularity generally improves accuracy, but scale loads, metadata, reductions, and layout conversions can erase the benefit unless the hardware kernel natively matches that granularity.</p>
+<h2 id="calibration">Calibration and range selection</h2>
+<ul>
+<li><strong>Min/max:</strong> map the observed extrema to the code range. It is simple and preserves every calibration value, but one outlier can make the grid coarse.</li>
+<li><strong>Percentile clipping:</strong> choose lower and upper quantiles, accepting rare saturation to improve resolution for most values.</li>
+<li><strong>MSE-optimal range:</strong> search candidate clipping thresholds and minimize reconstruction error <code class="math-inline">\sum (x - \widehat{x})^{2}</code>. The answer depends on the tensor and bit width.</li>
+<li><strong>KL selection:</strong> compare the original activation histogram with a quantized-and-expanded histogram and choose the range minimizing KL divergence; common in entropy calibration, but sensitive to histogram binning and sparse tails.</li>
+</ul>
+<p>An activation calibration set should sample deployment domains, prompt styles, sequence lengths, positions, batch regimes, and important rare cases. Capture statistics at every quantized layer after normal preprocessing; enough tokens matter more than a large number of near-duplicate prompts. Outliers may be persistent channels, rare tokens, or transient positions, so inspect both maxima and frequency. Distribution shift can move ranges after deployment: dynamic scales, held-out stress sets, mixed precision, or recalibration are safer than assuming calibration extrema are permanent.</p>
+<h2 id="ptq-and-qat">PTQ and QAT</h2>
+<ul>
+<li><strong>Post-training quantization (PTQ):</strong> quantize a trained model using calibration data or weight statistics. It is cheap but sensitive to outliers and calibration mismatch.</li>
+<li><strong>Quantization-aware training (QAT):</strong> insert fake-quantization nodes in the forward pass: values are quantized and immediately dequantized, so computation remains floating point but experiences clipping and grid noise. Since <code>round</code> has zero derivative almost everywhere, the straight-through estimator usually passes gradients through the quantizer inside the clipping range and blocks or clips them outside. Learned or calibrated scales and weights then adapt to the deployed quantizer.</li>
+</ul>
+<h2 id="weight-only-quantization">Weight-only quantization</h2>
+<p>Weight-only INT8/INT4 stores packed weights while activations remain FP16/BF16. It is attractive for memory-bound decode because it reduces persistent memory and weight traffic.</p>
+<h3 id="gptq">GPTQ-style PTQ</h3>
+<p>For a linear layer and calibration inputs <code class="math-inline">X</code>, GPTQ approximately minimizes output reconstruction error <code>||XW - XŴ||&sup2;</code>. It uses a layerwise second-order approximation with an input Hessian proxy <code class="math-inline">H \approx  XTX</code>. Columns or small blocks are quantized sequentially; after rounding one set of weights, off-diagonal information from an inverse or factorization of <code class="math-inline">H</code> compensates the remaining unquantized weights. Damping stabilizes ill-conditioned curvature. This is more informed than independent nearest rounding, but it is still calibration-dependent and the solve/order are approximations.</p>
+<h3 id="awq">AWQ-style activation-aware quantization</h3>
+<p>AWQ observes that a small fraction of channels carrying large activation magnitudes are especially salient. It searches channel scaling and clipping choices that protect those weights before groupwise quantization. Algebraically, a diagonal scale can preserve a linear layer as <code class="math-inline">XW = (X S-1)(SW)</code>: making salient weight rows larger before quantization lowers their relative rounding error while inversely scaling activation channels. The transform is chosen using calibration activations and folded into adjacent operations where possible; AWQ does not quantize weights solely by their own magnitude.</p>
+<h3 id="weight-only-execution">Groups, packing, and execution</h3>
+<ul>
+<li><strong>Group size:</strong> 32 or 128 weights per scale is typical; smaller groups usually improve quality but increase metadata and scale operations.</li>
+<li><strong>Outlier channels:</strong> retain them at higher precision, give them finer groups, or rescale them. Each exception complicates layout and kernels.</li>
+<li><strong>Packing:</strong> INT4 values are packed into bytes or machine words in the exact tile order expected by the kernel; logical 4-bit storage is not useful if repacking occurs per request.</li>
+<li><strong>GEMM:</strong> a useful kernel loads packed weights, unpacks/dequantizes them in registers or shared memory, and immediately performs multiply-accumulate. Materializing a full FP16 weight tensor forfeits most bandwidth savings.</li>
+</ul>
+<p>The quality/throughput optimum is workload-specific. Smaller groups and mixed-precision exceptions improve reconstruction, while larger uniform groups pack and vectorize more efficiently. Weight-only quantization often helps low-batch decode more than compute-heavy prefill.</p>
+<h2 id="weight-activation-quantization">Weight-and-activation quantization</h2>
+<p>Activations vary across tokens and often contain channel outliers, making W8A8 or FP8 harder than weight-only quantization.</p>
+<h3 id="smoothquant">SmoothQuant-style redistribution</h3>
+<p>SmoothQuant applies an exact diagonal reparameterization <code class="math-inline">XW = (XS-1)(SW)</code>. For channel <code>j</code>, a common scale is proportional to <code class="math-inline">\operatorname{max}\mid X_{j}\mid \alpha  / \operatorname{max}\mid W_{j}\mid 1-\alpha</code>. This divides activation outliers by <code class="math-inline">S</code> and moves their range into the corresponding weight rows, whose distributions are easier to quantize per channel. Calibration estimates activation maxima; <code class="math-inline">\alpha</code> controls how much difficulty is transferred from activations to weights.</p>
+<p>Dynamic per-token INT8 scaling reduces error when token ranges differ, at the cost of computing a maximum and applying a scale for each row. INT8 uses uniform integer grids and typically integer dot products; FP8 retains exponent bits, offers more dynamic range, and commonly uses tensor or block scales, but its benefit requires native FP8 matrix units and compatible formats. Layer normalization, softmax, attention score reductions, embeddings, output heads, and tensors with extreme outliers are often kept or accumulated in BF16/FP16/FP32. Products may be low precision while partial sums use INT32 or a wider floating type; insufficient accumulation precision can overflow or compound error even when operands are well quantized.</p>
+<h2 id="kv-cache-quantization">KV-cache quantization</h2>
+<p>The cache grows linearly with layers, batch, sequence length, KV heads, and head dimension. Reducing FP16 cache entries to 8 or 4 bits can roughly halve or quarter payload bytes, increasing context capacity and reducing the memory bandwidth spent reading old K/V during decode. Scale and zero-point metadata make real savings slightly smaller.</p>
+<ul>
+<li><strong>Granularity:</strong> per-head scales are cheap but coarse; per-channel scales follow persistent feature outliers; per-token or token-block scales follow temporal variation but add metadata and online reductions. Practical layouts combine these axes.</li>
+<li><strong>Keys versus values:</strong> key error perturbs attention logits before softmax and can change which positions are selected; value error perturbs the weighted result. Their sensitivity differs by layer and task, so K and V may deserve different bit widths, clipping, or granularity.</li>
+<li><strong>Long context:</strong> old cache entries are reused at every later step. Error does not simply add linearly, but small logit perturbations among many competing positions can hurt retrieval at long distances; test needle retrieval and generation quality at the maximum deployed context.</li>
+<li><strong>Kernels:</strong> paged-attention and fused decode kernels must read the packed layout, load scales cheaply, and dequantize in registers during the attention computation. A fallback that expands the cache first may increase latency and workspace despite lower stored bytes.</li>
+</ul>
+<h2 id="qlora">QAT and QLoRA</h2>
+<p>QAT changes trainable weights under fake-quantization noise; QLoRA instead freezes a quantized pretrained base and trains low-rank adapters in a wider compute dtype. QLoRA commonly stores base weights in NF4, a 4-bit codebook designed for approximately normal weight distributions rather than a uniform integer grid. At each linear operation the base blocks are dequantized for computation, and the adapter update is added; gradients and optimizer state are needed only for adapters, though activations still consume memory.</p>
+<p>Double quantization quantizes the blockwise scale constants themselves, reducing scale metadata. It is separate from the NF4 codebook. QLoRA is a memory-efficient fine-tuning scheme, not ordinary QAT: the frozen base codes do not learn through a straight-through estimator, and inference speed still depends on whether deployment kernels execute the chosen packed format efficiently.</p>
+<h2 id="training-and-optimizer-state">Training and optimizer state</h2>
+<p>Quantized optimizers or low-precision moments reduce training memory, but update stability and accumulation matter. Keep master weights, reductions, or selected states wider when their small updates would vanish at the storage precision.</p>
+<h2 id="pruning">Pruning</h2>
+<ul>
+<li><strong>Unstructured:</strong> remove individual weights by magnitude, gradients, or second-order saliency. It yields flexible sparsity and good compression, but irregular indices and memory accesses often lose to dense GEMM.</li>
+<li><strong>N:M semi-structured:</strong> keep exactly <code class="math-inline">N</code> nonzeros in each group of <code class="math-inline">M</code> weights, such as 2:4. This constrains pruning quality but can match accelerator sparse tensor-core formats.</li>
+<li><strong>Structured:</strong> remove complete channels, MLP neurons, attention heads, layers, or rectangular blocks. Shapes shrink and dense kernels remain usable, but whole structures can be more damaging than the same number of isolated weights.</li>
+</ul>
+<p>Nominal zeros are not speedup. The runtime needs the exact sparse format, supported dimensions, a sparse kernel faster than dense at the achieved sparsity, and low encoding/dispatch overhead. One-shot pruning may work at modest ratios; aggressive pruning usually needs recovery training or iterative prune-and-retrain so remaining parameters adapt.</p>
+<h2 id="distillation">Distillation</h2>
+<ul>
+<li><strong>Logit distillation:</strong> minimize <code>T&sup2; KL(softmax(z_teacher/T) || softmax(z_student/T))</code>, often mixed with ground-truth cross-entropy. Temperature <code class="math-inline">T \gt  1</code> exposes relative probabilities among non-target tokens; the <code>T&sup2;</code> factor keeps gradient scale comparable.</li>
+<li><strong>Sequence-level:</strong> train on sequences decoded or sampled from the teacher. It transfers the teacher's preferred output distribution without storing every logit, but decoding collapses some uncertainty and exposes the student to teacher-generated trajectories.</li>
+<li><strong>Representation matching:</strong> regress selected hidden states, projected features, attention maps, or attention logits. Different widths or head counts require explicit layer alignment or learned projections, adding objectives that may conflict with task loss.</li>
+<li><strong>Reasoning-data distillation:</strong> fine-tune on teacher solutions, rationales, critiques, or verified traces. Filtering by final answer and process checks matters because fluent rationales can still contain invalid steps.</li>
+</ul>
+<p>Distillation changes the learned function or architecture rather than merely its representation. A student can inherit factual errors, biases, reward hacking, stylistic artifacts, and overconfidence from the teacher; use independent labels, verifiers, adversarial slices, and ground-truth evaluation rather than treating teacher agreement as correctness.</p>
+<h2 id="hardware-benchmarking">Hardware execution and benchmarking</h2>
+<p>Compression is fewer stored bits; hardware speedup is less end-to-end time or more useful work per second. The latter requires compatible layouts and kernels throughout the serving path.</p>
+<ul>
+<li><strong>Packed memory:</strong> report actual allocated bytes, including scales, zero points, sparse indices, padding, duplicated shards, and allocator fragmentation&mdash;not just bits per logical weight.</li>
+<li><strong>Effective bandwidth:</strong> divide useful model/cache bytes by measured time and compare with achievable device bandwidth. Unpacking, scale loads, and poor coalescing can make compressed bytes cheap to store but expensive to consume.</li>
+<li><strong>Kernel coverage:</strong> identify quantized GEMMs and attention kernels plus every fallback, cast, repack, graph break, and collective. One unsupported shape can dominate latency.</li>
+<li><strong>Workload shape:</strong> prefill is often compute-heavy; single-token, low-batch decode is often bandwidth-heavy. Batch size, prompt length, generated length, hidden dimensions, parallelism, and speculative acceptance all change the result.</li>
+<li><strong>End to end:</strong> measure time to first token, inter-token latency, request latency percentiles, peak memory, throughput, energy, and goodput at an explicit service-level objective. Include tokenization, scheduling, communication, and output handling where production does.</li>
+</ul>
+<p>Always pair systems metrics with perplexity, task capability slices, long-context retrieval, calibration-shift stress tests, and identical quality constraints. A smaller model or cache that admits a larger batch can improve <a href="serving.html">serving</a> goodput even if one request is not faster; conversely, tensor-parallel scale traffic or collectives can hide gains in <a href="distributed-inference.html">distributed inference</a>. See <a href="compile-kernels.html">kernel optimization</a> for roofline and fusion details and <a href="speculative-decoding.html">speculative decoding</a> for interacting decode trade-offs.</p>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>calibration data does not match deployment;</li>
+<li>activation outliers saturate the range;</li>
+<li>one global scale destroys small channels;</li>
+<li>dequantization materializes large temporary tensors;</li>
+<li>unsupported kernels fall back to slower paths;</li>
+<li>quality measured only on average perplexity;</li>
+<li>pruning produces nominal sparsity with no hardware speedup;</li>
+<li>comparing memory savings at different model quality.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Derive affine quantization and discuss zero point.</li>
+<li>Compare per-tensor, per-channel, and group-wise scales.</li>
+<li>Explain why BF16 is often easier than FP16 for training.</li>
+<li>Design a PTQ calibration set.</li>
+<li>Compare weight-only, activation, and KV-cache quantization.</li>
+<li>Explain why 4-bit weights may not reduce latency.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="inference.html">LLM Inference: Prefill, Decode and KV Cache</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="serving.html">LLM Serving and Request Scheduling</a></li>
+<li><a href="speculative-decoding.html">Speculative Decoding and Inference Acceleration</a></li>
+<li><a href="compile-kernels.html">torch.compile, Custom Kernels and GPU Performance</a></li>
+<li><a href="distributed-inference.html">Distributed LLM Inference</a></li>
+</ul>
+</section>
