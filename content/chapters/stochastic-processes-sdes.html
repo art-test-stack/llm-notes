@@ -3,116 +3,116 @@
 <p>You should be able to define a stochastic process and Brownian motion, interpret every term in an SDE, apply Itô’s lemma, connect the generator to the Fokker–Planck equation, simulate an SDE, and explain why a learned score lets a diffusion model run a noising process backward.</p>
 
 <h2 id="stochastic-process-foundations">1. Stochastic-process foundations</h2>
-<p>A <strong>stochastic process</strong> is a family of random variables <code>{X_t : t ∈ T}</code> on one probability space. The index is often time. Fixing <code>t</code> gives a random variable <code class="math-inline">X_{t}</code>; fixing an outcome <code class="math-inline">\omega</code> gives a sample path <code class="math-inline">t \mapsto  X_{t}(\omega )</code>. The state may be scalar or vector-valued, and time may be discrete or continuous.</p>
+<p>A <strong>stochastic process</strong> is a family of random variables <code>{X_t : t ∈ T}</code> on one probability space. The index is often time. Fixing <code>t</code> gives a random variable <span class="math-inline" data-tex="X_{t}">X_t</span>; fixing an outcome <span class="math-inline" data-tex="\omega">ω</span> gives a sample path <span class="math-inline" data-tex="t \mapsto  X_{t}(\omega )">t ↦ X_t(ω)</span>. The state may be scalar or vector-valued, and time may be discrete or continuous.</p>
 
 <h3 id="finite-dimensional-distributions">Finite-dimensional distributions</h3>
-<p>For every finite collection <code class="math-inline">t_{1},\ldots ,t_{n}</code>, the joint law of <code class="math-inline">(X_{t1},\ldots ,X_{\text{tn}})</code> is a <strong>finite-dimensional distribution</strong>. The consistent collection of all such laws specifies the process in distribution, although path properties such as continuity require choosing an appropriate version of the process.</p>
+<p>For every finite collection <span class="math-inline" data-tex="t_{1},\ldots ,t_{n}">t₁,…,tₙ</span>, the joint law of <span class="math-inline" data-tex="(X_{t1},\ldots ,X_{\text{tn}})">(X_t₁,…,X_tₙ)</span> is a <strong>finite-dimensional distribution</strong>. The consistent collection of all such laws specifies the process in distribution, although path properties such as continuity require choosing an appropriate version of the process.</p>
 
 <h3 id="stationarity">Stationarity</h3>
 <ul>
 <li><strong>Strict stationarity:</strong> shifting all times by the same amount leaves every finite-dimensional distribution unchanged.</li>
-<li><strong>Weak stationarity:</strong> the mean is constant and the covariance depends only on the lag: <code class="math-inline">\operatorname{Cov}(X_{s},X_{t})=C(t-s)</code>.</li>
+<li><strong>Weak stationarity:</strong> the mean is constant and the covariance depends only on the lag: <span class="math-inline" data-tex="\operatorname{Cov}(X_{s},X_{t})=C(t-s)">Cov(X_s,X_t)=C(t-s)</span>.</li>
 </ul>
-<p>Brownian motion itself is not stationary because <code class="math-inline">\operatorname{Var}(W_{t})=t</code>, but its increments are stationary: <code>W_{t+h}-W_t</code> depends in law only on <code>h</code>.</p>
+<p>Brownian motion itself is not stationary because <span class="math-inline" data-tex="\operatorname{Var}(W_{t})=t">Var(W_t)=t</span>, but its increments are stationary: <code>W_{t+h}-W_t</code> depends in law only on <code>h</code>.</p>
 
 <h3 id="markov-property">Markov property</h3>
 <p>A process is Markov if, conditional on the present, its future does not depend on its earlier history:</p>
-<div class="math-display">P(X_t ∈ A | X_s, history before s) = P(X_t ∈ A | X_s),   s &lt; t.</div>
+<div class="math-display" data-tex="P(X_{t} \in  A \mid  X_{s}, \text{history} \text{before} s) = P(X_{t} \in  A \mid  X_{s}),   s \lt  t.">P(X_t ∈ A | X_s, history before s) = P(X_t ∈ A | X_s),   s &lt; t.</div>
 <p>This does not mean the variables are independent. It means the current state contains all history needed for predicting the future under the model. If it does not, the state can sometimes be enlarged until it does.</p>
 
 <h3 id="filtration-and-adaptedness">Filtration and adaptedness</h3>
-<p>A <strong>filtration</strong> <code>(ℱ_t)</code> is an increasing family of information sets: <code>ℱ_s ⊆ ℱ_t</code> for <code class="math-inline">s \le  t</code>. Think of <code>ℱ_t</code> as everything observable by time <code>t</code>. A process is <strong>adapted</strong> when <code class="math-inline">X_{t}</code> is known from <code>ℱ_t</code>; it cannot use future information. For an Itô integral, the integrand must satisfy a slightly stronger measurability condition, commonly ensured by progressive or predictable processes. At interview level, the key point is: the decision multiplying the next noise increment must be based only on present and past information.</p>
+<p>A <strong>filtration</strong> <code>(ℱ_t)</code> is an increasing family of information sets: <code>ℱ_s ⊆ ℱ_t</code> for <span class="math-inline" data-tex="s \le  t">s ≤ t</span>. Think of <code>ℱ_t</code> as everything observable by time <code>t</code>. A process is <strong>adapted</strong> when <span class="math-inline" data-tex="X_{t}">X_t</span> is known from <code>ℱ_t</code>; it cannot use future information. For an Itô integral, the integrand must satisfy a slightly stronger measurability condition, commonly ensured by progressive or predictable processes. At interview level, the key point is: the decision multiplying the next noise increment must be based only on present and past information.</p>
 
 <h2 id="brownian-motion">2. Brownian motion</h2>
-<p>A standard one-dimensional Brownian motion <code class="math-inline">(W_{t})_{t\ge 0}</code> satisfies:</p>
+<p>A standard one-dimensional Brownian motion <span class="math-inline" data-tex="(W_{t})_{t\ge 0}">(W_t)_{t≥0}</span> satisfies:</p>
 <ol>
-<li><code class="math-inline">W_{0}=0</code> almost surely;</li>
+<li><span class="math-inline" data-tex="W_{0}=0">W_0=0</span> almost surely;</li>
 <li>increments over disjoint intervals are independent;</li>
-<li><code>W_t-W_s ∼ Normal(0,t-s)</code> for <code class="math-inline">0\le s\lt t</code>;</li>
+<li><code>W_t-W_s ∼ Normal(0,t-s)</code> for <span class="math-inline" data-tex="0\le s\lt t">0≤s&lt;t</span>;</li>
 <li>sample paths are continuous almost surely.</li>
 </ol>
-<p>Thus variance grows linearly with elapsed time: <code class="math-inline">\operatorname{Var}(W_{t}-W_{s})=t-s</code>. A typical increment over a small interval <code class="math-inline">\Delta t</code> has magnitude <code class="math-inline">\sqrt{\Delta t}</code>, not <code class="math-inline">\Delta t</code>. This scaling is the source of the extra second-order term in Itô calculus.</p>
+<p>Thus variance grows linearly with elapsed time: <span class="math-inline" data-tex="\operatorname{Var}(W_{t}-W_{s})=t-s">Var(W_t-W_s)=t-s</span>. A typical increment over a small interval <span class="math-inline" data-tex="\Delta t">Δt</span> has magnitude <span class="math-inline" data-tex="\sqrt{\Delta t}">√Δt</span>, not <span class="math-inline" data-tex="\Delta t">Δt</span>. This scaling is the source of the extra second-order term in Itô calculus.</p>
 
 <h3 id="continuity-nondifferentiability-and-quadratic-variation">Continuity, nondifferentiability, and quadratic variation</h3>
-<p>Brownian paths are continuous but almost surely nowhere differentiable. A difference quotient has scale <code class="math-inline">(W_{t+h}-W_{t})/h \approx  \sqrt{h}/h = 1/\sqrt{h}</code>, which becomes more irregular as <code>h→0</code>.</p>
-<p>For a partition <code class="math-inline">0=t_{0}\lt \ldots \lt t_{n}=t</code> whose mesh tends to zero, Brownian motion has quadratic variation</p>
-<div class="math-display">Σᵢ (W_{tᵢ₊₁}-W_{tᵢ})² → t   in probability.</div>
-<p>Ordinary differentiable paths have zero quadratic variation. Informally this gives the Itô bookkeeping rules <code class="math-inline">(d W_{t})^{2}=d t</code>, <code class="math-inline">d t\cdot d W_{t}=0</code>, and <code class="math-inline">(d t)^{2}=0</code>.</p>
+<p>Brownian paths are continuous but almost surely nowhere differentiable. A difference quotient has scale <span class="math-inline" data-tex="(W_{t+h}-W_{t})/h \approx  \sqrt{h}/h = 1/\sqrt{h}">(W_{t+h}-W_t)/h ≈ √h/h = 1/√h</span>, which becomes more irregular as <code>h→0</code>.</p>
+<p>For a partition <span class="math-inline" data-tex="0=t_{0}\lt \ldots \lt t_{n}=t">0=t₀&lt;…&lt;tₙ=t</span> whose mesh tends to zero, Brownian motion has quadratic variation</p>
+<div class="math-display" data-tex="\sum _{i} (W_{t_{i+1}}-W_{t_{i}})^{2} \to  t   \text{in} \text{probability}.">Σᵢ (W_{tᵢ₊₁}-W_{tᵢ})² → t   in probability.</div>
+<p>Ordinary differentiable paths have zero quadratic variation. Informally this gives the Itô bookkeeping rules <span class="math-inline" data-tex="(d W_{t})^{2}=d t">(dW_t)²=dt</span>, <span class="math-inline" data-tex="d t\cdot d W_{t}=0">dt·dW_t=0</span>, and <span class="math-inline" data-tex="(d t)^{2}=0">(dt)²=0</span>.</p>
 
 <h2 id="stochastic-differential-equations">3. Stochastic differential equations</h2>
 <p>An Itô SDE is written</p>
-<div class="math-display">dX_t = b(X_t,t) dt + σ(X_t,t) dW_t,    X_0 ∼ μ₀.</div>
+<div class="math-display" data-tex="d X_{t} = b(X_{t},t) d t + \sigma (X_{t},t) d W_{t},    X_{0} \sim  \mu _{0}.">dX_t = b(X_t,t) dt + σ(X_t,t) dW_t,    X_0 ∼ μ₀.</div>
 <p>This is shorthand for the integral equation</p>
-<div class="math-display">X_t = X_0 + ∫₀ᵗ b(X_s,s) ds + ∫₀ᵗ σ(X_s,s) dW_s.</div>
+<div class="math-display" data-tex="X_{t} = X_{0} + \int _{0}^{t} b(X_{s},s) d s + \int _{0}^{t} \sigma (X_{s},s) d W_{s}.">X_t = X_0 + ∫₀ᵗ b(X_s,s) ds + ∫₀ᵗ σ(X_s,s) dW_s.</div>
 <ul>
 <li>The <strong>drift</strong> <code>b</code> is the local deterministic rate of motion.</li>
-<li>The <strong>diffusion</strong> <code class="math-inline">\sigma</code> scales and correlates random fluctuations. In several dimensions, <code class="math-inline">\sigma</code> is a matrix and the instantaneous covariance is <code class="math-inline">a=\sigma \sigma ^{\top}</code>.</li>
+<li>The <strong>diffusion</strong> <span class="math-inline" data-tex="\sigma">σ</span> scales and correlates random fluctuations. In several dimensions, <span class="math-inline" data-tex="\sigma">σ</span> is a matrix and the instantaneous covariance is <span class="math-inline" data-tex="a=\sigma \sigma ^{\top}">a=σσᵀ</span>.</li>
 <li>The <strong>initial condition</strong> may be fixed or random. For a strong solution it is independent of future Brownian increments and measurable at time zero.</li>
 </ul>
-<p>For a small step <code>h</code>, conditional on <code class="math-inline">X_{t}=x</code>, the increment is approximately Gaussian:</p>
-<div class="math-display">X_{t+h}-X_t ≈ b(x,t)h + σ(x,t)√h Z,    Z ∼ Normal(0,I).</div>
+<p>For a small step <code>h</code>, conditional on <span class="math-inline" data-tex="X_{t}=x">X_t=x</span>, the increment is approximately Gaussian:</p>
+<div class="math-display" data-tex="X_{t+h}-X_{t} \approx  b(x,t)h + \sigma (x,t)\sqrt{h} Z,    Z \sim  \mathcal{N}(0,I).">X_{t+h}-X_t ≈ b(x,t)h + σ(x,t)√h Z,    Z ∼ Normal(0,I).</div>
 
 <h3 id="strong-and-weak-solutions">Strong and weak solutions</h3>
 <ul>
-<li>A <strong>strong solution</strong> is constructed on a given probability space using a given Brownian motion; <code class="math-inline">X</code> is adapted to that noise. The question is whether the path is a measurable function of the supplied initial state and noise.</li>
+<li>A <strong>strong solution</strong> is constructed on a given probability space using a given Brownian motion; <span class="math-inline" data-tex="X">X</span> is adapted to that noise. The question is whether the path is a measurable function of the supplied initial state and noise.</li>
 <li>A <strong>weak solution</strong> allows the probability space and Brownian motion to be part of the construction. It asks only for a process with the required law and SDE dynamics.</li>
 </ul>
-<p>These terms describe solution concepts, not numerical accuracy. Under standard global Lipschitz and linear-growth conditions on <code>b</code> and <code class="math-inline">\sigma</code>, a unique strong solution exists. Weaker coefficients require more care: existence, uniqueness in law, and pathwise uniqueness are distinct questions.</p>
+<p>These terms describe solution concepts, not numerical accuracy. Under standard global Lipschitz and linear-growth conditions on <code>b</code> and <span class="math-inline" data-tex="\sigma">σ</span>, a unique strong solution exists. Weaker coefficients require more care: existence, uniqueness in law, and pathwise uniqueness are distinct questions.</p>
 
 <h2 id="ito-calculus">4. Itô calculus</h2>
 <h3 id="ito-integral-intuition">Itô integral intuition</h3>
 <p>The Itô integral is the mean-square limit of left-endpoint sums</p>
-<div class="math-display">∫₀ᵗ H_s dW_s ≈ Σᵢ H_{tᵢ}(W_{tᵢ₊₁}-W_{tᵢ}).</div>
-<p>Using the left endpoint makes <code>H_{tᵢ}</code> depend only on information available before the new Brownian increment. For square-integrable adapted <code class="math-inline">H</code>, the integral has mean zero and obeys the Itô isometry:</p>
-<div class="math-display">E[(∫₀ᵗ H_s dW_s)²] = E[∫₀ᵗ H_s² ds].</div>
+<div class="math-display" data-tex="\int _{0}^{t} H_{s} d W_{s} \approx  \sum _{i} H_{t_{i}}(W_{t_{i+1}}-W_{t_{i}}).">∫₀ᵗ H_s dW_s ≈ Σᵢ H_{tᵢ}(W_{tᵢ₊₁}-W_{tᵢ}).</div>
+<p>Using the left endpoint makes <code>H_{tᵢ}</code> depend only on information available before the new Brownian increment. For square-integrable adapted <span class="math-inline" data-tex="H">H</span>, the integral has mean zero and obeys the Itô isometry:</p>
+<div class="math-display" data-tex="E[(\int _{0}^{t} H_{s} d W_{s})^{2}] = E[\int _{0}^{t} H_{s}^{2} d s].">E[(∫₀ᵗ H_s dW_s)²] = E[∫₀ᵗ H_s² ds].</div>
 
 <h3 id="itos-lemma">Itô’s lemma</h3>
-<p>If <code class="math-inline">d X_{t}=b(X_{t},t)d t+\sigma (X_{t},t)d W_{t}</code> and <code>f(x,t)</code> is sufficiently smooth, then in one dimension</p>
-<div class="math-display">df(X_t,t)
+<p>If <span class="math-inline" data-tex="d X_{t}=b(X_{t},t)d t+\sigma (X_{t},t)d W_{t}">dX_t=b(X_t,t)dt+σ(X_t,t)dW_t</span> and <code>f(x,t)</code> is sufficiently smooth, then in one dimension</p>
+<div class="math-display" data-tex="\begin{aligned}d f(X_{t},t)\\&amp;= [\partial _t f + b \partial _x f + \tfrac{1}{2}\sigma ^{2} \partial _xx f](X_{t},t) d t\\+ [\sigma  \partial _x f](X_{t},t) d W_{t}.\end{aligned}">df(X_t,t)
  = [∂_t f + b ∂_x f + ½σ² ∂_xx f](X_t,t) dt
    + [σ ∂_x f](X_t,t) dW_t.</div>
-<p>The ordinary chain rule lacks the <code class="math-inline">\tfrac{1}{2}\sigma ^{2}\partial _xx f</code> term. It survives because the second-order Taylor term contains <code class="math-inline">(d X_{t})^{2}\approx \sigma ^{2}(d W_{t})^{2}=\sigma ^{2}d t</code>. Higher-order terms vanish at the relevant scale.</p>
+<p>The ordinary chain rule lacks the <span class="math-inline" data-tex="\tfrac{1}{2}\sigma ^{2}\partial _xx f">½σ²∂_xx f</span> term. It survives because the second-order Taylor term contains <span class="math-inline" data-tex="(d X_{t})^{2}\approx \sigma ^{2}(d W_{t})^{2}=\sigma ^{2}d t">(dX_t)²≈σ²(dW_t)²=σ²dt</span>. Higher-order terms vanish at the relevant scale.</p>
 
 <h3 id="worked-example-geometric-brownian-motion">Worked example: geometric Brownian motion</h3>
-<p>Suppose <code class="math-inline">d X_{t}=\mu X_{t} d t+\sigma X_{t} d W_{t}</code> with <code class="math-inline">X_{0}\gt 0</code>. Apply Itô’s lemma to <code class="math-inline">f(x)=\operatorname{log} x</code>, for which <code class="math-inline">f'(x)=1/x</code> and <code class="math-inline">f''(x)=-1/x^{2}</code>:</p>
-<div class="math-display">d log X_t
+<p>Suppose <span class="math-inline" data-tex="d X_{t}=\mu X_{t} d t+\sigma X_{t} d W_{t}">dX_t=μX_tdt+σX_tdW_t</span> with <span class="math-inline" data-tex="X_{0}\gt 0">X_0&gt;0</span>. Apply Itô’s lemma to <span class="math-inline" data-tex="f(x)=\operatorname{log} x">f(x)=log x</span>, for which <span class="math-inline" data-tex="f&#x27;(x)=1/x">f′(x)=1/x</span> and <span class="math-inline" data-tex="f&#x27;&#x27;(x)=-1/x^{2}">f″(x)=-1/x²</span>:</p>
+<div class="math-display" data-tex="\begin{aligned}d \operatorname{log} X_{t}\\&amp;= (1/X_{t})d X_{t} + \tfrac{1}{2}(-1/X_{t}^{2})(\sigma ^{2}X_{t}^{2})d t\\&amp;= (\mu -\tfrac{1}{2}\sigma ^{2})d t + \sigma d W_{t}.\end{aligned}">d log X_t
  = (1/X_t)dX_t + ½(-1/X_t²)(σ²X_t²)dt
  = (μ-½σ²)dt + σdW_t.</div>
 <p>Integrating and exponentiating gives</p>
-<div class="math-display">X_t = X_0 exp((μ-½σ²)t + σW_t).</div>
-<p>The correction <code class="math-inline">-\tfrac{1}{2}\sigma ^{2}t</code> is exactly what the ordinary chain rule would miss. It also ensures <code class="math-inline">E[X_{t}]=X_{0e}^{\mu t}</code>.</p>
+<div class="math-display" data-tex="X_{t} = X_{0} \operatorname{exp}((\mu -\tfrac{1}{2}\sigma ^{2})t + \sigma W_{t}).">X_t = X_0 exp((μ-½σ²)t + σW_t).</div>
+<p>The correction <span class="math-inline" data-tex="-\tfrac{1}{2}\sigma ^{2}t">-½σ²t</span> is exactly what the ordinary chain rule would miss. It also ensures <span class="math-inline" data-tex="E[X_{t}]=X_{0e}^{\mu t}">E[X_t]=X_0e^{μt}</span>.</p>
 
 <h2 id="infinitesimal-generator">5. Infinitesimal generator</h2>
 <p>For a time-homogeneous diffusion and a smooth test function <code>f</code>, the infinitesimal generator is</p>
-<div class="math-display">(ℒf)(x) = lim_{h↓0} [E(f(X_{t+h}) | X_t=x)-f(x)]/h
+<div class="math-display" data-tex="\begin{aligned}(\mathcal{L}f)(x) &amp;= \text{lim}_{h↓0} [E(f(X_{t+h}) \mid  X_{t}=x)-f(x)]/h\\&amp;= b(x)\cdot \nabla f(x) + \tfrac{1}{2} \operatorname{Tr}(a(x)\nabla ^{2}f(x)),    a=\sigma \sigma ^{\top}.\end{aligned}">(ℒf)(x) = lim_{h↓0} [E(f(X_{t+h}) | X_t=x)-f(x)]/h
         = b(x)·∇f(x) + ½ Tr(a(x)∇²f(x)),    a=σσᵀ.</div>
-<p>Itô’s lemma shows why: the stochastic-integral term has conditional mean zero, so <code class="math-inline">\mathcal{L}f</code> gives the instantaneous expected evolution of the observable <code>f(X_t)</code>. More generally, for a time-dependent observable, the drift is <code class="math-inline">(\partial _t+\mathcal{L}_t)f</code>.</p>
+<p>Itô’s lemma shows why: the stochastic-integral term has conditional mean zero, so <span class="math-inline" data-tex="\mathcal{L}f">ℒf</span> gives the instantaneous expected evolution of the observable <code>f(X_t)</code>. More generally, for a time-dependent observable, the drift is <span class="math-inline" data-tex="(\partial _t+\mathcal{L}_t)f">(∂_t+ℒ_t)f</span>.</p>
 
 <h3 id="backward-kolmogorov-equation">Backward Kolmogorov equation</h3>
-<p>Let <code class="math-inline">u(t,x)=E[\phi (X_{T}) \mid  X_{t}=x]</code>. Under regularity conditions,</p>
-<div class="math-display">∂_t u(t,x) + ℒ_t u(t,x) = 0,    u(T,x)=φ(x).</div>
-<p>It is called backward because the terminal payoff is specified at <code class="math-inline">T</code> and the equation determines its conditional value at earlier times. The generator acts on functions of the state; its adjoint acts on probability densities.</p>
+<p>Let <span class="math-inline" data-tex="u(t,x)=E[\phi (X_{T}) \mid  X_{t}=x]">u(t,x)=E[φ(X_T) | X_t=x]</span>. Under regularity conditions,</p>
+<div class="math-display" data-tex="\partial _t u(t,x) + \mathcal{L}_t u(t,x) = 0,    u(T,x)=\phi (x).">∂_t u(t,x) + ℒ_t u(t,x) = 0,    u(T,x)=φ(x).</div>
+<p>It is called backward because the terminal payoff is specified at <span class="math-inline" data-tex="T">T</span> and the equation determines its conditional value at earlier times. The generator acts on functions of the state; its adjoint acts on probability densities.</p>
 
 <h2 id="fokker-planck-equation">6. Fokker–Planck equation</h2>
-<p>Let <code>p(x,t)</code> be the density of <code class="math-inline">X_{t}</code>. From the generator identity,</p>
-<div class="math-display">d/dt E[f(X_t)] = E[(ℒ_t f)(X_t)]
+<p>Let <code>p(x,t)</code> be the density of <span class="math-inline" data-tex="X_{t}">X_t</span>. From the generator identity,</p>
+<div class="math-display" data-tex="\begin{aligned}d/d t E[f(X_{t})] &amp;= E[(\mathcal{L}_t f)(X_{t})]\\&amp;= \int  (\mathcal{L}_t f)(x) p(x,t) d x.\end{aligned}">d/dt E[f(X_t)] = E[(ℒ_t f)(X_t)]
                  = ∫ (ℒ_t f)(x) p(x,t) dx.</div>
-<p>But <code class="math-inline">E[f(X_{t})]=\int f(x)p(x,t)d x</code>. Moving derivatives from <code>f</code> onto <code>p</code> by integration by parts identifies the adjoint <code class="math-inline">\mathcal{L}_t\cdot</code> and yields the <strong>Fokker–Planck</strong>, or forward Kolmogorov, equation:</p>
-<div class="math-display">∂_t p = ℒ_t* p
+<p>But <span class="math-inline" data-tex="E[f(X_{t})]=\int f(x)p(x,t)d x">E[f(X_t)]=∫f(x)p(x,t)dx</span>. Moving derivatives from <code>f</code> onto <code>p</code> by integration by parts identifies the adjoint <span class="math-inline" data-tex="\mathcal{L}_t\cdot">ℒ_t*</span> and yields the <strong>Fokker–Planck</strong>, or forward Kolmogorov, equation:</p>
+<div class="math-display" data-tex="\begin{aligned}\partial _t p &amp;= \mathcal{L}_t^{\ast} p\\&amp;= -\sum _{i} \partial _{x_{i}}(b_{i} p) + \tfrac{1}{2} \sum _{i},_{j} \partial _{x_{i}}\partial _{x_{j}}(a_{ij} p).\end{aligned}">∂_t p = ℒ_t* p
       = -Σᵢ ∂_{xᵢ}(bᵢ p) + ½ Σᵢ,ⱼ ∂_{xᵢ}∂_{xⱼ}(aᵢⱼ p).</div>
-<p>The drift transports probability; diffusion spreads it according to the local covariance <code class="math-inline">a=\sigma \sigma ^{\top}</code>. Boundary terms must vanish or be handled through explicit absorbing, reflecting, or flux conditions.</p>
+<p>The drift transports probability; diffusion spreads it according to the local covariance <span class="math-inline" data-tex="a=\sigma \sigma ^{\top}">a=σσᵀ</span>. Boundary terms must vanish or be handled through explicit absorbing, reflecting, or flux conditions.</p>
 
 <h3 id="one-dimensional-form-and-probability-conservation">One-dimensional form and probability conservation</h3>
-<p>For <code class="math-inline">d X_{t}=b(X_{t},t)d t+\sigma (X_{t},t)d W_{t}</code>,</p>
-<div class="math-display">∂_t p(x,t) = -∂_x[b(x,t)p(x,t)]
+<p>For <span class="math-inline" data-tex="d X_{t}=b(X_{t},t)d t+\sigma (X_{t},t)d W_{t}">dX_t=b(X_t,t)dt+σ(X_t,t)dW_t</span>,</p>
+<div class="math-display" data-tex="\begin{aligned}\partial _t p(x,t) &amp;= -\partial _x[b(x,t)p(x,t)]\\+ \tfrac{1}{2} \partial _xx[\sigma ^{2}(x,t)p(x,t)].\end{aligned}">∂_t p(x,t) = -∂_x[b(x,t)p(x,t)]
              + ½ ∂_xx[σ²(x,t)p(x,t)].</div>
-<p>Define probability current <code class="math-inline">J=\text{bp}-\tfrac{1}{2}\partial _x(\sigma ^{2}p)</code>. Then <code class="math-inline">\partial _t p=-\partial _\text{xJ}</code>, a continuity equation. Integrating over space gives</p>
-<div class="math-display">d/dt ∫ p(x,t)dx = -J(+∞,t)+J(-∞,t) = 0</div>
-<p>when the boundary flux vanishes, so total probability is conserved. As a check, pure Brownian motion has <code class="math-inline">b=0</code>, <code class="math-inline">\sigma =1</code>, hence <code class="math-inline">\partial _t p=\tfrac{1}{2}\partial _xx p</code>, the heat equation whose density is <code>Normal(0,t)</code>.</p>
+<p>Define probability current <span class="math-inline" data-tex="J=\text{bp}-\tfrac{1}{2}\partial _x(\sigma ^{2}p)">J=bp-½∂_x(σ²p)</span>. Then <span class="math-inline" data-tex="\partial _t p=-\partial _\text{xJ}">∂_t p=-∂_xJ</span>, a continuity equation. Integrating over space gives</p>
+<div class="math-display" data-tex="d/d t \int  p(x,t)d x = -J(+\infty ,t)+J(-\infty ,t) = 0">d/dt ∫ p(x,t)dx = -J(+∞,t)+J(-∞,t) = 0</div>
+<p>when the boundary flux vanishes, so total probability is conserved. As a check, pure Brownian motion has <span class="math-inline" data-tex="b=0">b=0</span>, <span class="math-inline" data-tex="\sigma =1">σ=1</span>, hence <span class="math-inline" data-tex="\partial _t p=\tfrac{1}{2}\partial _xx p">∂_t p=½∂_xx p</span>, the heat equation whose density is <code>Normal(0,t)</code>.</p>
 
 <h2 id="numerical-simulation">7. Numerical simulation</h2>
 <h3 id="euler-maruyama">Euler–Maruyama</h3>
-<p>Euler–Maruyama freezes the coefficients over a step <code>h</code> and samples the Brownian increment as <code class="math-inline">\Delta W_{n}=\sqrt{h} Z_{n}</code>:</p>
+<p>Euler–Maruyama freezes the coefficients over a step <code>h</code> and samples the Brownian increment as <span class="math-inline" data-tex="\Delta W_{n}=\sqrt{h} Z_{n}">ΔW_n=√h Z_n</span>:</p>
 <pre><code class="language-text">input: X0, terminal time T, number of steps N
 h ← T / N
 x ← X0
@@ -124,34 +124,34 @@ return x</code></pre>
 <p>Store each <code>x</code> if a whole path is needed. Independent Monte Carlo paths require independent Gaussian increments.</p>
 
 <h3 id="milstein">Milstein</h3>
-<p>For a scalar SDE with differentiable scalar diffusion, Milstein adds the leading correction caused by varying <code class="math-inline">\sigma</code>:</p>
-<div class="math-display">X_{n+1} = X_n + b_n h + σ_n ΔW_n
+<p>For a scalar SDE with differentiable scalar diffusion, Milstein adds the leading correction caused by varying <span class="math-inline" data-tex="\sigma">σ</span>:</p>
+<div class="math-display" data-tex="\begin{aligned}X_{n+1} &amp;= X_{n} + b_{n} h + \sigma _n \Delta W_{n}\\+ \tfrac{1}{2} \sigma _n (\partial _x\sigma _n) [(\Delta W_{n})^{2}-h].\end{aligned}">X_{n+1} = X_n + b_n h + σ_n ΔW_n
           + ½ σ_n (∂_xσ_n) [(ΔW_n)²-h].</div>
 <p>It reduces to Euler–Maruyama for additive noise. Multidimensional Milstein schemes can require cross-iterated stochastic integrals, so the scalar formula should not be copied blindly.</p>
 
 <h3 id="error-stability-and-monte-carlo">Strong error, weak error, stability, and Monte Carlo</h3>
 <ul>
-<li><strong>Strong error</strong> compares approximate and exact paths driven by the same noise, for example <code class="math-inline">E\mid X_{T}-X_{T}^h\mid</code>. Under standard assumptions Euler–Maruyama has strong order <code>1/2</code>, while scalar Milstein has order <code>1</code>.</li>
-<li><strong>Weak error</strong> compares expectations <code class="math-inline">\mid E[\phi (X_{T})]-E[\phi (X_{T}^h)]\mid</code>. Euler–Maruyama usually has weak order <code>1</code> for smooth enough data.</li>
-<li><strong>Step-size stability:</strong> convergence as <code>h→0</code> does not make a coarse step safe. For <code class="math-inline">d X=-\lambda  X d t+\sigma d W</code>, Euler–Maruyama multiplies the old state by <code class="math-inline">1-\lambda  h</code>; the usual stability requirement <code class="math-inline">\mid 1-\lambda  h\mid \lt 1</code> gives <code class="math-inline">0\lt \lambda  h\lt 2</code>. Stiff or superlinear systems may need implicit, tamed, or adaptive methods.</li>
-<li><strong>Monte Carlo:</strong> estimate <code class="math-inline">E[\phi (X_{T})]</code> by the sample mean over <code class="math-inline">M</code> simulated paths. Sampling error is typically <code class="math-inline">O(M^{-1/2})</code>; report a standard error, and reduce discretization error separately by refining <code>h</code>.</li>
+<li><strong>Strong error</strong> compares approximate and exact paths driven by the same noise, for example <span class="math-inline" data-tex="E\mid X_{T}-X_{T}^h\mid">E|X_T-X_T^h|</span>. Under standard assumptions Euler–Maruyama has strong order <code>1/2</code>, while scalar Milstein has order <code>1</code>.</li>
+<li><strong>Weak error</strong> compares expectations <span class="math-inline" data-tex="\mid E[\phi (X_{T})]-E[\phi (X_{T}^h)]\mid">|E[φ(X_T)]-E[φ(X_T^h)]|</span>. Euler–Maruyama usually has weak order <code>1</code> for smooth enough data.</li>
+<li><strong>Step-size stability:</strong> convergence as <code>h→0</code> does not make a coarse step safe. For <span class="math-inline" data-tex="d X=-\lambda  X d t+\sigma d W">dX=-λ Xdt+σdW</span>, Euler–Maruyama multiplies the old state by <span class="math-inline" data-tex="1-\lambda  h">1-λ h</span>; the usual stability requirement <span class="math-inline" data-tex="\mid 1-\lambda  h\mid \lt 1">|1-λ h|&lt;1</span> gives <span class="math-inline" data-tex="0\lt \lambda  h\lt 2">0&lt;λ h&lt;2</span>. Stiff or superlinear systems may need implicit, tamed, or adaptive methods.</li>
+<li><strong>Monte Carlo:</strong> estimate <span class="math-inline" data-tex="E[\phi (X_{T})]">E[φ(X_T)]</span> by the sample mean over <span class="math-inline" data-tex="M">M</span> simulated paths. Sampling error is typically <span class="math-inline" data-tex="O(M^{-1/2})">O(M^{-1/2})</span>; report a standard error, and reduce discretization error separately by refining <code>h</code>.</li>
 </ul>
 
 <h2 id="reverse-time-sdes">8. Reverse-time SDEs</h2>
 <h3 id="time-reversal-and-the-score">Time reversal and the score</h3>
 <p>Consider a forward diffusion</p>
-<div class="math-display">dX_t = b(X_t,t)dt + σ(X_t,t)dW_t,    a=σσᵀ,</div>
-<p>with smooth positive marginal density <code>p_t(x)</code>. Define the increasing reverse clock <code class="math-inline">s=T-t</code> and <code>Y_s=X_{T-s}</code>. Under suitable regularity and boundary conditions, the reversed process is again a diffusion with drift</p>
-<div class="math-display">b_rev(x,s) = -b(x,T-s) + (∇·a)(x,T-s)
+<div class="math-display" data-tex="d X_{t} = b(X_{t},t)d t + \sigma (X_{t},t)d W_{t},    a=\sigma \sigma ^{\top},">dX_t = b(X_t,t)dt + σ(X_t,t)dW_t,    a=σσᵀ,</div>
+<p>with smooth positive marginal density <code>p_t(x)</code>. Define the increasing reverse clock <span class="math-inline" data-tex="s=T-t">s=T-t</span> and <code>Y_s=X_{T-s}</code>. Under suitable regularity and boundary conditions, the reversed process is again a diffusion with drift</p>
+<div class="math-display" data-tex="\begin{aligned}b_{\text{rev}}(x,s) &amp;= -b(x,T-s) + (\nabla \cdot a)(x,T-s)\\+ a(x,T-s)\nabla _x \operatorname{log} p_{T-s}(x).\end{aligned}">b_rev(x,s) = -b(x,T-s) + (∇·a)(x,T-s)
              + a(x,T-s)∇_x log p_{T-s}(x).</div>
 <p>Here <code>(∇·a)_i=Σ_j∂_{x_j}a_{ij}</code>. If the diffusion is state-independent, the divergence term vanishes. The vector <code>∇_x log p_t(x)</code> is the <strong>score</strong>: it points toward locally higher probability density.</p>
-<p>A common equivalent convention keeps the original variable <code>t</code> and integrates it from <code class="math-inline">T</code> down to <code>0</code>. For <code class="math-inline">\sigma (x,t)=g(t)I</code>, it is written</p>
-<div class="math-display">dX_t = [b(X_t,t)-g(t)²∇_x log p_t(X_t)]dt + g(t)dW̄_t,
+<p>A common equivalent convention keeps the original variable <code>t</code> and integrates it from <span class="math-inline" data-tex="T">T</span> down to <code>0</code>. For <span class="math-inline" data-tex="\sigma (x,t)=g(t)I">σ(x,t)=g(t)I</span>, it is written</p>
+<div class="math-display" data-tex="\begin{aligned}d X_{t} &amp;= [b(X_{t},t)-g(t)^{2}\nabla _x \operatorname{log} p_{t}(X_{t})]d t + g(t)d\bar{W}_t,\\\text{integrated} \text{with} d t \lt  0 \text{from} T \text{to} 0.\end{aligned}">dX_t = [b(X_t,t)-g(t)²∇_x log p_t(X_t)]dt + g(t)dW̄_t,
 integrated with dt &lt; 0 from T to 0.</div>
 <p>The apparent sign difference comes only from the direction of the clock.</p>
 
 <h3 id="connection-to-score-based-diffusion-models">Connection to score-based diffusion models</h3>
-<p>A score-based diffusion model chooses a forward SDE that gradually corrupts data into a simple distribution, usually close to Gaussian. It trains a network <code class="math-inline">s_\theta (x,t)</code> to approximate <code>∇_x log p_t(x)</code>, commonly through denoising score matching. Sampling starts from the simple terminal distribution and numerically integrates the reverse-time SDE, replacing the unknown score with <code class="math-inline">s_\theta</code>. The learned score supplies exactly the density-dependent drift needed to undo the forward spreading in distribution.</p>
+<p>A score-based diffusion model chooses a forward SDE that gradually corrupts data into a simple distribution, usually close to Gaussian. It trains a network <span class="math-inline" data-tex="s_\theta (x,t)">s_θ(x,t)</span> to approximate <code>∇_x log p_t(x)</code>, commonly through denoising score matching. Sampling starts from the simple terminal distribution and numerically integrates the reverse-time SDE, replacing the unknown score with <span class="math-inline" data-tex="s_\theta">s_θ</span>. The learned score supplies exactly the density-dependent drift needed to undo the forward spreading in distribution.</p>
 <p>Important caveats:</p>
 <ul>
 <li>The formula assumes adequate density regularity and a nondegenerate process, or a more careful theorem for degenerate diffusions.</li>
@@ -161,14 +161,14 @@ integrated with dt &lt; 0 from T to 0.</div>
 </ul>
 
 <h2 id="girsanov-change-of-measure-intuition">9. Girsanov/change-of-measure intuition</h2>
-<p>Girsanov’s theorem changes probabilities assigned to paths so that a drift change can be absorbed into Brownian motion. Suppose under <code class="math-inline">P</code></p>
-<div class="math-display">dX_t = b(X_t,t)dt + σ(X_t,t)dW_t.</div>
-<p>If the desired drift is <code class="math-inline">b+\sigma u</code>, define the exponential path weight</p>
-<div class="math-display">Z_T = exp(∫₀ᵀ u_t·dW_t - ½∫₀ᵀ ||u_t||²dt).</div>
-<p>Under conditions such as Novikov’s condition, <code class="math-inline">Z_{T}</code> has mean one and defines <code class="math-inline">d Q=Z_{\text{TdP}}</code>. Then <code class="math-inline">W_{t}^Q=W_{t}-\int _{0}^{t}u_{\text{sds}}</code> is Brownian under <code class="math-inline">Q</code>, and</p>
-<div class="math-display">dX_t = [b(X_t,t)+σ(X_t,t)u_t]dt + σ(X_t,t)dW_t^Q.</div>
-<p>Practically, <code class="math-inline">Z_{T}</code> is a likelihood ratio for complete paths. It supports importance sampling, drift-controlled proposals, filtering, and stochastic control: simulate under an easier drift and reweight to estimate expectations under the target law.</p>
-<p>The precision points are important: equivalent measure changes alter drift but not quadratic variation; the new drift must lie in directions reachable through <code class="math-inline">\sigma</code>; integrability is required; and long horizons or large controls can make path weights extremely variable, producing effective sample-size collapse.</p>
+<p>Girsanov’s theorem changes probabilities assigned to paths so that a drift change can be absorbed into Brownian motion. Suppose under <span class="math-inline" data-tex="P">P</span></p>
+<div class="math-display" data-tex="d X_{t} = b(X_{t},t)d t + \sigma (X_{t},t)d W_{t}.">dX_t = b(X_t,t)dt + σ(X_t,t)dW_t.</div>
+<p>If the desired drift is <span class="math-inline" data-tex="b+\sigma u">b+σu</span>, define the exponential path weight</p>
+<div class="math-display" data-tex="Z_{T} = \operatorname{exp}(\int_{0}^T u_{t}\cdot d W_{t} - \tfrac{1}{2}\int_{0}^T \lVert u_{t}\rVert^{2}d t).">Z_T = exp(∫₀ᵀ u_t·dW_t - ½∫₀ᵀ ||u_t||²dt).</div>
+<p>Under conditions such as Novikov’s condition, <span class="math-inline" data-tex="Z_{T}">Z_T</span> has mean one and defines <span class="math-inline" data-tex="d Q=Z_{\text{TdP}}">dQ=Z_TdP</span>. Then <span class="math-inline" data-tex="W_{t}^Q=W_{t}-\int _{0}^{t}u_{\text{sds}}">W_t^Q=W_t-∫₀ᵗu_sds</span> is Brownian under <span class="math-inline" data-tex="Q">Q</span>, and</p>
+<div class="math-display" data-tex="d X_{t} = [b(X_{t},t)+\sigma (X_{t},t)u_{t}]d t + \sigma (X_{t},t)d W_{t}^Q.">dX_t = [b(X_t,t)+σ(X_t,t)u_t]dt + σ(X_t,t)dW_t^Q.</div>
+<p>Practically, <span class="math-inline" data-tex="Z_{T}">Z_T</span> is a likelihood ratio for complete paths. It supports importance sampling, drift-controlled proposals, filtering, and stochastic control: simulate under an easier drift and reweight to estimate expectations under the target law.</p>
+<p>The precision points are important: equivalent measure changes alter drift but not quadratic variation; the new drift must lie in directions reachable through <span class="math-inline" data-tex="\sigma">σ</span>; integrability is required; and long horizons or large controls can make path weights extremely variable, producing effective sample-size collapse.</p>
 
 <h2 id="applications">10. Applications</h2>
 <ul>
@@ -177,12 +177,12 @@ integrated with dt &lt; 0 from T to 0.</div>
 <li><strong>Control:</strong> choose a feedback drift to minimize expected running and terminal cost. Generators lead to Hamilton–Jacobi–Bellman equations; Girsanov connects controls to path measures.</li>
 <li><strong>Diffusion generative models:</strong> learn time-dependent scores and solve a reverse-time SDE to transform noise into samples.</li>
 <li><strong>Physics-informed learning:</strong> encode known stochastic dynamics, conservation structure, or noise models while learning residual drift, diffusion, closures, or unknown parameters from data.</li>
-<li><strong>Neural SDEs:</strong> parameterize <code>b</code> and/or <code class="math-inline">\sigma</code> with neural networks for irregular time series, latent dynamics, uncertainty-aware forecasting, and continuous-depth models. Identifiability, solver bias, and whether the learned noise is aleatoric or merely compensating for model error require scrutiny.</li>
+<li><strong>Neural SDEs:</strong> parameterize <code>b</code> and/or <span class="math-inline" data-tex="\sigma">σ</span> with neural networks for irregular time series, latent dynamics, uncertainty-aware forecasting, and continuous-depth models. Identifiability, solver bias, and whether the learned noise is aleatoric or merely compensating for model error require scrutiny.</li>
 </ul>
 
 <h2 id="review-checklist">Review checklist</h2>
 <ol>
-<li>Explain why Brownian increments scale as <code class="math-inline">\sqrt{d} t</code> and how that creates <code class="math-inline">(d W)^{2}=d t</code>.</li>
+<li>Explain why Brownian increments scale as <span class="math-inline" data-tex="\sqrt{d} t">√dt</span> and how that creates <span class="math-inline" data-tex="(d W)^{2}=d t">(dW)²=dt</span>.</li>
 <li>Apply Itô’s lemma to <code>log X_t</code> for geometric Brownian motion.</li>
 <li>Derive the generator from Itô’s lemma and the Fokker–Planck equation from its adjoint.</li>
 <li>Write Euler–Maruyama and distinguish strong path error from weak expectation error.</li>

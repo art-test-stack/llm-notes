@@ -51,13 +51,11 @@
 <li><strong>CORE:</strong> an aggregate downstream benchmark suite using multiple-choice, schema, and language-modeling tasks.</li>
 </ul>
 <p>For BPB:</p>
-<div class="math-display">BPB = total negative log-likelihood in bits / total target bytes
-    = total_nats / (ln(2) × total_bytes)
-</div>
+<div class="math-display" data-tex="\begin{aligned}BPB &amp;= \text{total} \text{negative} \operatorname{log}-\text{likelihood} \text{in} \text{bits} / \text{total} \text{target} \text{bytes}\\&amp;= \text{total}_{\text{nats}} / (\text{ln}(2) \times  \text{total}_{\text{bytes}})\end{aligned}">BPB = total negative log-likelihood in bits / total target bytes
+    = total_nats / (ln(2) × total_bytes)</div>
 <p>Distributed evaluation must aggregate numerator and denominator rather than averaging per-rank ratios. Ignored targets and special tokens with zero byte length must not contribute.</p>
 <p>CORE centers accuracy against each task's random baseline:</p>
-<div class="math-display">centered_accuracy = (accuracy - random_baseline) / (1 - random_baseline)
-</div>
+<div class="math-display" data-tex="\text{centered}_{\text{accuracy}} = (\text{accuracy} - \text{random}_{\text{baseline}}) / (1 - \text{random}_{\text{baseline}})">centered_accuracy = (accuracy - random_baseline) / (1 - random_baseline)</div>
 <p>BPB asks how well the model predicts held-out text; CORE asks whether that capability transfers to tasks. They should not be treated as interchangeable.</p>
 <h2 id="statistical-estimation-and-comparison">Statistical estimation and comparison</h2>
 <ul>
@@ -65,7 +63,7 @@
 <li><strong>Paired bootstrap:</strong> when two models answer the same examples, resample example IDs once and carry both outputs together. Compute the candidate-minus-baseline difference on every replicate; pairing removes between-example difficulty noise.</li>
 <li><strong>Permutation test:</strong> under the null that systems are exchangeable, randomly swap their labels within each paired example and compare the observed metric difference with the resulting null distribution. This is useful when a metric's sampling distribution is unclear.</li>
 <li><strong>McNemar's test:</strong> for paired binary outcomes, test only discordant examples: baseline-wrong/candidate-right versus baseline-right/candidate-wrong. It answers whether their success probabilities differ while respecting pairing.</li>
-<li><strong>Multiple comparisons:</strong> define a small primary family, then control false positives across secondary metrics and slices with Holm–Bonferroni (family-wise error) or Benjamini–Hochberg (false discovery rate). Do not quietly test dozens of slices at unadjusted <code class="math-inline">p \lt  0.05</code>.</li>
+<li><strong>Multiple comparisons:</strong> define a small primary family, then control false positives across secondary metrics and slices with Holm–Bonferroni (family-wise error) or Benjamini–Hochberg (false discovery rate). Do not quietly test dozens of slices at unadjusted <span class="math-inline" data-tex="p \lt  0.05">p &lt; 0.05</span>.</li>
 </ul>
 <p><strong>Effect size is not significance.</strong> Report the absolute and relative difference, its confidence interval, and a practical threshold. A tiny effect can be statistically significant at huge sample size; a useful effect can be inconclusive in an underpowered study. Choose sample size before evaluation from baseline variance/rate, MDE, significance level, desired power (commonly 80% or 90%), pairing, and expected attrition. Rare safety failures usually require far more samples or targeted stress tests than average-quality metrics.</p>
 <h3 id="paired-model-comparison-example">Paired-model comparison example</h3>

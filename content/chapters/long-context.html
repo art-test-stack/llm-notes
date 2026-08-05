@@ -11,7 +11,7 @@
 </ol>
 <p>Solving one does not guarantee the others. A successful 1M-token forward pass establishes nominal support, not useful 1M-token reasoning.</p>
 <h2 id="dense-attention-scaling">Dense-attention scaling</h2>
-<p>Let batch size be <code class="math-inline">B</code>, sequence length <code class="math-inline">L</code>, hidden width <code>d</code>, query-head count <code>h</code>, layer count <code class="math-inline">N</code>, KV-head count <code>h_kv</code>, head dimension <code>d_h</code>, and bytes per stored element <code>s</code>.</p>
+<p>Let batch size be <span class="math-inline" data-tex="B">B</span>, sequence length <span class="math-inline" data-tex="L">L</span>, hidden width <code>d</code>, query-head count <code>h</code>, layer count <span class="math-inline" data-tex="N">N</span>, KV-head count <code>h_kv</code>, head dimension <code>d_h</code>, and bytes per stored element <code>s</code>.</p>
 <table>
 <thead>
 <tr>
@@ -28,13 +28,13 @@
 </tr>
 <tr>
 <td>Other activations</td>
-<td>Mostly <code class="math-inline">O(B L d)</code> for each saved tensor</td>
+<td>Mostly <span class="math-inline" data-tex="O(B L d)">O(B L d)</span> for each saved tensor</td>
 <td>Residuals, Q/K/V, normalization, and MLP intermediates are linear in length but numerous. Training retains tensors for backward unless recomputed with activation checkpointing.</td>
 </tr>
 <tr>
 <td>Attention prefill FLOPs</td>
 <td>About <code>4 B L² d</code> per layer</td>
-<td><code>QKᵀ</code> and <code>softmax(QKᵀ)V</code> each contribute about <code>2 B L² d</code> FLOPs under full-square accounting. A causal kernel that skips the masked triangle can approach half this attention-pair arithmetic. Projections and MLPs add terms linear in <code class="math-inline">L</code>.</td>
+<td><code>QKᵀ</code> and <code>softmax(QKᵀ)V</code> each contribute about <code>2 B L² d</code> FLOPs under full-square accounting. A causal kernel that skips the masked triangle can approach half this attention-pair arithmetic. Projections and MLPs add terms linear in <span class="math-inline" data-tex="L">L</span>.</td>
 </tr>
 <tr>
 <td>Decode KV storage</td>
@@ -43,18 +43,18 @@
 </tr>
 <tr>
 <td>Dense decode attention</td>
-<td><code class="math-inline">O(L)</code> per new token</td>
+<td><span class="math-inline" data-tex="O(L)">O(L)</span> per new token</td>
 <td>The new query attends to all cached keys and values. Per-token latency therefore rises with the current context even though only one token is generated.</td>
 </tr>
 </tbody>
 </table>
 <h3 id="worked-128k-example">Worked 128K example</h3>
-<p>Consider one sequence with <code class="math-inline">L = 131,072</code>, <code class="math-inline">d = 4,096</code>, <code class="math-inline">h = 32</code>, <code class="math-inline">N = 32</code>, grouped-query attention with <code>h_kv = 8</code>, <code>d_h = 128</code>, and bf16 storage (<code class="math-inline">s = 2</code> bytes):</p>
+<p>Consider one sequence with <span class="math-inline" data-tex="L = 131,072">L = 131,072</span>, <span class="math-inline" data-tex="d = 4,096">d = 4,096</span>, <span class="math-inline" data-tex="h = 32">h = 32</span>, <span class="math-inline" data-tex="N = 32">N = 32</span>, grouped-query attention with <code>h_kv = 8</code>, <code>d_h = 128</code>, and bf16 storage (<span class="math-inline" data-tex="s = 2">s = 2</span> bytes):</p>
 <ul>
-<li>A materialized attention-score tensor for one layer is <code class="math-inline">32 \times  131,072^{2} \times  2 \text{bytes} = 1 \text{TiB}</code>. Across 32 layers, naïvely saving one such tensor per layer would total 32 TiB.</li>
-<li>One bf16 hidden-state tensor is <code class="math-inline">131,072 \times  4,096 \times  2 \text{bytes} = 1 \text{GiB}</code>. Training saves several activation tensors per layer, so linear terms remain substantial even with tiled attention.</li>
-<li>Under full-square accounting, the attention core of prefill costs about <code class="math-inline">4 \times  131,072^{2} \times  4,096 = 2.81 \times  10^{14}</code> FLOPs per layer, or about <code class="math-inline">9.0 \times  10^{15}</code> FLOPs (9 PFLOPs) across 32 layers, before projections and MLPs. Skipping the masked causal triangle can roughly halve this pairwise term.</li>
-<li>The decode KV cache is <code class="math-inline">2 \times  32 \times  131,072 \times  8 \times  128 \times  2 \text{bytes} = 16 \text{GiB}</code> per sequence. Each added token grows it by 128 KiB; 16 concurrent sequences at that length would require 256 GiB just for KV.</li>
+<li>A materialized attention-score tensor for one layer is <span class="math-inline" data-tex="32 \times  131,072^{2} \times  2 \text{bytes} = 1 \text{TiB}">32 × 131,072² × 2 bytes = 1 TiB</span>. Across 32 layers, naïvely saving one such tensor per layer would total 32 TiB.</li>
+<li>One bf16 hidden-state tensor is <span class="math-inline" data-tex="131,072 \times  4,096 \times  2 \text{bytes} = 1 \text{GiB}">131,072 × 4,096 × 2 bytes = 1 GiB</span>. Training saves several activation tensors per layer, so linear terms remain substantial even with tiled attention.</li>
+<li>Under full-square accounting, the attention core of prefill costs about <span class="math-inline" data-tex="4 \times  131,072^{2} \times  4,096 = 2.81 \times  10^{14}">4 × 131,072² × 4,096 = 2.81 × 10¹⁴</span> FLOPs per layer, or about <span class="math-inline" data-tex="9.0 \times  10^{15}">9.0 × 10¹⁵</span> FLOPs (9 PFLOPs) across 32 layers, before projections and MLPs. Skipping the masked causal triangle can roughly halve this pairwise term.</li>
+<li>The decode KV cache is <span class="math-inline" data-tex="2 \times  32 \times  131,072 \times  8 \times  128 \times  2 \text{bytes} = 16 \text{GiB}">2 × 32 × 131,072 × 8 × 128 × 2 bytes = 16 GiB</span> per sequence. Each added token grows it by 128 KiB; 16 concurrent sequences at that length would require 256 GiB just for KV.</li>
 </ul>
 <p>These are arithmetic and storage quantities, not latency predictions: kernel efficiency, quantized KV, tensor parallelism, and memory bandwidth determine observed performance. See <a href="inference.html">inference and KV cache</a> and <a href="serving.html">serving and request scheduling</a>.</p>
 <h2 id="efficient-attention-architectures">Efficient attention architectures</h2>
@@ -76,8 +76,8 @@
 </tr>
 <tr>
 <td>Sliding-window attention</td>
-<td>Each layer reads the most recent <code class="math-inline">W</code> positions</td>
-<td><code class="math-inline">O(LW)</code> attention; old KV can be evicted when every relevant layer is local</td>
+<td>Each layer reads the most recent <span class="math-inline" data-tex="W">W</span> positions</td>
+<td><span class="math-inline" data-tex="O(LW)">O(LW)</span> attention; old KV can be evicted when every relevant layer is local</td>
 <td>Distant evidence requires propagation through many layers</td>
 </tr>
 <tr>
@@ -125,7 +125,7 @@
 </tbody>
 </table>
 <h3 id="receptive-field-growth">Receptive-field growth across layers</h3>
-<p>Efficient patterns should be compared as connectivity graphs, not only by FLOPs. With a causal local window of width <code class="math-inline">W</code>, one layer directly reaches <code class="math-inline">W</code> previous positions and <code>m</code> stacked layers reach roughly <code>mW</code>; the path from old evidence to the current token grows with distance. Exponentially increasing dilation can grow the reachable span roughly exponentially with depth, but uses sparse paths. A global token can connect two distant local regions in about two hops, provided it actually preserves the needed information. Block-sparse patterns depend on their graph diameter, while recurrent and state-space models can have formally unbounded history but a fixed-capacity information channel.</p>
+<p>Efficient patterns should be compared as connectivity graphs, not only by FLOPs. With a causal local window of width <span class="math-inline" data-tex="W">W</span>, one layer directly reaches <span class="math-inline" data-tex="W">W</span> previous positions and <code>m</code> stacked layers reach roughly <code>mW</code>; the path from old evidence to the current token grows with distance. Exponentially increasing dilation can grow the reachable span roughly exponentially with depth, but uses sparse paths. A global token can connect two distant local regions in about two hops, provided it actually preserves the needed information. Block-sparse patterns depend on their graph diameter, while recurrent and state-space models can have formally unbounded history but a fixed-capacity information channel.</p>
 <p>A sliding-window cache may evict old KV only for layers whose pattern never reads it. Hybrid models with global layers need a layer-specific eviction policy; applying one window to every layer is a semantic bug. For a deeper comparison, see <a href="ssm.html">state-space models</a> and <a href="rag.html">retrieval-augmented generation</a>.</p>
 <h2 id="long-context-positional-methods">Long-context positional methods</h2>
 <table>
@@ -176,14 +176,14 @@
 <li><strong>Memory techniques:</strong> activation checkpointing recomputes forward activations during backward, trading FLOPs for memory. Context parallelism partitions the sequence across devices so no device holds all long-sequence activations.</li>
 </ul>
 <h2 id="distributed-long-context-execution">Distributed long-context execution</h2>
-<p><strong>Context parallelism</strong> partitions the sequence dimension across devices. With <code class="math-inline">P</code> devices, each device owns roughly <code>L/P</code> query positions and their activations, unlike tensor parallelism, which partitions model dimensions. Attention is still exact only if each query can incorporate every causally permitted key/value block.</p>
+<p><strong>Context parallelism</strong> partitions the sequence dimension across devices. With <span class="math-inline" data-tex="P">P</span> devices, each device owns roughly <code>L/P</code> query positions and their activations, unlike tensor parallelism, which partitions model dimensions. Attention is still exact only if each query can incorporate every causally permitted key/value block.</p>
 <ol>
 <li>Each rank computes Q, K, and V for its local sequence block.</li>
 <li>In ring attention, each rank keeps its Q block and circulates K/V blocks around a device ring.</li>
 <li>For each received block, it applies the causal mask, computes a partial attention result, and updates an online softmax using running maxima and normalization sums.</li>
 <li>After the required blocks have visited, each rank holds the exact output for its local queries; later collectives or sequence-parallel layers exchange only what the next operation requires.</li>
 </ol>
-<p>This reduces per-device activation and local K/V residency from <code class="math-inline">O(L)</code> to roughly <code class="math-inline">O(L/P)</code>, but it does not remove dense attention's total <code class="math-inline">O(L^{2})</code> work. It trades memory capacity for communication, and is most attractive when transfers overlap with attention kernels.</p>
+<p>This reduces per-device activation and local K/V residency from <span class="math-inline" data-tex="O(L)">O(L)</span> to roughly <span class="math-inline" data-tex="O(L/P)">O(L/P)</span>, but it does not remove dense attention's total <span class="math-inline" data-tex="O(L^{2})">O(L²)</span> work. It trades memory capacity for communication, and is most attractive when transfers overlap with attention kernels.</p>
 <ul>
 <li><strong>Causal imbalance:</strong> early query blocks can attend to few key blocks while late query blocks attend to many. A naïve partition leaves early ranks idle; balanced or zigzag sequence assignment pairs early and late blocks to equalize useful work.</li>
 <li><strong>Sequence partitioning:</strong> layouts must align with tensor, pipeline, and data parallel groups. Transposing between sequence-sharded and hidden-dimension-sharded layouts adds collectives.</li>

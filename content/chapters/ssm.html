@@ -3,55 +3,50 @@
 <p>You should be able to connect classical state-space equations to sequence models, derive the recurrent and convolutional views, explain selective state-space models, compare their training and inference properties with attention, and avoid conflating a learned hidden state with a physically identified state.</p>
 <h2 id="classical-state-space-systems">Classical physical state-space systems</h2>
 <p>A continuous-time linear time-invariant (LTI) system is written:</p>
-<div class="math-display">dh(t)/dt = A h(t) + B u(t)
-y(t)     = C h(t) + D u(t)
-</div>
+<div class="math-display" data-tex="\begin{aligned}d h(t)/d t &amp;= A h(t) + B u(t)\\y(t)     &amp;= C h(t) + D u(t)\end{aligned}">dh(t)/dt = A h(t) + B u(t)
+y(t)     = C h(t) + D u(t)</div>
 <p>Here <code>h(t) ∈ ℝⁿ</code> is a model state, <code>u(t) ∈ ℝᵖ</code> an input, and <code>y(t) ∈ ℝᵐ</code> an output. In a physical model, coordinates may represent quantities such as current, velocity, or temperature and can be tested for identifiability. A neural SSM reuses this mathematical form as a learned sequence layer; its hidden coordinates are not automatically physical, observable, or uniquely identifiable.</p>
 <h2 id="continuous-time-and-discrete-time-ssm-derivation">Continuous-time and discrete-time SSM derivation</h2>
-<p>Variation of constants over a sampling interval <code class="math-inline">\Delta</code> gives:</p>
-<div class="math-display">h(t + Δ) = exp(ΔA) h(t)
-         + ∫₀^Δ exp((Δ - τ)A) B u(t + τ) dτ
-</div>
-<p>The matrix exponential is <code class="math-inline">\operatorname{exp}(\Delta A) = \sum _{j=0}\infty  (\Delta A)^j/j!</code>; it is the fundamental solution of the homogeneous linear ODE, not an elementwise exponential. Under a zero-order hold (ZOH), <code>u(t + τ) = u_t</code> throughout the interval, so:</p>
-<div class="math-display">Ā = exp(ΔA)
+<p>Variation of constants over a sampling interval <span class="math-inline" data-tex="\Delta">Δ</span> gives:</p>
+<div class="math-display" data-tex="\begin{aligned}h(t + \Delta ) &amp;= \operatorname{exp}(\Delta A) h(t)\\+ \int _{0}^\Delta  \operatorname{exp}((\Delta  - \tau )A) B u(t + \tau ) d\tau\end{aligned}">h(t + Δ) = exp(ΔA) h(t)
+         + ∫₀^Δ exp((Δ - τ)A) B u(t + τ) dτ</div>
+<p>The matrix exponential is <span class="math-inline" data-tex="\operatorname{exp}(\Delta A) = \sum _{j=0}\infty  (\Delta A)^j/j!">exp(ΔA) = Σ_{j=0}∞ (ΔA)^j/j!</span>; it is the fundamental solution of the homogeneous linear ODE, not an elementwise exponential. Under a zero-order hold (ZOH), <code>u(t + τ) = u_t</code> throughout the interval, so:</p>
+<div class="math-display" data-tex="\begin{aligned}\bar{A} &amp;= \operatorname{exp}(\Delta A)\\\bar{B} &amp;= \int _{0}^\Delta  \operatorname{exp}(sA) B d s = \Delta  \phi _{1}(\Delta A) B\\\phi _{1}(Z) &amp;= (\operatorname{exp}(Z) - I) Z^{-1}       (\text{defined} \text{by} \text{its} \text{power} \text{series} \text{at} \text{singular} Z)\\h_{t} &amp;= \bar{A} h_{t-1} + \bar{B} u_{t}\\y_{t} &amp;= C h_{t} + D u_{t}\end{aligned}">Ā = exp(ΔA)
 B̄ = ∫₀^Δ exp(sA) B ds = Δ φ₁(ΔA) B
 φ₁(Z) = (exp(Z) - I) Z⁻¹       (defined by its power series at singular Z)
 
 h_t = Ā h_{t-1} + B̄ u_t
-y_t = C h_t + D u_t
-</div>
-<p>When <code class="math-inline">A</code> is nonsingular, <code class="math-inline">A \bar{B} = (\bar{A}-I)B</code>. Solve that linear system only when it is well conditioned; never form <code>A⁻¹</code>. Robust alternatives compute <code class="math-inline">\phi _{1}</code> with scaling-and-squaring or Krylov methods, or use one block exponential:</p>
-<div class="math-display">exp(Δ [ A  B ]) = [ Ā  B̄ ]
-      [ 0  0 ]    [ 0   I ]
-</div>
-<p>This remains valid for singular <code class="math-inline">A</code> and avoids cancellation in <code class="math-inline">\operatorname{exp}(\Delta A)-I</code>. Diagonal neural SSMs can evaluate the scalar <code class="math-inline">\text{expm}1(\Delta a)/a</code> elementwise, with the analytic limit <code class="math-inline">\Delta</code> near <code class="math-inline">a=0</code>.</p>
+y_t = C h_t + D u_t</div>
+<p>When <span class="math-inline" data-tex="A">A</span> is nonsingular, <span class="math-inline" data-tex="A \bar{B} = (\bar{A}-I)B">A B̄ = (Ā-I)B</span>. Solve that linear system only when it is well conditioned; never form <code>A⁻¹</code>. Robust alternatives compute <span class="math-inline" data-tex="\phi _{1}">φ₁</span> with scaling-and-squaring or Krylov methods, or use one block exponential:</p>
+<div class="math-display" data-tex="\begin{aligned}\operatorname{exp}(\Delta  [ A  B ]) &amp;= [ \bar{A}  \bar{B} ]\\{}[ 0  0 ]    [ 0   I ]\end{aligned}">exp(Δ [ A  B ]) = [ Ā  B̄ ]
+      [ 0  0 ]    [ 0   I ]</div>
+<p>This remains valid for singular <span class="math-inline" data-tex="A">A</span> and avoids cancellation in <span class="math-inline" data-tex="\operatorname{exp}(\Delta A)-I">exp(ΔA)-I</span>. Diagonal neural SSMs can evaluate the scalar <span class="math-inline" data-tex="\text{expm}1(\Delta a)/a">expm1(Δa)/a</span> elementwise, with the analytic limit <span class="math-inline" data-tex="\Delta">Δ</span> near <span class="math-inline" data-tex="a=0">a=0</span>.</p>
 <h3 id="discretization-schemes-and-stability">Discretization schemes and stability</h3>
 <table>
 <thead><tr><th>Scheme</th><th><code>Ā</code></th><th><code>B̄</code> under constant input</th><th>Trade-off</th></tr></thead>
 <tbody>
-<tr><td>Exact ZOH</td><td><code class="math-inline">\operatorname{exp}(\Delta A)</code></td><td><code class="math-inline">\int _{0}^\Delta  \operatorname{exp}(sA)B d s</code></td><td>Exact at sample points for held input; exponential can be expensive for dense matrices.</td></tr>
-<tr><td>Forward Euler</td><td><code class="math-inline">I+\Delta A</code></td><td><code class="math-inline">\Delta B</code></td><td>Cheap, first order, but conditionally stable and inaccurate for stiff modes.</td></tr>
-<tr><td>Backward Euler</td><td><code class="math-inline">(I-\Delta A)^{-1}</code></td><td><code class="math-inline">(I-\Delta A)^{-1}\Delta B</code></td><td>First order and strongly damping; requires a solve.</td></tr>
-<tr><td>Bilinear/Tustin</td><td><code class="math-inline">(I-\Delta A/2)^{-1}(I+\Delta A/2)</code></td><td><code class="math-inline">(I-\Delta A/2)^{-1}\Delta B</code></td><td>Second order and maps the open left half-plane inside the unit disk, but warps frequencies.</td></tr>
+<tr><td>Exact ZOH</td><td><span class="math-inline" data-tex="\operatorname{exp}(\Delta A)">exp(ΔA)</span></td><td><span class="math-inline" data-tex="\int _{0}^\Delta  \operatorname{exp}(sA)B d s">∫₀^Δ exp(sA)B ds</span></td><td>Exact at sample points for held input; exponential can be expensive for dense matrices.</td></tr>
+<tr><td>Forward Euler</td><td><span class="math-inline" data-tex="I+\Delta A">I+ΔA</span></td><td><span class="math-inline" data-tex="\Delta B">ΔB</span></td><td>Cheap, first order, but conditionally stable and inaccurate for stiff modes.</td></tr>
+<tr><td>Backward Euler</td><td><span class="math-inline" data-tex="(I-\Delta A)^{-1}">(I-ΔA)⁻¹</span></td><td><span class="math-inline" data-tex="(I-\Delta A)^{-1}\Delta B">(I-ΔA)⁻¹ΔB</span></td><td>First order and strongly damping; requires a solve.</td></tr>
+<tr><td>Bilinear/Tustin</td><td><span class="math-inline" data-tex="(I-\Delta A/2)^{-1}(I+\Delta A/2)">(I-ΔA/2)⁻¹(I+ΔA/2)</span></td><td><span class="math-inline" data-tex="(I-\Delta A/2)^{-1}\Delta B">(I-ΔA/2)⁻¹ΔB</span></td><td>Second order and maps the open left half-plane inside the unit disk, but warps frequencies.</td></tr>
 <tr><td>Higher-order Runge–Kutta</td><td colspan="2">Polynomial/rational approximation to the flow</td><td>Useful for general ODEs; rarely needed when structured linear dynamics admit exact or bilinear formulas.</td></tr>
 </tbody>
 </table>
-<p>A continuous LTI system is asymptotically stable when every eigenvalue of <code class="math-inline">A</code> has negative real part. Exact ZOH maps each mode as <code class="math-inline">\bar{\lambda} = \operatorname{exp}(\Delta \lambda )</code>, hence <code class="math-inline">\mid \bar{\lambda}\mid  \lt  1</code>. A discrete recurrence is asymptotically stable when the spectral radius <code class="math-inline">\rho (\bar{A}) \lt  1</code>. Forward Euler instead requires <code class="math-inline">\mid 1+\Delta \lambda \mid  \lt  1</code>, so a stable continuous system can become unstable at a large step. Eigenvalues are not the whole numerical story: a non-normal <code class="math-inline">A</code> can have large transient amplification even with stable eigenvalues, and an ill-conditioned eigenbasis makes kernel generation and gradients fragile.</p>
-<p><strong>Boundary between domains:</strong> the derivation is shared mathematics. In the neural sections below, <code class="math-inline">A</code>, <code class="math-inline">B</code>, <code class="math-inline">C</code>, and <code>h</code> are learned sequence-layer parameters and activations unless stated otherwise. The later control-theory sections return explicitly to physical models.</p>
+<p>A continuous LTI system is asymptotically stable when every eigenvalue of <span class="math-inline" data-tex="A">A</span> has negative real part. Exact ZOH maps each mode as <span class="math-inline" data-tex="\bar{\lambda} = \operatorname{exp}(\Delta \lambda )">λ̄ = exp(Δλ)</span>, hence <span class="math-inline" data-tex="\mid \bar{\lambda}\mid  \lt  1">|λ̄| &lt; 1</span>. A discrete recurrence is asymptotically stable when the spectral radius <span class="math-inline" data-tex="\rho (\bar{A}) \lt  1">ρ(Ā) &lt; 1</span>. Forward Euler instead requires <span class="math-inline" data-tex="\mid 1+\Delta \lambda \mid  \lt  1">|1+Δλ| &lt; 1</span>, so a stable continuous system can become unstable at a large step. Eigenvalues are not the whole numerical story: a non-normal <span class="math-inline" data-tex="A">A</span> can have large transient amplification even with stable eigenvalues, and an ill-conditioned eigenbasis makes kernel generation and gradients fragile.</p>
+<p><strong>Boundary between domains:</strong> the derivation is shared mathematics. In the neural sections below, <span class="math-inline" data-tex="A">A</span>, <span class="math-inline" data-tex="B">B</span>, <span class="math-inline" data-tex="C">C</span>, and <code>h</code> are learned sequence-layer parameters and activations unless stated otherwise. The later control-theory sections return explicitly to physical models.</p>
 <h2 id="recurrent-convolutional-and-scan-views">Recurrent, convolutional, and scan views</h2>
 <p>For the discrete LTI recurrence and initial state <code>h_{-1}</code>, repeated substitution yields:</p>
-<div class="math-display">h_t = Ā^{t+1} h_{-1} + Σ_{j=0}^{t} Ā^{t-j} B̄ u_j
+<div class="math-display" data-tex="\begin{aligned}h_{t} &amp;= \bar{A}^{t+1} h_{-1} + \sum _{j=0}^{t} \bar{A}^{t-j} \bar{B} u_{j}\\&amp;= \bar{A}^{t+1} h_{-1} + \sum _{k=0}^{t} \bar{A}^k \bar{B} u_{t-k}\\y_{t} &amp;= C\bar{A}^{t+1}h_{-1} + \sum _{k=0}^{t} K_{k} u_{t-k} + D u_{t}\\K_{k} &amp;= C \bar{A}^k \bar{B}\end{aligned}">h_t = Ā^{t+1} h_{-1} + Σ_{j=0}^{t} Ā^{t-j} B̄ u_j
     = Ā^{t+1} h_{-1} + Σ_{k=0}^{t} Ā^k B̄ u_{t-k}
 
 y_t = CĀ^{t+1}h_{-1} + Σ_{k=0}^{t} K_k u_{t-k} + D u_t
-K_k = C Ā^k B̄
-</div>
-<p>With zero initial state, this is a causal convolution. The fixed kernel exists because <code>Ā</code>, <code>B̄</code>, and <code class="math-inline">C</code> are invariant across time: the contribution of an input depends only on lag <code>k</code>, not on its absolute position or intervening token values. The direct term <code class="math-inline">D</code> is either added separately or folded into lag zero as <code class="math-inline">K_{0} \leftarrow  K_{0} + D</code>.</p>
+K_k = C Ā^k B̄</div>
+<p>With zero initial state, this is a causal convolution. The fixed kernel exists because <code>Ā</code>, <code>B̄</code>, and <span class="math-inline" data-tex="C">C</span> are invariant across time: the contribution of an input depends only on lag <code>k</code>, not on its absolute position or intervening token values. The direct term <span class="math-inline" data-tex="D">D</span> is either added separately or folded into lag zero as <span class="math-inline" data-tex="K_{0} \leftarrow  K_{0} + D">K₀ ← K₀ + D</span>.</p>
 <p>There are three execution views of the same LTI layer:</p>
 <ul>
-<li><strong>Recurrence:</strong> one <code class="math-inline">O(N)</code> structured state update per token and fixed state memory; ideal for autoregressive decoding and streaming.</li>
-<li><strong>Convolution:</strong> generate <code class="math-inline">K_{0}\ldots K_{L-1}</code>, then use an FFT convolution in roughly <code class="math-inline">O(L \operatorname{log} L)</code>; all training positions are handled in parallel.</li>
-<li><strong>Associative scan:</strong> represent token <code>t</code> by the affine map <code>(Ā_t,b_t)</code>, where <code>b_t=B̄_tu_t</code>. Compose adjacent maps with <code class="math-inline">(A_{2},b_{2}) \otimes  (A_{1},b_{1})=(A_{2}A_{1},A_{2}b_{1}+b_{2})</code>. Because composition is associative, a tree scan has logarithmic parallel depth even when the per-token parameters vary.</li>
+<li><strong>Recurrence:</strong> one <span class="math-inline" data-tex="O(N)">O(N)</span> structured state update per token and fixed state memory; ideal for autoregressive decoding and streaming.</li>
+<li><strong>Convolution:</strong> generate <span class="math-inline" data-tex="K_{0}\ldots K_{L-1}">K₀…K_{L-1}</span>, then use an FFT convolution in roughly <span class="math-inline" data-tex="O(L \operatorname{log} L)">O(L log L)</span>; all training positions are handled in parallel.</li>
+<li><strong>Associative scan:</strong> represent token <code>t</code> by the affine map <code>(Ā_t,b_t)</code>, where <code>b_t=B̄_tu_t</code>. Compose adjacent maps with <span class="math-inline" data-tex="(A_{2},b_{2}) \otimes  (A_{1},b_{1})=(A_{2}A_{1},A_{2}b_{1}+b_{2})">(A₂,b₂) ⊗ (A₁,b₁)=(A₂A₁,A₂b₁+b₂)</span>. Because composition is associative, a tree scan has logarithmic parallel depth even when the per-token parameters vary.</li>
 </ul>
 <pre><code class="language-text"># streaming inference: carry h across calls
 for u_t in tokens:
@@ -61,18 +56,18 @@ for u_t in tokens:
 </code></pre>
 <p>Training usually pays for kernel construction plus FFTs, or for a parallel scan, to expose sequence-level parallelism. Decode uses the recurrence because only one new token is available and retaining <code>h</code> avoids recomputing the prefix. See <a href="inference.html">LLM inference and KV-cache execution</a> for the analogous prefill/decode split.</p>
 <h2 id="structured-state-space-models">Structured state-space models</h2>
-<p>An unrestricted dense <code>A ∈ ℝᴺˣᴺ</code> has <code>N²</code> parameters, costs <code class="math-inline">O(N^{2})</code> per recurrent step, and can require <code class="math-inline">O(N^{3})</code> factorization or matrix-exponential work. A sequence layer has many feature channels, so repeating that cost per channel is impractical. It is also difficult to optimize long memory while keeping every mode stable and the eigenvectors well conditioned.</p>
+<p>An unrestricted dense <code>A ∈ ℝᴺˣᴺ</code> has <code>N²</code> parameters, costs <span class="math-inline" data-tex="O(N^{2})">O(N²)</span> per recurrent step, and can require <span class="math-inline" data-tex="O(N^{3})">O(N³)</span> factorization or matrix-exponential work. A sequence layer has many feature channels, so repeating that cost per channel is impractical. It is also difficult to optimize long memory while keeping every mode stable and the eigenvectors well conditioned.</p>
 <ul>
-<li><strong>Diagonal:</strong> <code class="math-inline">A=\operatorname{diag}(\lambda _{1},\ldots ,\lambda _N)</code>. Powers, exponentials, and recurrence cost <code class="math-inline">O(N)</code>; complex-conjugate modes can represent oscillations while producing real outputs.</li>
-<li><strong>Diagonal plus low rank (DPLR):</strong> <code class="math-inline">A=Λ-PQ\cdot</code>. Diagonal resolvents are cheap and the low-rank correction is handled with Woodbury-style identities, retaining richer coupling.</li>
+<li><strong>Diagonal:</strong> <span class="math-inline" data-tex="A=\operatorname{diag}(\lambda _{1},\ldots ,\lambda _N)">A=diag(λ₁,…,λ_N)</span>. Powers, exponentials, and recurrence cost <span class="math-inline" data-tex="O(N)">O(N)</span>; complex-conjugate modes can represent oscillations while producing real outputs.</li>
+<li><strong>Diagonal plus low rank (DPLR):</strong> <span class="math-inline" data-tex="A=Λ-PQ\cdot">A=Λ-PQ*</span>. Diagonal resolvents are cheap and the low-rank correction is handled with Woodbury-style identities, retaining richer coupling.</li>
 <li><strong>Normal plus low rank (NPLR):</strong> a unitarily diagonalizable normal component plus a small-rank correction. The normal basis controls conditioning; the low-rank term recovers the structured dynamics of important initializations.</li>
 <li><strong>HiPPO-inspired:</strong> start from dynamics designed to maintain coefficients of a projection of the input history onto an orthogonal basis. The spectrum spans multiple timescales, providing long memory before learning rather than asking random initialization to discover it.</li>
 </ul>
-<p>Long memory needs modes close to the discrete unit circle, but placing them too close causes slow decay, large resolvents, and sensitive gradients. Common safeguards parameterize continuous real parts as negative (for example <code class="math-inline">\operatorname{Re}(\lambda )=-\text{softplus}(\theta )</code>), constrain or regularize the discrete radius, initialize timescales across a logarithmic range, normalize input/output factors, and compute exponentials and scans in at least FP32. Stable eigenvalues do not prevent transient growth in a non-normal matrix; parameterization, eigenvector conditioning, and finite-precision tests matter together.</p>
+<p>Long memory needs modes close to the discrete unit circle, but placing them too close causes slow decay, large resolvents, and sensitive gradients. Common safeguards parameterize continuous real parts as negative (for example <span class="math-inline" data-tex="\operatorname{Re}(\lambda )=-\text{softplus}(\theta )">Re(λ)=-softplus(θ)</span>), constrain or regularize the discrete radius, initialize timescales across a logarithmic range, normalize input/output factors, and compute exponentials and scans in at least FP32. Stable eigenvalues do not prevent transient growth in a non-normal matrix; parameterization, eigenvector conditioning, and finite-precision tests matter together.</p>
 <h2 id="s4-and-related-architectures">S4 and related architectures</h2>
 <p>S4 (Structured State Space for Sequences) was designed to make long-memory state-space layers trainable and computationally efficient on long sequences. Its key move is not merely “use a recurrence”: it combines a HiPPO-derived structured state matrix with an NPLR/DPLR representation that makes the entire convolution kernel tractable.</p>
-<p>For an LTI layer of length <code class="math-inline">L</code>, S4 constructs <code class="math-inline">K_{k}=C\bar{A}^k\bar{B}</code>. Rather than multiplying a dense matrix <code class="math-inline">L</code> times, it evaluates a generating function/resolvent such as <code>C(I-zĀ)⁻¹B̄</code> at FFT roots. Diagonal resolvents plus the low-rank correction reduce this to structured Cauchy-like operations. An inverse FFT produces the time-domain kernel; the input and kernel are then convolved using FFTs. Implementations cache or regenerate the kernel during full-sequence training and convert the same learned discrete system to the one-step recurrence for decoding.</p>
-<p>S4D observes that after moving the HiPPO operator to a useful eigenbasis, a purely diagonal <code class="math-inline">A</code> can retain much of the long-range behavior. For a diagonal system, each scalar mode contributes <code class="math-inline">C_{n} \bar{B}_n \bar{\lambda}_n^k</code>, so kernel construction and recurrence are much simpler. DSS and related diagonal variants make different choices for initialization, normalization, and complex parameterization, trading some expressivity for simpler, faster, better-conditioned implementations. The practical distinction is: S4 preserves a low-rank correction to structured dynamics; S4D-style layers discard it and rely on well-initialized independent modes.</p>
+<p>For an LTI layer of length <span class="math-inline" data-tex="L">L</span>, S4 constructs <span class="math-inline" data-tex="K_{k}=C\bar{A}^k\bar{B}">K_k=CĀ^kB̄</span>. Rather than multiplying a dense matrix <span class="math-inline" data-tex="L">L</span> times, it evaluates a generating function/resolvent such as <code>C(I-zĀ)⁻¹B̄</code> at FFT roots. Diagonal resolvents plus the low-rank correction reduce this to structured Cauchy-like operations. An inverse FFT produces the time-domain kernel; the input and kernel are then convolved using FFTs. Implementations cache or regenerate the kernel during full-sequence training and convert the same learned discrete system to the one-step recurrence for decoding.</p>
+<p>S4D observes that after moving the HiPPO operator to a useful eigenbasis, a purely diagonal <span class="math-inline" data-tex="A">A</span> can retain much of the long-range behavior. For a diagonal system, each scalar mode contributes <span class="math-inline" data-tex="C_{n} \bar{B}_n \bar{\lambda}_n^k">C_n B̄_n λ̄_n^k</span>, so kernel construction and recurrence are much simpler. DSS and related diagonal variants make different choices for initialization, normalization, and complex parameterization, trading some expressivity for simpler, faster, better-conditioned implementations. The practical distinction is: S4 preserves a low-rank correction to structured dynamics; S4D-style layers discard it and rely on well-initialized independent modes.</p>
 <h2 id="selective-state-space-models-and-mamba">Selective SSMs and Mamba</h2>
 <p>A fixed LTI kernel applies the same compression rule at every position. A selective SSM lets the token determine the step size and input/output projections:</p>
 <pre><code class="language-text">Δ_t = softplus(W_Δ x_t + b_Δ)       # positive step / retention control
@@ -83,15 +78,14 @@ B̄_t = ∫₀^{Δ_t} exp(sA) B_t ds
 h_t = Ā_t h_{t-1} + B̄_t x_t
 y_t = C_t h_t + D x_t
 </code></pre>
-<p>Parameter sharing and exact tensor contractions differ by implementation, but the mechanism is the same: <code class="math-inline">\Delta _t</code> changes how quickly old state decays, <code class="math-inline">B_{t}</code> selects what enters, and <code class="math-inline">C_{t}</code> selects what becomes visible. Unrolling now gives:</p>
-<div class="math-display">y_t = C_t [Σ_{j=0}^{t} (Π_{r=j+1}^{t} Ā_r) B̄_j x_j] + D x_t
-</div>
+<p>Parameter sharing and exact tensor contractions differ by implementation, but the mechanism is the same: <span class="math-inline" data-tex="\Delta _t">Δ_t</span> changes how quickly old state decays, <span class="math-inline" data-tex="B_{t}">B_t</span> selects what enters, and <span class="math-inline" data-tex="C_{t}">C_t</span> selects what becomes visible. Unrolling now gives:</p>
+<div class="math-display" data-tex="y_{t} = C_{t} [\sum _{j=0}^{t} (\prod _{r=j+1}^{t} \bar{A}_r) \bar{B}_j x_{j}] + D x_{t}">y_t = C_t [Σ_{j=0}^{t} (Π_{r=j+1}^{t} Ā_r) B̄_j x_j] + D x_t</div>
 <p>The coefficient connecting <code>x_j</code> to <code>y_t</code> depends on the endpoints and every intervening input-dependent transition. It is therefore <strong>not one fixed convolution by relative lag</strong>. It is still a linear recurrence conditional on the generated parameters, so the affine-map operator above enables a selective scan.</p>
 <h3 id="mamba-block">Mamba block</h3>
 <ol>
 <li>An input projection expands the model width and creates a main stream plus a gate stream.</li>
 <li>A short causal depthwise convolution and SiLU activation mix local neighbors in the main stream.</li>
-<li>Linear projections produce selective <code class="math-inline">\Delta _t</code>, <code class="math-inline">B_{t}</code>, and <code class="math-inline">C_{t}</code>; learned stable <code class="math-inline">A</code> supplies the base dynamics.</li>
+<li>Linear projections produce selective <span class="math-inline" data-tex="\Delta _t">Δ_t</span>, <span class="math-inline" data-tex="B_{t}">B_t</span>, and <span class="math-inline" data-tex="C_{t}">C_t</span>; learned stable <span class="math-inline" data-tex="A">A</span> supplies the base dynamics.</li>
 <li>A selective scan updates the per-channel state and returns the readout.</li>
 <li>The readout is multiplied by an activated gate, then an output projection returns to model width; the block is used with normalization and a residual connection.</li>
 </ol>
@@ -100,7 +94,7 @@ y_t = C_t h_t + D x_t
 <table>
 <thead><tr><th>Property</th><th>S4-style layer</th><th>Mamba-style layer</th></tr></thead>
 <tbody>
-<tr><td>Dynamics</td><td>LTI: fixed <code class="math-inline">\Delta ,B,C</code> for the sequence.</td><td>Selective: <code class="math-inline">\Delta _t,B_{t},C_{t}</code> depend on the token.</td></tr>
+<tr><td>Dynamics</td><td>LTI: fixed <span class="math-inline" data-tex="\Delta ,B,C">Δ,B,C</span> for the sequence.</td><td>Selective: <span class="math-inline" data-tex="\Delta _t,B_{t},C_{t}">Δ_t,B_t,C_t</span> depend on the token.</td></tr>
 <tr><td>Full-sequence training</td><td>Build one structured kernel and use FFT convolution.</td><td>Use a fused selective scan; no single fixed kernel exists.</td></tr>
 <tr><td>Streaming</td><td>Convert the learned convolutional system to its equivalent recurrence.</td><td>Run the same input-conditioned recurrence one token at a time.</td></tr>
 <tr><td>Content handling</td><td>Long memory comes mainly from structured modes and initialization.</td><td>Token-dependent write, retain, read, gate, and local-convolution operations add content sensitivity.</td></tr>
@@ -113,8 +107,8 @@ y_t = C_t h_t + D x_t
 <tbody>
 <tr><td>Associative recall</td><td>Direct content-addressable comparison with all retained keys; strong at exact “find matching item” tasks.</td><td>Must encode keys and values into finite state and later decode them; selectivity helps, but collisions and overwriting remain.</td></tr>
 <tr><td>Long-range retrieval</td><td>Distance need not weaken a lookup if the token remains in context, though position effects and distractors still hurt.</td><td>Memory modes can span long horizons, but fixed state capacity creates an information bottleneck; exact arbitrary retrieval is a known weak point.</td></tr>
-<tr><td>Training work</td><td><code class="math-inline">O(L^{2}d)</code> pairwise arithmetic for dense attention; highly parallel matrix multiplications. Flash kernels avoid storing the full score matrix but not the arithmetic.</td><td>About <code class="math-inline">O(\text{LdN})</code> for a scan or <code class="math-inline">O(d L \operatorname{log} L)</code> for S4-style convolution after kernel generation; both are linear or near-linear in <code class="math-inline">L</code> at fixed widths, but parallel scan has synchronization and kernel-engineering costs.</td></tr>
-<tr><td>Decode memory</td><td>KV cache grows as <code class="math-inline">O(\text{layers} \times  L \times  d)</code> (times K/V precision and batch).</td><td>Recurrent state is <code>O(layers × d_inner × N)</code>, independent of decoded length, plus the small local-convolution buffer.</td></tr>
+<tr><td>Training work</td><td><span class="math-inline" data-tex="O(L^{2}d)">O(L²d)</span> pairwise arithmetic for dense attention; highly parallel matrix multiplications. Flash kernels avoid storing the full score matrix but not the arithmetic.</td><td>About <span class="math-inline" data-tex="O(\text{LdN})">O(LdN)</span> for a scan or <span class="math-inline" data-tex="O(d L \operatorname{log} L)">O(dL log L)</span> for S4-style convolution after kernel generation; both are linear or near-linear in <span class="math-inline" data-tex="L">L</span> at fixed widths, but parallel scan has synchronization and kernel-engineering costs.</td></tr>
+<tr><td>Decode memory</td><td>KV cache grows as <span class="math-inline" data-tex="O(\text{layers} \times  L \times  d)">O(layers × L × d)</span> (times K/V precision and batch).</td><td>Recurrent state is <code>O(layers × d_inner × N)</code>, independent of decoded length, plus the small local-convolution buffer.</td></tr>
 <tr><td>Per-token latency</td><td>Reads an ever-growing KV cache; bandwidth and attention work grow with context length.</td><td>Constant-size recurrent update in sequence length; can be low latency, although a large state or unfused kernel can erase the advantage.</td></tr>
 <tr><td>Hardware utilization</td><td>Mature GEMM/FlashAttention kernels and high prefill utilization.</td><td>Recurrence has less arithmetic intensity; parallel/chunked scans and fusion are needed to avoid launch and memory-traffic bottlenecks.</td></tr>
 <tr><td>Quality comparison</td><td>Strong general-purpose retrieval baseline.</td><td>Must be compared at matched parameter count, training tokens, data, compute, context, and achieved quality; faster but lower-quality models are not a serving win by default.</td></tr>
@@ -123,8 +117,8 @@ y_t = C_t h_t + D x_t
 <p>Hybrid attention–SSM architectures use SSM layers for cheap streaming and broad history compression, then insert occasional global/local attention for precise content-addressable retrieval. The central design question is which information can be summarized and which must remain explicitly addressable.</p>
 <h2 id="implementation">Implementation</h2>
 <h3 id="tensor-shapes">Tensor shapes and state</h3>
-<p>Let input <code>x</code> have shape <code>[B,L,D]</code>: batch, sequence, and model width. A block may project to inner width <code class="math-inline">H</code>. With per-channel state dimension <code class="math-inline">N</code>, a simple selective state is <code>h:[B,H,N]</code>; broadcast diagonal dynamics are <code>A:[H,N]</code>; per-token step sizes are commonly <code class="math-inline">\Delta :[B,L,H]</code>; and selective factors are broadcastable to the update, for example <code>B_t,C_t:[B,L,N]</code> or grouped/head-specific variants. The conceptual full trajectory <code>[B,L,H,N]</code> should normally not be stored outside a training kernel.</p>
-<p><code class="math-inline">N</code> is the state capacity per channel/head, not the Transformer model width and not the sequence length. Increasing it can improve memory capacity but raises parameters, scan work, recurrent-state bytes, and numerical exposure.</p>
+<p>Let input <code>x</code> have shape <code>[B,L,D]</code>: batch, sequence, and model width. A block may project to inner width <span class="math-inline" data-tex="H">H</span>. With per-channel state dimension <span class="math-inline" data-tex="N">N</span>, a simple selective state is <code>h:[B,H,N]</code>; broadcast diagonal dynamics are <code>A:[H,N]</code>; per-token step sizes are commonly <span class="math-inline" data-tex="\Delta :[B,L,H]">Δ:[B,L,H]</span>; and selective factors are broadcastable to the update, for example <code>B_t,C_t:[B,L,N]</code> or grouped/head-specific variants. The conceptual full trajectory <code>[B,L,H,N]</code> should normally not be stored outside a training kernel.</p>
+<p><span class="math-inline" data-tex="N">N</span> is the state capacity per channel/head, not the Transformer model width and not the sequence length. Increasing it can improve memory capacity but raises parameters, scan work, recurrent-state bytes, and numerical exposure.</p>
 <h3 id="scan-pseudocode">Scan-oriented pseudocode</h3>
 <pre><code class="language-text"># x: [B,L,H], A: [H,N], initial_state: [B,H,N]
 delta, B_sel, C_sel = project_selective_parameters(x)
@@ -142,7 +136,7 @@ h = prefix_a * initial_state[:, None, ...] + prefix_b
 y = reduce_state(C_sel * h) + D * x
 final_state = h[:, -1]
 </code></pre>
-<p>The elementwise form assumes diagonal <code class="math-inline">A</code>; matrix-valued blocks replace products with matrix multiplication. Production kernels generate parameters and scan in chunks rather than materializing <code>a</code>, <code>b</code>, or <code>h</code> at these full logical shapes.</p>
+<p>The elementwise form assumes diagonal <span class="math-inline" data-tex="A">A</span>; matrix-valued blocks replace products with matrix multiplication. Production kernels generate parameters and scan in chunks rather than materializing <code>a</code>, <code>b</code>, or <code>h</code> at these full logical shapes.</p>
 <h3 id="stateful-streaming-api">Stateful streaming API</h3>
 <pre><code class="language-text">state = model.init_state(batch_size)       # SSM state + causal-conv buffer
 logits, state = model.step(token, state)   # exactly one position
@@ -150,7 +144,7 @@ logits, state = model.prefill(chunk, state)
 state.reset(rows=finished_sequences)       # reset before a new document/request
 </code></pre>
 <p>Chunked prefill must return the same final state and valid-token outputs as one full scan, up to floating-point roundoff. Padding must be an identity transition—keep the old state and mask the output—not merely a zero input, because a zero input may still decay the state through <code>Ā_t</code>. Reset on document boundaries and when a batch slot is reused; do not let one request’s state leak into another. Packed sequences need an explicit segment-reset flag inside the scan.</p>
-<p>Keep exponentials, accumulated state, normalization statistics, and scan reductions in FP32 when FP16/BF16 underflows or loses long-timescale increments; cast activations around the fused kernel as appropriate. Clamp or stably parameterize <code class="math-inline">\Delta</code>, use <code>expm1</code>/<code class="math-inline">\phi _{1}</code> near zero, preserve conjugate pairing for complex modes, and test long rollouts for NaN/Inf, drift, and chunk-equivalence.</p>
+<p>Keep exponentials, accumulated state, normalization statistics, and scan reductions in FP32 when FP16/BF16 underflows or loses long-timescale increments; cast activations around the fused kernel as appropriate. Clamp or stably parameterize <span class="math-inline" data-tex="\Delta">Δ</span>, use <code>expm1</code>/<span class="math-inline" data-tex="\phi _{1}">φ₁</span> near zero, preserve conjugate pairing for complex modes, and test long rollouts for NaN/Inf, drift, and chunk-equivalence.</p>
 <h2 id="evaluation">Evaluation</h2>
 <p>A useful comparison reports a quality frontier rather than only asymptotic cost:</p>
 <ul>
@@ -160,25 +154,22 @@ state.reset(rows=finished_sequences)       # reset before a new document/request
 <li><strong>State memory:</strong> bytes per request for every layer’s SSM state and convolution buffer versus attention KV-cache bytes as context grows.</li>
 <li><strong>Throughput by length:</strong> training tokens/s, prefill tokens/s, and decode tokens/s over a sweep of sequence lengths; report hardware, precision, fusion/compiler settings, and peak memory.</li>
 <li><strong>Quality-matched serving:</strong> compare memory and latency only after matching achieved task quality, or plot a Pareto frontier. Match decoding settings and include any hybrid attention cache.</li>
-<li><strong>Ablations:</strong> state size <code class="math-inline">N</code>; fixed versus input-dependent <code class="math-inline">\Delta</code>, <code class="math-inline">B</code>, and <code class="math-inline">C</code>; local convolution; gate; initialization; scan precision; and the frequency of attention layers in hybrids.</li>
+<li><strong>Ablations:</strong> state size <span class="math-inline" data-tex="N">N</span>; fixed versus input-dependent <span class="math-inline" data-tex="\Delta">Δ</span>, <span class="math-inline" data-tex="B">B</span>, and <span class="math-inline" data-tex="C">C</span>; local convolution; gate; initialization; scan precision; and the frequency of attention layers in hybrids.</li>
 </ul>
 <p>Also test streaming correctness: full sequence versus arbitrary chunking, reset and padding behavior, very long recurrent rollouts, and train-convolution versus inference-recurrence agreement. These catch implementation failures that perplexity alone can hide.</p>
 <h2 id="control-theory-concepts">Classical control-theory concepts</h2>
 <h3 id="controllability">Controllability</h3>
 <p>The pair <code>(A,B)</code> is controllable when inputs can move the system across the state space. For an <code>n</code>-dimensional LTI system, the controllability matrix is:</p>
-<div class="math-display">𝒞 = [B, AB, A²B, …, A^{n-1}B]
-</div>
+<div class="math-display" data-tex="\mathcal{C} = [B, AB, A^{2}B, \ldots , A^{n-1}B]">𝒞 = [B, AB, A²B, …, A^{n-1}B]</div>
 <p>Full rank implies controllability.</p>
 <h3 id="observability">Observability</h3>
 <p>The pair <code>(A,C)</code> is observable when the internal state can be reconstructed from outputs. The observability matrix is:</p>
-<div class="math-display">𝒪 = [C; CA; CA²; …; CA^{n-1}]
-</div>
+<div class="math-display" data-tex="\mathcal{O} = [C; CA; CA^{2}; \ldots ; CA^{n-1}]">𝒪 = [C; CA; CA²; …; CA^{n-1}]</div>
 <p>Full rank implies observability.</p>
 <p>These concepts are highly relevant to physical state estimation and observers. They should not be transferred mechanically to a learned language-model hidden state without specifying the learned dynamics and measurements.</p>
 <h2 id="observers">Observers</h2>
 <p>A Luenberger-style observer is:</p>
-<div class="math-display">ĥ_{t+1} = A ĥ_t + B u_t + L(y_t - C ĥ_t)
-</div>
+<div class="math-display" data-tex="\widehat{h}_{t+1} = A \widehat{h}_t + B u_{t} + L(y_{t} - C \widehat{h}_t)">ĥ_{t+1} = A ĥ_t + B u_t + L(y_t - C ĥ_t)</div>
 <p>The innovation <code>y_t - Cĥ_t</code> corrects the model prediction. Kalman filters extend this idea under stochastic process and measurement noise assumptions.</p>
 <p>In hybrid physics–ML systems, a learned component can estimate residual dynamics, uncertain parameters, noise models, or observer corrections while preserving known physical equations.</p>
 <h2 id="pmsm-project-connection">PMSM project connection</h2>

@@ -26,7 +26,7 @@ L_SFT(θ)    = (Σ_i w_i L_i) / Σ_i w_i
 <p>In a shifted-label implementation, the input at position <code>t</code> predicts the token at <code>t+1</code>. Set labels for system and user tokens, padding, and any unsupervised assistant turns to the framework's ignore index (commonly <code>-100</code>); include the assistant end-of-turn or EOS token. For multi-turn SFT, either supervise every assistant turn or explicitly mask all but the target turn. An off-by-one mask silently trains the model to imitate prompt text or omits the first response token.</p>
 <h3 id="sft-packing-weighting-and-length">Packing, weighting, and length</h3>
 <p><strong>Packing</strong> concatenates several short conversations into one fixed-length training block to avoid padding waste. Record each example boundary, preserve its response mask, and prevent cross-example conditioning with block-diagonal/segment attention when the model supports it. If ordinary causal attention is used, insert unambiguous EOS boundaries and accept that later examples can see earlier ones; never allow the loss or a response mask to spill across a boundary. Position IDs may continue across the packed block or reset per segment, but training and the attention implementation must agree.</p>
-<p>The reduction defines the data weighting. A token-mean loss, <code>Σ_i L_i^sum / Σ_i Σ_t m_it</code>, gives long responses more influence. Averaging <code class="math-inline">L_{i}^{\operatorname{mean}}</code> gives each conversation equal weight. Explicit <code>w_i</code> can upweight rare domains or high-confidence demonstrations, but should be logged by source so a small duplicated slice does not dominate. Length normalization changes the optimized distribution; it is a policy choice, not merely a numerical detail.</p>
+<p>The reduction defines the data weighting. A token-mean loss, <code>Σ_i L_i^sum / Σ_i Σ_t m_it</code>, gives long responses more influence. Averaging <span class="math-inline" data-tex="L_{i}^{\operatorname{mean}}">L_i^mean</span> gives each conversation equal weight. Explicit <code>w_i</code> can upweight rare domains or high-confidence demonstrations, but should be logged by source so a small duplicated slice does not dominate. Length normalization changes the optimized distribution; it is a policy choice, not merely a numerical detail.</p>
 <p><strong>Truncation</strong> should be role-aware. Reserve space for the response and its EOS, preferentially trim expendable prompt context, and avoid retaining a chosen response whose decisive final answer was cut off. For long multi-turn examples, preserve system instructions and the most relevant recent turns. Report truncation rates by source and length bucket. Padding must remain masked from both attention where required and the loss.</p>
 <h3 id="sft-template-and-data-quality">Template consistency and demonstration quality</h3>
 <p>Use the same tokenizer, role markers, generation prefix, BOS/EOS convention, and tool-call serialization during training, rollout, preference scoring, and deployment. A template mismatch is distribution shift at the first generated token; duplicated BOS tokens or missing end markers can undo otherwise correct training.</p>
@@ -45,42 +45,37 @@ L_SFT(θ)    = (Σ_i w_i L_i) / Σ_i w_i
 <p><strong>Label-quality audits</strong> should include hidden gold or adjudicated items, repeated items for intra-annotator consistency, duplicate pairs with swapped positions, rubric-comprehension checks, slice-level disagreement, and manual review of high-loss or high-influence examples. Hold out prompts, not merely pairs from prompts seen in training, to prevent leakage.</p>
 <h2 id="reward-modelling">Reward modelling</h2>
 <p>A reward model maps a prompt-response pair to a scalar. Bradley–Terry follows from a random-utility model. Give each candidate latent utility <code>u_j = r_φ(x,y_j) + ε_j</code>, with independent type-I extreme-value noise. The difference of the noise variables is logistic, hence:</p>
-<div class="math-display">P(y_w ≻ y_l | x)
+<div class="math-display" data-tex="\begin{aligned}P(y_{w} ≻ y_{l} \mid  x)\\&amp;= P(u_{w} \gt  u_{l})\\&amp;= \sigma (r_\phi (x,y_{w}) - r_\phi (x,y_{l}))\\L_{RM}(\phi ) &amp;= -q \operatorname{log} \sigma (\Delta r) - (1-q) \operatorname{log} \sigma (-\Delta r)\\\Delta r       &amp;= r_\phi (x,y_{w}) - r_\phi (x,y_{l})\end{aligned}">P(y_w ≻ y_l | x)
   = P(u_w &gt; u_l)
   = σ(r_φ(x,y_w) - r_φ(x,y_l))
 
 L_RM(φ) = -q log σ(Δr) - (1-q) log σ(-Δr)
-Δr       = r_φ(x,y_w) - r_φ(x,y_l)
-</div>
-<p>Here <code class="math-inline">q=1</code> is a hard winner and <code>q</code> may instead be an empirical win fraction. Only reward differences occur, so <code>r'(x,y)=r(x,y)+c(x)</code> gives identical probabilities: the scalar is identifiable only up to a prompt-dependent additive constant. Its scale is also tied to the assumed noise temperature. Absolute reward values therefore do not transfer automatically across checkpoints or datasets.</p>
+Δr       = r_φ(x,y_w) - r_φ(x,y_l)</div>
+<p>Here <span class="math-inline" data-tex="q=1">q=1</span> is a hard winner and <code>q</code> may instead be an empirical win fraction. Only reward differences occur, so <code>r'(x,y)=r(x,y)+c(x)</code> gives identical probabilities: the scalar is identifiable only up to a prompt-dependent additive constant. Its scale is also tied to the assumed noise temperature. Absolute reward values therefore do not transfer automatically across checkpoints or datasets.</p>
 <h3 id="reward-scaling-and-uncertainty">Scaling, uncertainty, and shift</h3>
 <p>Before policy optimization, estimate reward mean and variance on a fixed reference distribution and apply a documented centering/scaling or clipping rule. Whitening rollout rewards can stabilize advantages, but batch-relative normalization makes a score's meaning depend on batch composition. Do not use post-normalization means to claim product improvement; retain raw and normalized components and periodically re-anchor them to a frozen evaluation set.</p>
 <p>Train independently seeded or bootstrapped reward-model ensembles and inspect both mean reward and disagreement. High ensemble variance can drive active data collection, abstention, or conservative penalties. It is only a heuristic for epistemic uncertainty: correlated architectures trained on the same biased labels can agree and still be wrong. Measure preference probability calibration and selective accuracy using the methods in <a href="calibration.html">Hallucination, Grounding and Calibration</a>.</p>
 <p>The policy changes the response distribution presented to a frozen reward model. This <strong>distribution shift</strong> can turn harmless shortcuts—length, confident tone, copied rubric phrases, or verifier edge cases—into optimization targets. As optimization pressure grows, proxy reward can rise while true quality falls (<strong>overoptimization</strong>). Detect reward hacking with held-out human judgments, independent reward models, adversarially generated candidates, length-controlled slices, and periodic on-policy relabeling; no single learned reward should both define and certify success.</p>
 <h2 id="ppo-style-rlhf">PPO-style RLHF</h2>
 <p>PPO performs online optimization on sampled responses. For prompt <code>x</code>, a token-level trajectory is <code>s_t=(x,a_1,…,a_{t-1})</code>, action <code>a_t</code> is the next response token, and the episode ends at EOS or a length limit. Prompt and padding positions are masked from policy and value losses. A common reward decomposition places the task or reward-model score at the final valid token and a dense sampled KL penalty at every generated token:</p>
-<div class="math-display">k_t = log π_old(a_t|s_t) - log π_ref(a_t|s_t)
-r_t = -β k_t + 1[t=T] R(x, a_1:T)
-</div>
+<div class="math-display" data-tex="\begin{aligned}k_{t} &amp;= \operatorname{log} \pi _\text{old}(a_{t}\mid s_{t}) - \operatorname{log} \pi _\text{ref}(a_{t}\mid s_{t})\\r_{t} &amp;= -\beta  k_{t} + 1[t=T] R(x, a_{1}:T)\end{aligned}">k_t = log π_old(a_t|s_t) - log π_ref(a_t|s_t)
+r_t = -β k_t + 1[t=T] R(x, a_1:T)</div>
 <p>This sampled log-ratio is an unbiased forward-KL estimate only when actions are sampled from the policy named in the expectation. Some implementations instead add KL as a separate loss. Do not accidentally apply both at full strength.</p>
 <h3 id="returns-values-and-gae">Return, value function, and GAE</h3>
 <p>The return from token <code>t</code> and the critic's target quantity are:</p>
-<div class="math-display">G_t = Σ_{l=0}^{T-t} γ^l r_{t+l}
-V_ψ(s_t) ≈ E[G_t | s_t]
-</div>
+<div class="math-display" data-tex="\begin{aligned}G_{t} &amp;= \sum _{l=0}^{T-t} \gamma ^l r_{t+l}\\V_\psi (s_{t}) \approx  E[G_{t} \mid  s_{t}]\end{aligned}">G_t = Σ_{l=0}^{T-t} γ^l r_{t+l}
+V_ψ(s_t) ≈ E[G_t | s_t]</div>
 <p>A Monte Carlo advantage <code>G_t-V(s_t)</code> is unbiased under the sampled policy but high variance. Temporal-difference residuals bootstrap from the critic:</p>
-<div class="math-display">δ_t = r_t + γ(1-d_t)V_ψ(s_{t+1}) - V_ψ(s_t)
-</div>
+<div class="math-display" data-tex="\delta _t = r_{t} + \gamma (1-d_{t})V_\psi (s_{t+1}) - V_\psi (s_{t})">δ_t = r_t + γ(1-d_t)V_ψ(s_{t+1}) - V_ψ(s_t)</div>
 <p>where <code>d_t=1</code> at a true terminal state. Repeatedly substitute the next-step residual. Generalized advantage estimation exponentially weights the resulting multi-step corrections:</p>
-<div class="math-display">Â_t^GAE(γ,λ)
+<div class="math-display" data-tex="\begin{aligned}\widehat{A}_t^GAE(\gamma ,\lambda )\\&amp;= \delta _t + \gamma \lambda (1-d_{t})\delta _{t+1} + (\gamma \lambda )^2(1-d_{t})(1-d_{t+1})\delta _{t+2} + \ldots\\&amp;= \sum _{l=0}^{T-t} (\gamma \lambda )^l \delta _{t+l}\\\widehat{V}_t &amp;= \widehat{A}_t + V_{\text{old}}(s_{t})\end{aligned}">Â_t^GAE(γ,λ)
   = δ_t + γλ(1-d_t)δ_{t+1} + (γλ)^2(1-d_t)(1-d_{t+1})δ_{t+2} + …
   = Σ_{l=0}^{T-t} (γλ)^l δ_{t+l}
 
-V̂_t = Â_t + V_old(s_t)
-</div>
-<p><code class="math-inline">\lambda =0</code> gives low-variance one-step TD; <code class="math-inline">\lambda \to 1</code> approaches a Monte Carlo correction and reduces bootstrap bias. For truncated responses, distinguish a real terminal EOS from a time-limit truncation: bootstrapping may be valid at the latter. Normalize advantages over valid response tokens only, and inspect the unnormalized distribution too.</p>
+V̂_t = Â_t + V_old(s_t)</div>
+<p><span class="math-inline" data-tex="\lambda =0">λ=0</span> gives low-variance one-step TD; <span class="math-inline" data-tex="\lambda \to 1">λ→1</span> approaches a Monte Carlo correction and reduces bootstrap bias. For truncated responses, distinguish a real terminal EOS from a time-limit truncation: bootstrapping may be valid at the latter. Normalize advantages over valid response tokens only, and inspect the unnormalized distribution too.</p>
 <h3 id="ppo-losses-and-updates">Clipped losses and updates</h3>
-<div class="math-display">ρ_t(θ) = exp(log π_θ(a_t|s_t) - log π_old(a_t|s_t))
+<div class="math-display" data-tex="\begin{aligned}\rho _t(\theta ) &amp;= \operatorname{exp}(\operatorname{log} \pi _\theta (a_{t}\mid s_{t}) - \operatorname{log} \pi _\text{old}(a_{t}\mid s_{t}))\\J_{\text{policy}} &amp;= E_{t}[\operatorname{min}(\rho _t \widehat{A}_t,\\\operatorname{clip}(\rho _t, 1-\varepsilon , 1+\varepsilon ) \widehat{A}_t)]\\L_{\text{value}}  &amp;= E_{t}[\operatorname{max}((V_\psi -\widehat{V}_t)^2,\\(\operatorname{clip}(V_\psi -V_{\text{old}},-\varepsilon _v,\varepsilon _v)+V_{\text{old}}-\widehat{V}_t)^2)]\\J_{\text{entropy}} &amp;= E_{t}[H(\pi _\theta (\cdot \mid s_{t}))]\\L_{\text{total}}   &amp;= -J_{\text{policy}} + c_{v} L_{\text{value}} - c_{H} J_{\text{entropy}}\end{aligned}">ρ_t(θ) = exp(log π_θ(a_t|s_t) - log π_old(a_t|s_t))
 
 J_policy = E_t[min(ρ_t Â_t,
                    clip(ρ_t, 1-ε, 1+ε) Â_t)]
@@ -89,32 +84,27 @@ L_value  = E_t[max((V_ψ-V̂_t)^2,
                    (clip(V_ψ-V_old,-ε_v,ε_v)+V_old-V̂_t)^2)]
 
 J_entropy = E_t[H(π_θ(·|s_t))]
-L_total   = -J_policy + c_v L_value - c_H J_entropy
-</div>
+L_total   = -J_policy + c_v L_value - c_H J_entropy</div>
 <p>Clipping prevents a sample from creating an arbitrarily large surrogate improvement after its probability moves too far; it is not a hard trust region. Value clipping is optional, and entropy encourages exploration but can fight deterministic-format requirements. Track policy and value clip fractions, explained variance, advantage statistics, gradient norms, and per-token entropy.</p>
-<p>Useful approximate KL diagnostics include the sampled <code class="math-inline">k_{1}=\operatorname{log} \pi _\text{old}(a\mid s)-\operatorname{log} \pi _\text{new}(a\mid s)</code>, which is noisy and can be negative per sample, and the non-negative approximation <code class="math-inline">k_{3}=(\rho -1)-\operatorname{log} \rho</code>. Measure KL to both the rollout policy (update size) and the fixed reference (behavioral drift), using response masks.</p>
-<p>An adaptive reference-KL controller can update <code class="math-inline">\beta</code> toward target <code>K*</code>, for example <code class="math-inline">\beta  \leftarrow  \beta  \operatorname{exp}(\eta  \operatorname{clip}(K/K^{\ast} - 1,-c,c))</code>. If observed KL is high, increase the penalty; if low, decrease it. Smooth the measurement and bound the update because short noisy batches can otherwise make the controller oscillate.</p>
-<p>Collect rollouts under frozen <code class="math-inline">\pi _\text{old}</code>, compute rewards and advantages once, then perform several shuffled PPO epochs and minibatches while keeping old log-probabilities and targets fixed. Too many epochs make data stale and drive ratios into the clip boundary; too few waste expensive rollouts. Recompute new log-probabilities with exactly the same tokenization and masks, stop early on excessive policy KL, and never mix prompt/padding tokens into token-count denominators.</p>
+<p>Useful approximate KL diagnostics include the sampled <span class="math-inline" data-tex="k_{1}=\operatorname{log} \pi _\text{old}(a\mid s)-\operatorname{log} \pi _\text{new}(a\mid s)">k_1=log π_old(a|s)-log π_new(a|s)</span>, which is noisy and can be negative per sample, and the non-negative approximation <span class="math-inline" data-tex="k_{3}=(\rho -1)-\operatorname{log} \rho">k_3=(ρ-1)-log ρ</span>. Measure KL to both the rollout policy (update size) and the fixed reference (behavioral drift), using response masks.</p>
+<p>An adaptive reference-KL controller can update <span class="math-inline" data-tex="\beta">β</span> toward target <code>K*</code>, for example <span class="math-inline" data-tex="\beta  \leftarrow  \beta  \operatorname{exp}(\eta  \operatorname{clip}(K/K^{\ast} - 1,-c,c))">β ← β exp(η clip(K/K* - 1,-c,c))</span>. If observed KL is high, increase the penalty; if low, decrease it. Smooth the measurement and bound the update because short noisy batches can otherwise make the controller oscillate.</p>
+<p>Collect rollouts under frozen <span class="math-inline" data-tex="\pi _\text{old}">π_old</span>, compute rewards and advantages once, then perform several shuffled PPO epochs and minibatches while keeping old log-probabilities and targets fixed. Too many epochs make data stale and drive ratios into the clip boundary; too few waste expensive rollouts. Recompute new log-probabilities with exactly the same tokenization and masks, stop early on excessive policy KL, and never mix prompt/padding tokens into token-count denominators.</p>
 <h2 id="direct-preference-optimization">Direct Preference Optimization</h2>
 <p>DPO starts from reward maximization regularized toward a fixed reference policy. For each prompt, optimize over normalized response distributions:</p>
-<div class="math-display">max_π  E_{y~π(·|x)}[r(x,y)] - β KL(π(·|x) || π_ref(·|x))
-</div>
-<p>Add a Lagrange multiplier for <code class="math-inline">\sum _y \pi (y\mid x)=1</code> and set the derivative with respect to <code class="math-inline">\pi (y\mid x)</code> to zero. The optimum is an exponentially tilted reference:</p>
-<div class="math-display">π*(y|x) = π_ref(y|x) exp(r(x,y)/β) / Z(x)
+<div class="math-display" data-tex="\operatorname{max}_\pi   E_{y~\pi (\cdot \mid x)}[r(x,y)] - \beta  KL(\pi (\cdot \mid x) \mathbin{\Vert} \pi _\text{ref}(\cdot \mid x))">max_π  E_{y~π(·|x)}[r(x,y)] - β KL(π(·|x) || π_ref(·|x))</div>
+<p>Add a Lagrange multiplier for <span class="math-inline" data-tex="\sum _y \pi (y\mid x)=1">Σ_y π(y|x)=1</span> and set the derivative with respect to <span class="math-inline" data-tex="\pi (y\mid x)">π(y|x)</span> to zero. The optimum is an exponentially tilted reference:</p>
+<div class="math-display" data-tex="\begin{aligned}\pi ^{\ast}(y\mid x) &amp;= \pi _\text{ref}(y\mid x) \operatorname{exp}(r(x,y)/\beta ) / Z(x)\\r(x,y) &amp;= \beta [\operatorname{log} \pi ^{\ast}(y\mid x) - \operatorname{log} \pi _\text{ref}(y\mid x)] + \beta  \operatorname{log} Z(x)\end{aligned}">π*(y|x) = π_ref(y|x) exp(r(x,y)/β) / Z(x)
 
-r(x,y) = β[log π*(y|x) - log π_ref(y|x)] + β log Z(x)
-</div>
+r(x,y) = β[log π*(y|x) - log π_ref(y|x)] + β log Z(x)</div>
 <p>Insert this implicit reward into the Bradley–Terry preference probability. The prompt-only partition term cancels between chosen and rejected responses:</p>
-<div class="math-display">Δ_θ = [log π_θ(y_w|x) - log π_ref(y_w|x)]
+<div class="math-display" data-tex="\begin{aligned}\Delta_\theta&amp;=[\log\pi_\theta(y_w\mid x)-\log\pi_{\mathrm{ref}}(y_w\mid x)]\\&amp;\quad-[\log\pi_\theta(y_l\mid x)-\log\pi_{\mathrm{ref}}(y_l\mid x)],\\P_\theta(y_w\succ y_l\mid x)&amp;=\sigma(\beta\Delta_\theta),\\\mathcal{L}_{\mathrm{DPO}}&amp;=-\mathbb{E}_{x,y_w,y_l}\log\sigma(\beta\Delta_\theta).\end{aligned}">Δ_θ = [log π_θ(y_w|x) - log π_ref(y_w|x)]
     - [log π_θ(y_l|x) - log π_ref(y_l|x)]
 
 P_θ(y_w ≻ y_l | x) = σ(β Δ_θ)
-L_DPO = -E_(x,y_w,y_l) log σ(β Δ_θ)
-</div>
-<p>This is a classification loss for a policy parameterization of the implicit reward, avoiding an explicit reward model, online rollouts, and critic. Under the derivation, <code class="math-inline">\beta</code> is the coefficient on KL: larger <code class="math-inline">\beta</code> means stronger regularization for fixed reward units, while in the DPO logit it also sets the relative-log-ratio scale. Its practical effect depends on optimization, data separability, and learning rate, so select it using held-out preference and drift metrics rather than interpreting it in isolation.</p>
+L_DPO = -E_(x,y_w,y_l) log σ(β Δ_θ)</div>
+<p>This is a classification loss for a policy parameterization of the implicit reward, avoiding an explicit reward model, online rollouts, and critic. Under the derivation, <span class="math-inline" data-tex="\beta">β</span> is the coefficient on KL: larger <span class="math-inline" data-tex="\beta">β</span> means stronger regularization for fixed reward units, while in the DPO logit it also sets the relative-log-ratio scale. Its practical effect depends on optimization, data separability, and learning rate, so select it using held-out preference and drift metrics rather than interpreting it in isolation.</p>
 <h3 id="dpo-sequence-probabilities-and-length">Sequence probabilities, length, and the reference</h3>
-<div class="math-display">log π_θ(y|x) = Σ_{t=1}^{|y|} log π_θ(y_t | x,y_&lt;t)
-</div>
+<div class="math-display" data-tex="\operatorname{log} \pi _\theta (y\mid x) = \sum _{t=1}^{\mid y\mid } \operatorname{log} \pi _\theta (y_{t} \mid  x,y_\lt t)">log π_θ(y|x) = Σ_{t=1}^{|y|} log π_θ(y_t | x,y_&lt;t)</div>
 <p>Compute this sum over response tokens and the response EOS only; prompt, padding, and packed neighbors are masked. Chosen and rejected responses must use the same serialized prompt and generation prefix. Cache reference log-probabilities only if tokenizer, truncation, and template versions are immutable and recorded.</p>
 <p>Because sequence log-probability is a sum, its scale grows with length. The reference-relative difference cancels some shared length effects, but not a policy/reference mismatch in verbosity or EOS behavior. Report accuracy and margin by chosen-minus-rejected length, construct length-controlled pairs, and monitor generated length. Dividing log-probability by token count or adding an explicit length penalty can reduce length sensitivity, but changes the sequence-level KL derivation and should be treated as a new objective.</p>
 <p><strong>Reference-free</strong> variants remove the reference terms, use a constant/uniform baseline, or rely on chosen-response likelihood as an anchor. They save reference inference and can be useful when no suitable reference checkpoint exists, but lose the explicit density-ratio interpretation. Raw sequence likelihood strongly reflects length and common phrasing; without an anchor the policy can drift, forget capabilities, or increase both chosen and rejected likelihoods in unintended ways. Measure KL to a frozen base even if the training loss does not use it.</p>
@@ -123,7 +113,7 @@ L_DPO = -E_(x,y_w,y_l) log σ(β Δ_θ)
 <table>
 <thead><tr><th>Objective</th><th>Core mechanism</th><th>What it buys</th><th>Main caution</th></tr></thead>
 <tbody>
-<tr><td>IPO</td><td>Regress the reference-relative chosen/rejected log-ratio toward a finite target, schematically <code class="math-inline">(\Delta _\theta  - 1/(2\beta ))^{2}</code>.</td><td>Avoids driving separable pairs toward an unbounded logistic margin; ties naturally to a regularized preference formulation.</td><td>The target and scale are sensitive to <code class="math-inline">\beta</code>, label noise, and convention; it still needs paired data and usually a reference.</td></tr>
+<tr><td>IPO</td><td>Regress the reference-relative chosen/rejected log-ratio toward a finite target, schematically <span class="math-inline" data-tex="(\Delta _\theta  - 1/(2\beta ))^{2}">(Δ_θ - 1/(2β))²</span>.</td><td>Avoids driving separable pairs toward an unbounded logistic margin; ties naturally to a regularized preference formulation.</td><td>The target and scale are sensitive to <span class="math-inline" data-tex="\beta">β</span>, label noise, and convention; it still needs paired data and usually a reference.</td></tr>
 <tr><td>KTO</td><td>Classify individual responses as desirable or undesirable using a prospect-theoretic utility relative to a KL-derived baseline.</td><td>Can learn from unpaired binary feedback and weight positive/negative examples asymmetrically.</td><td>Baseline estimation and class balance matter; binary labels discard within-prompt ranking information and do not remove off-policy coverage limits.</td></tr>
 <tr><td>ORPO</td><td>Combine chosen-response SFT with a reference-free odds-ratio preference penalty.</td><td>The SFT term anchors the policy while the odds ratio separates chosen from rejected, avoiding a second reference forward pass.</td><td>Sequence odds can be poorly scaled, and the chosen-only anchor may reinforce demonstration artifacts or permit more drift than an explicit reference.</td></tr>
 <tr><td>SimPO</td><td>Use a target-margin logistic loss on the difference of length-normalized chosen and rejected log-probabilities.</td><td>Removes reference inference and directly controls average per-token preference and margin.</td><td>Length normalization changes the probabilistic target; reference-free updates need explicit capability and KL monitoring.</td></tr>
@@ -131,22 +121,20 @@ L_DPO = -E_(x,y_w,y_l) log σ(β Δ_θ)
 </table>
 <p>IPO mainly caps the incentive to increase an already-correct pair margin. KTO changes the <em>data interface</em> by accepting unpaired good/bad examples. ORPO and SimPO change the <em>anchor</em>: the former couples preference learning to chosen-response SFT, while the latter uses a reference-free, length-normalized margin. Compare them on the same held-out prompts, response-length slices, base-model KL, and independent capabilities; a higher training pair accuracy alone does not identify the better policy.</p>
 <h2 id="group-relative-policy-optimization">Group Relative Policy Optimization</h2>
-<p>GRPO means <strong>Group Relative Policy Optimization</strong>. For each prompt, sample <code class="math-inline">G</code> completions from the rollout policy, score them with a learned reward or verifier, and use their within-prompt relative performance instead of a learned value function. Sampling temperature and duplicate rate determine whether the group contains useful variation:</p>
-<div class="math-display">x → y_1,…,y_G         R_i = R(x,y_i)
+<p>GRPO means <strong>Group Relative Policy Optimization</strong>. For each prompt, sample <span class="math-inline" data-tex="G">G</span> completions from the rollout policy, score them with a learned reward or verifier, and use their within-prompt relative performance instead of a learned value function. Sampling temperature and duplicate rate determine whether the group contains useful variation:</p>
+<div class="math-display" data-tex="\begin{aligned}x \to  y_{1},\ldots ,y_{G}         R_{i} &amp;= R(x,y_{i})\\\mu _R &amp;= (1/G)\sum _i R_{i}     \sigma _R = \operatorname{sqrt}((1/G)\sum _i(R_{i}-\mu _R)^{2})\\\widehat{A}_i &amp;= (R_{i}-\mu _R) / (\sigma _R+\varepsilon )\end{aligned}">x → y_1,…,y_G         R_i = R(x,y_i)
 μ_R = (1/G)Σ_i R_i     σ_R = sqrt((1/G)Σ_i(R_i-μ_R)²)
-Â_i = (R_i-μ_R) / (σ_R+ε)
-</div>
-<p>Centering creates a prompt-specific baseline and scaling prevents high-variance prompts from dominating. It also discards absolute difficulty: a mediocre answer can be positive if its group is worse. With sparse binary rewards, groups in which every sample passes or every sample fails have <code class="math-inline">\sigma _R=0</code> and no within-group learning signal. Adding epsilon avoids division by zero but does not create information; set their advantages to zero or skip them, log the rate, and improve sampling difficulty or reward shaping.</p>
+Â_i = (R_i-μ_R) / (σ_R+ε)</div>
+<p>Centering creates a prompt-specific baseline and scaling prevents high-variance prompts from dominating. It also discards absolute difficulty: a mediocre answer can be positive if its group is worse. With sparse binary rewards, groups in which every sample passes or every sample fails have <span class="math-inline" data-tex="\sigma _R=0">σ_R=0</span> and no within-group learning signal. Adding epsilon avoids division by zero but does not create information; set their advantages to zero or skip them, log the rate, and improve sampling difficulty or reward shaping.</p>
 <h3 id="grpo-token-objective">Token objective, clipping, and KL</h3>
-<div class="math-display">ρ_it(θ) = π_θ(y_it|x,y_i,&lt;t) / π_old(y_it|x,y_i,&lt;t)
+<div class="math-display" data-tex="\begin{aligned}\rho _\text{it}(\theta ) &amp;= \pi _\theta (y_{\text{it}}\mid x,y_{i},\lt t) / \pi _\text{old}(y_{\text{it}}\mid x,y_{i},\lt t)\\J_{GRPO} &amp;= E_{i,t}[\operatorname{min}(\rho _\text{it} \widehat{A}_i,\\\operatorname{clip}(\rho _\text{it},1-\varepsilon ,1+\varepsilon )\widehat{A}_i)\\- \beta  KL_{\text{it}}(\pi _\theta  \mathbin{\Vert} \pi _\text{ref})]\end{aligned}">ρ_it(θ) = π_θ(y_it|x,y_i,&lt;t) / π_old(y_it|x,y_i,&lt;t)
 
 J_GRPO = E_{i,t}[min(ρ_it Â_i,
                      clip(ρ_it,1-ε,1+ε)Â_i)
-                  - β KL_it(π_θ || π_ref)]
-</div>
+                  - β KL_it(π_θ || π_ref)]</div>
 <p>The simplest scheme broadcasts one sequence advantage <code>Â_i</code> to every response token. Token averaging then means long completions contribute more token terms unless the implementation first averages within each sequence. Token-level credit can instead use process rewards, per-step verifier signals, or return-to-go, but then the method is no longer using only a terminal group-relative score and must align reward positions carefully.</p>
 <p>As in PPO, clipping limits updates relative to the rollout policy, not the fixed reference. KL can be applied as a sampled per-token reward, an explicit loss, or an unbiased/full-distribution estimator where affordable. State which policy pair and direction is measured, mask prompts and padding, and avoid double-counting. An adaptive controller can target reference KL, while rollout-policy KL remains an early-stopping signal.</p>
-<p>Removing the critic saves value-model parameters and value fitting, not rollout compute. Each prompt requires <code class="math-inline">G</code> generations, reference and reward/verifier evaluation, and often several update epochs; cost grows roughly with total generated tokens and group size. Larger groups estimate relative rank better but reduce prompt diversity for a fixed token budget.</p>
+<p>Removing the critic saves value-model parameters and value fitting, not rollout compute. Each prompt requires <span class="math-inline" data-tex="G">G</span> generations, reference and reward/verifier evaluation, and often several update epochs; cost grows roughly with total generated tokens and group size. Larger groups estimate relative rank better but reduce prompt diversity for a fixed token budget.</p>
 <p>GRPO is especially effective with reliable outcome verifiers, as in mathematical or code <a href="reasoning.html">reasoning training</a>. It is also verifier-dependent: false positives, brittle parsers, leaked tests, style rewards, or partial-credit errors become optimization targets. Use hidden tests, verifier ensembles or mutations, contamination checks, and human audits of high-reward failures.</p>
 <h2 id="offline-versus-online-optimization">Offline versus online optimization</h2>
 <table>
@@ -187,8 +175,7 @@ J_GRPO = E_{i,t}[min(ρ_it Â_i,
 </table>
 <h2 id="parameter-efficient-adaptation">Parameter-efficient adaptation</h2>
 <p>LoRA represents an update as a low-rank product:</p>
-<div class="math-display">W&#x27; = W + (α/r) B A
-</div>
+<div class="math-display" data-tex="W&#x27; = W + (\alpha /r) B A">W&#x27; = W + (α/r) B A</div>
 <p>The base weights remain frozen while low-rank factors are trained. Savings are strongest for trainable parameters, gradients, optimizer state, and adapter checkpoints. The frozen base model still participates in forward/backward computation, and activation memory remains.</p>
 <p>QLoRA stores the frozen base in a quantized representation while training LoRA adapters. It lowers adaptation memory but depends on quantization-aware kernels and does not imply that every tensor is low precision.</p>
 <h2 id="failure-modes">Failure modes</h2>
@@ -211,7 +198,7 @@ J_GRPO = E_{i,t}[min(ρ_it Â_i,
 <h2 id="review-questions">Review questions</h2>
 <ol>
 <li>Derive DPO from the KL-regularized reward objective and explain where the partition function goes.</li>
-<li>Derive GAE from TD residuals and explain the roles of <code class="math-inline">\gamma</code> and <code class="math-inline">\lambda</code>.</li>
+<li>Derive GAE from TD residuals and explain the roles of <span class="math-inline" data-tex="\gamma">γ</span> and <span class="math-inline" data-tex="\lambda">λ</span>.</li>
 <li>Explain the critic, clipping, and adaptive KL term in PPO.</li>
 <li>Compare DPO, PPO, and GRPO operationally.</li>
 <li>State why GRPO can omit a critic.</li>

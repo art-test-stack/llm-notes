@@ -7,6 +7,8 @@ import html
 import json
 import re
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 from app_assets import APP, CSS, FILTER, SVG, SW
@@ -59,11 +61,10 @@ def chapter_toc(fragment: str) -> str:
     items: list[str] = []
     for match in HEADING_RE.finditer(fragment):
         heading = text_only(match.group("title"))
-        if not heading:
-            continue
-        items.append(
-            f'<li class="toc-level-{match.group("level")}"><a href="#{esc(match.group("id"))}">{esc(heading)}</a></li>'
-        )
+        if heading:
+            items.append(
+                f'<li class="toc-level-{match.group("level")}"><a href="#{esc(match.group("id"))}">{esc(heading)}</a></li>'
+            )
     return '<ul class="toc-list">' + "".join(items) + "</ul>"
 
 
@@ -72,9 +73,28 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def render_math_chapters(output: Path, manifest: dict) -> None:
+    if not (ROOT / "node_modules" / "katex").is_dir():
+        raise SystemExit("KaTeX is not installed. Run `npm ci` before building the site.")
+    command = [
+        "node",
+        str(ROOT / "scripts" / "render_math.cjs"),
+        str(CHAPTERS),
+        str(output),
+        str(CONTENT / "chapter-manifest.json"),
+    ]
+    try:
+        subprocess.run(command, cwd=ROOT, check=True)
+    except FileNotFoundError as exc:
+        raise SystemExit("Node.js is required to pre-render equations.") from exc
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"Static equation rendering failed with exit code {exc.returncode}.") from exc
+    rendered = list(output.glob("*.html"))
+    if len(rendered) != manifest["chapter_count"]:
+        raise SystemExit(f"Expected {manifest['chapter_count']} rendered chapters, found {len(rendered)}")
+
+
 def build() -> None:
-    if SITE.exists():
-        shutil.rmtree(SITE)
     topics = load("topics.json")
     glossary = load("glossary.json")
     chapter_manifest = load("chapter-manifest.json")
@@ -88,20 +108,28 @@ def build() -> None:
         if topic["id"] not in manifest_by_id:
             raise SystemExit(f'{topic["id"]}: missing substantive chapter')
 
-    home = f'''<main><section class="hero"><p class="eyebrow">Public technical knowledge base</p><h1>Machine learning and LLM systems notes for focused reading.</h1><p class="lede">Browse {len(topics)} detailed chapters across {len(tracks)} tracks, containing about {chapter_manifest["total_characters"] // 1000:,}k characters of technical material. Install on iPhone and explicitly download the library once for low-battery offline reading.</p><div class="actions"><a class="button primary" href="topics/index.html">Browse topics</a><a class="button" href="glossary/index.html">Open glossary</a></div></section><section><h2>Privacy and battery by design</h2><div class="grid"><article class="card"><h2>Public-only content</h2><p>Only reviewed, neutral technical chapters and definitions are published.</p></article><article class="card"><h2>Manual offline download</h2><p>The full library is cached only after an explicit tap.</p></article><article class="card"><h2>No background activity</h2><p>No analytics, notifications, polling, or periodic synchronization.</p></article></div></section></main>'''
-    write(SITE / "index.html", page("Home", home))
+    if SITE.exists():
+        shutil.rmtree(SITE)
 
-    options = "".join(f'<option>{esc(track)}</option>' for track in tracks)
-    body = f'''<main class="page"><p class="eyebrow">Topic library</p><h1>All technical notes</h1><p class="lede">Detailed, self-contained chapters derived from a privacy-reviewed technical corpus.</p><div class="toolbar"><label>Search<input data-search type="search" placeholder="e.g. KV cache or diffusion"></label><label>Track<select data-track><option value="">All tracks</option>{options}</select></label></div><p data-count class="status"></p><div class="grid">{"".join(card(topic, 1) for topic in topics)}</div></main><script src="../assets/filter.js" defer></script>'''
-    write(SITE / "topics/index.html", page("Topics", body, 1))
+    with tempfile.TemporaryDirectory(prefix="llm-notes-math-") as temp_name:
+        rendered_chapters = Path(temp_name)
+        render_math_chapters(rendered_chapters, chapter_manifest)
 
-    for topic in topics:
-        chapter = (CHAPTERS / f'{topic["id"]}.html').read_text(encoding="utf-8")
-        toc = chapter_toc(chapter)
-        words = len(text_only(chapter).split())
-        reading_minutes = max(1, round(words / 220))
-        body = f'''<main class="article-layout"><article class="article"><p class="eyebrow">{esc(topic["track"])}</p><h1>{esc(topic["title"])}</h1><p class="lede">{esc(topic["summary"])}</p><p class="reading-meta">Approximately {words:,} words · {reading_minutes} min reference read</p><details class="mobile-toc"><summary>On this page</summary>{toc}</details>{chapter}</article><aside class="related"><section class="toc-panel"><h2>On this page</h2>{toc}</section><section><h2>Prerequisites</h2>{links(topic["prerequisites"], by_id)}</section><section><h2>Connected topics</h2>{links(topic["connections"], by_id)}</section></aside></main>'''
-        write(SITE / f'topics/{topic["id"]}.html', page(topic["title"], body, 1))
+        home = f'''<main><section class="hero"><p class="eyebrow">Public technical knowledge base</p><h1>Machine learning and LLM systems notes for focused reading.</h1><p class="lede">Browse {len(topics)} detailed chapters across {len(tracks)} tracks, containing about {chapter_manifest["total_characters"] // 1000:,}k characters and {chapter_manifest["total_math_expressions"]:,} statically typeset equations. Install on iPhone and explicitly download the library once for low-battery offline reading.</p><div class="actions"><a class="button primary" href="topics/index.html">Browse topics</a><a class="button" href="glossary/index.html">Open glossary</a></div></section><section><h2>Privacy and battery by design</h2><div class="grid"><article class="card"><h2>Public-only content</h2><p>Only reviewed, neutral technical chapters and definitions are published.</p></article><article class="card"><h2>Static equations</h2><p>KaTeX runs during the build; the browser receives native MathML with no math JavaScript.</p></article><article class="card"><h2>No background activity</h2><p>No analytics, notifications, polling, or periodic synchronization.</p></article></div></section></main>'''
+        write(SITE / "index.html", page("Home", home))
+
+        options = "".join(f'<option>{esc(track)}</option>' for track in tracks)
+        body = f'''<main class="page"><p class="eyebrow">Topic library</p><h1>All technical notes</h1><p class="lede">Detailed, self-contained chapters derived from a privacy-reviewed technical corpus.</p><div class="toolbar"><label>Search<input data-search type="search" placeholder="e.g. KV cache or diffusion"></label><label>Track<select data-track><option value="">All tracks</option>{options}</select></label></div><p data-count class="status"></p><div class="grid">{"".join(card(topic, 1) for topic in topics)}</div></main><script src="../assets/filter.js" defer></script>'''
+        write(SITE / "topics/index.html", page("Topics", body, 1))
+
+        for topic in topics:
+            chapter = (rendered_chapters / f'{topic["id"]}.html').read_text(encoding="utf-8")
+            toc = chapter_toc(chapter)
+            words = len(text_only(chapter).split())
+            reading_minutes = max(1, round(words / 220))
+            equation_count = manifest_by_id[topic["id"]]["math_expressions"]
+            body = f'''<main class="article-layout"><article class="article"><p class="eyebrow">{esc(topic["track"])}</p><h1>{esc(topic["title"])}</h1><p class="lede">{esc(topic["summary"])}</p><p class="reading-meta">Approximately {words:,} words · {reading_minutes} min reference read · {equation_count:,} typeset equations</p><details class="mobile-toc"><summary>On this page</summary>{toc}</details>{chapter}</article><aside class="related"><section class="toc-panel"><h2>On this page</h2>{toc}</section><section><h2>Prerequisites</h2>{links(topic["prerequisites"], by_id)}</section><section><h2>Connected topics</h2>{links(topic["connections"], by_id)}</section></aside></main>'''
+            write(SITE / f'topics/{topic["id"]}.html', page(topic["title"], body, 1))
 
     definitions = "".join(
         f'<article class="definition" id="{esc(entry["id"])}" data-item data-group="" data-text="{esc((entry["term"] + " " + entry["definition"]).lower())}"><h2>{esc(entry["term"])}</h2><p>{esc(entry["definition"])}</p></article>'
@@ -110,7 +138,7 @@ def build() -> None:
     body = f'''<main class="page"><p class="eyebrow">Technical glossary</p><h1>{len(glossary)} concise definitions</h1><div class="toolbar"><label>Search<input data-search type="search" placeholder="e.g. ELBO or all-reduce"></label></div><p data-count class="status"></p>{definitions}</main><script src="../assets/filter.js" defer></script>'''
     write(SITE / "glossary/index.html", page("Glossary", body, 1))
 
-    privacy = '''<main class="page"><p class="eyebrow">Privacy</p><h1>Public content, minimal device activity</h1><div class="privacy-box"><p>Everything deployed here is public and limited to reviewed technical notes.</p></div><section><h2>No collection</h2><ul><li>No analytics, accounts, cookies, ads, or fingerprinting.</li><li>No location, contacts, photos, microphone, or notification access.</li><li>No background synchronization or periodic refresh.</li></ul></section><section><h2>Offline storage</h2><p>The app shell is cached automatically. The full chapter library is cached only after you tap the download control. Safari may evict web storage under device pressure.</p><button class="button" data-refresh>Refresh cached library</button></section></main>'''
+    privacy = '''<main class="page"><p class="eyebrow">Privacy</p><h1>Public content, minimal device activity</h1><div class="privacy-box"><p>Everything deployed here is public and limited to reviewed technical notes.</p></div><section><h2>No collection</h2><ul><li>No analytics, accounts, cookies, ads, or fingerprinting.</li><li>No location, contacts, photos, microphone, or notification access.</li><li>No background synchronization or periodic refresh.</li></ul></section><section><h2>Static mathematical rendering</h2><p>Equations are converted from reviewed TeX to native MathML during the repository build. No KaTeX script, CDN request, or font download runs in the browser.</p></section><section><h2>Offline storage</h2><p>The app shell is cached automatically. The full chapter library is cached only after you tap the download control. Safari may evict web storage under device pressure.</p><button class="button" data-refresh>Refresh cached library</button></section></main>'''
     write(SITE / "privacy.html", page("Privacy", privacy))
     write(SITE / "offline.html", page("Offline", '<main class="page"><h1>This page is not cached yet.</h1><p>Reconnect once and use the offline download control.</p><a class="button primary" href="index.html">Return home</a></main>'))
     write(SITE / "404.html", page("Not found", '<main class="page"><h1>Page not found</h1><a class="button primary" href="index.html">Open LLM Notes</a></main>'))
@@ -146,7 +174,10 @@ def build() -> None:
     library = ["topics/index.html", "glossary/index.html", "privacy.html"] + [f'topics/{topic["id"]}.html' for topic in topics]
     write(SITE / "precache-library.json", json.dumps(library, indent=2) + "\n")
     write(SITE / ".nojekyll", "")
-    print(f"Built {len(topics)} substantive topic pages and {len(glossary)} definitions in {SITE}")
+    print(
+        f"Built {len(topics)} substantive topic pages, {len(glossary)} definitions, "
+        f"and {chapter_manifest['total_math_expressions']:,} static MathML expressions in {SITE}"
+    )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Public-content schema, chapter-integrity, and privacy checks."""
+"""Public-content schema, chapter-integrity, TeX, and privacy checks."""
 from __future__ import annotations
 
 import base64
@@ -16,17 +16,46 @@ from urllib.parse import urlsplit
 TOPIC_KEYS = {"id", "title", "track", "summary", "prerequisites", "connections"}
 EXPORT_TOPIC_KEYS = {"id", "title", "track", "prerequisites", "connections", "chapter"}
 GLOSSARY_KEYS = {"id", "term", "definition"}
-MANIFEST_KEYS = {"schema_version", "chapter_count", "total_characters", "chapters"}
-MANIFEST_ENTRY_KEYS = {"id", "file", "sha256", "characters", "sections"}
+MANIFEST_KEYS = {
+    "schema_version",
+    "chapter_count",
+    "total_characters",
+    "total_math_expressions",
+    "chapters",
+}
+MANIFEST_ENTRY_KEYS = {
+    "id",
+    "file",
+    "sha256",
+    "characters",
+    "sections",
+    "math_expressions",
+}
 ID_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 TAG_RE = re.compile(r"<[^>]+>")
 
 GENERIC_LEAK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("email address", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)),
     ("local user path", re.compile(r"(?:/Users/[^/\s]+/|/home/[^/\s]+/|[A-Za-z]:\\Users\\[^\\\s]+\\)")),
-    ("credential-like token", re.compile(r"\b(?:github_pat_[A-Za-z0-9_]{12,}|ghp_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16})\b")),
-    ("internal-network URL", re.compile(r"https?://(?:localhost|127(?:\.\d{1,3}){3}|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?::\d+)?", re.IGNORECASE)),
-    ("active embedded content", re.compile(r"(?:<\s*(?:script|iframe|object|embed)\b|javascript\s*:)", re.IGNORECASE)),
+    (
+        "credential-like token",
+        re.compile(
+            r"\b(?:github_pat_[A-Za-z0-9_]{12,}|ghp_[A-Za-z0-9]{20,}|"
+            r"sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16})\b"
+        ),
+    ),
+    (
+        "internal-network URL",
+        re.compile(
+            r"https?://(?:localhost|127(?:\.\d{1,3}){3}|10(?:\.\d{1,3}){3}|"
+            r"192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?::\d+)?",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "active embedded content",
+        re.compile(r"(?:<\s*(?:script|iframe|object|embed)\b|javascript\s*:)", re.IGNORECASE),
+    ),
 )
 
 
@@ -38,9 +67,13 @@ class FragmentParser(HTMLParser):
         self.h2_count = 0
         self.section_topics: list[str] = []
         self.forbidden_tags: list[str] = []
+        self.math_elements = 0
+        self.math_with_tex = 0
+        self.native_mathml = 0
 
     def handle_starttag(self, tag: str, attrs) -> None:
         values = dict(attrs)
+        classes = set((values.get("class") or "").split())
         if values.get("id"):
             self.ids.append(values["id"])
         if tag == "h2":
@@ -53,6 +86,12 @@ class FragmentParser(HTMLParser):
             self.links.append(values["href"])
         if tag in {"img", "audio", "video", "source"} and values.get("src"):
             self.links.append(values["src"])
+        if {"math-inline", "math-display"} & classes:
+            self.math_elements += 1
+            if values.get("data-tex", "").strip():
+                self.math_with_tex += 1
+        if tag == "math":
+            self.native_mathml += 1
 
 
 def plain_text(value: str) -> str:
@@ -77,7 +116,7 @@ def _optional_private_patterns() -> list[re.Pattern[str]]:
         return []
     try:
         payload = json.loads(base64.b64decode(encoded, validate=True).decode("utf-8"))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         raise ValueError("PUBLICATION_DENYLIST_B64 is not valid base64-encoded JSON") from exc
     if not isinstance(payload, list) or not payload or not all(isinstance(item, str) and item for item in payload):
         raise ValueError("PUBLICATION_DENYLIST_B64 must encode a non-empty JSON list of regex strings")
@@ -174,18 +213,21 @@ def validate_chapter_bundle(content_root: Path, topics: list[dict]) -> dict:
     if not chapters_dir.is_dir() or not manifest_path.is_file():
         raise ValueError("Missing chapters directory or chapter-manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(manifest, dict) or set(manifest) != MANIFEST_KEYS or manifest["schema_version"] != 1:
+    if not isinstance(manifest, dict) or set(manifest) != MANIFEST_KEYS or manifest["schema_version"] != 2:
         raise ValueError("Invalid chapter manifest schema")
     entries = manifest["chapters"]
     if not isinstance(entries, list) or manifest["chapter_count"] != len(topics) or len(entries) != len(topics):
         raise ValueError("Chapter manifest does not cover every topic")
+
     topic_ids = {topic["id"] for topic in topics}
     actual_files = {path.name for path in chapters_dir.glob("*.html")}
     expected_files = {f"{topic_id}.html" for topic_id in topic_ids}
     if actual_files != expected_files:
         raise ValueError("Chapter directory does not exactly match the topic registry")
+
     entry_ids: set[str] = set()
     total_characters = 0
+    total_math = 0
     private_patterns = _optional_private_patterns()
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict) or set(entry) != MANIFEST_ENTRY_KEYS:
@@ -197,6 +239,9 @@ def validate_chapter_bundle(content_root: Path, topics: list[dict]) -> dict:
         expected_file = f"chapters/{topic_id}.html"
         if entry["file"] != expected_file:
             raise ValueError(f"Unexpected chapter manifest path for {topic_id}")
+        if not all(isinstance(entry[key], int) and entry[key] >= 0 for key in ("characters", "sections", "math_expressions")):
+            raise ValueError(f"Invalid numeric chapter metadata for {topic_id}")
+
         path = content_root / expected_file
         raw = path.read_text(encoding="utf-8")
         if hashlib.sha256(raw.encode("utf-8")).hexdigest() != entry["sha256"]:
@@ -215,6 +260,10 @@ def validate_chapter_bundle(content_root: Path, topics: list[dict]) -> dict:
         characters = len(plain_text(raw))
         if characters < 1500 or characters != entry["characters"]:
             raise ValueError(f"Character count mismatch for {topic_id}")
+        if parser.native_mathml:
+            raise ValueError(f"Source chapter is already rendered instead of preserving TeX: {topic_id}")
+        if parser.math_elements != entry["math_expressions"] or parser.math_with_tex != parser.math_elements:
+            raise ValueError(f"TeX source count mismatch for {topic_id}")
         for href in parser.links:
             url = urlsplit(href)
             if url.scheme or href.startswith("//") or href.startswith(("mailto:", "tel:")):
@@ -224,8 +273,12 @@ def validate_chapter_bundle(content_root: Path, topics: list[dict]) -> dict:
         if "source-basis" in raw.casefold() or ">source basis<" in raw.casefold():
             raise ValueError(f"Private provenance section in {expected_file}")
         total_characters += characters
+        total_math += parser.math_elements
+
     if entry_ids != topic_ids or manifest["total_characters"] != total_characters:
         raise ValueError("Chapter manifest totals do not match chapter content")
+    if manifest["total_math_expressions"] != total_math or total_math <= 0:
+        raise ValueError("Math manifest total does not match preserved TeX content")
     return manifest
 
 

@@ -1,280 +1,320 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "chapter_count": 39,
-  "total_characters": 697675,
+  "total_characters": 687261,
+  "total_math_expressions": 1395,
   "chapters": [
     {
       "id": "tokenization",
       "file": "chapters/tokenization.html",
-      "sha256": "2dde9fedd6714e321c18d1ffd6267c46938871be33aa6f5320cd1db5b81a39a3",
-      "characters": 27588,
-      "sections": 14
+      "sha256": "76dd0598c695cd2aad32f720c9a516f201431d3ad841e87e3aad85c58f9bfdc9",
+      "characters": 27189,
+      "sections": 14,
+      "math_expressions": 75
     },
     {
       "id": "pretraining-data",
       "file": "chapters/pretraining-data.html",
-      "sha256": "a08a55285a466669280a2f03d52b570e7eb25fd970b285f50b63c33199e30976",
-      "characters": 23587,
-      "sections": 20
+      "sha256": "d0ff8923ca40766b6051a0cbef9296dc084471b6409ffe7ead9cc8b24b184681",
+      "characters": 23521,
+      "sections": 20,
+      "math_expressions": 18
     },
     {
       "id": "retrieval",
       "file": "chapters/retrieval.html",
-      "sha256": "3e277e8ac14b396ac89e3d154e407dec21fc80a4fab529ccad4b6c1d60305b6d",
-      "characters": 19279,
-      "sections": 15
+      "sha256": "c2a3c05dd6dcabb33fa7dba7a6c7cfb5e95e77413807302e1b47a6a28eba0d8f",
+      "characters": 19170,
+      "sections": 15,
+      "math_expressions": 29
     },
     {
       "id": "rag",
       "file": "chapters/rag.html",
       "sha256": "4dd3c58a238aab8a52c9af922971f71112020ae819f580abb89668914774c970",
       "characters": 18440,
-      "sections": 14
+      "sections": 14,
+      "math_expressions": 0
     },
     {
       "id": "inference",
       "file": "chapters/inference.html",
-      "sha256": "41348409670707692f58d8136926a63eae8867e74f0137857fb49d96cfe085be",
-      "characters": 16269,
-      "sections": 15
+      "sha256": "d655341285453032f54650a40fba7429a247a1d8ed20d94adcfd0dd4db99df62",
+      "characters": 16118,
+      "sections": 15,
+      "math_expressions": 48
     },
     {
       "id": "serving",
       "file": "chapters/serving.html",
       "sha256": "a0f0089ba55cd616d92dac2fff5d716df03fd4d58ee532e9e1e08a891c69cb14",
       "characters": 23406,
-      "sections": 14
+      "sections": 14,
+      "math_expressions": 0
     },
     {
       "id": "distributed-training",
       "file": "chapters/distributed-training.html",
-      "sha256": "09ad61896a8a7a06587f8a442951d5f45d3cf124a3ca1a8d32ccf751c63fafe7",
-      "characters": 17622,
-      "sections": 16
+      "sha256": "8686d488da589b8dad91c2d540f6c0e9e82500f6a43b8656900aae0063daaa06",
+      "characters": 17566,
+      "sections": 16,
+      "math_expressions": 15
     },
     {
       "id": "parallelism",
       "file": "chapters/parallelism.html",
-      "sha256": "48709f469d37fde107d23c3e5d2718b0fa083db70a0fc034c400fac5496b35f4",
-      "characters": 17056,
-      "sections": 13
+      "sha256": "21f41b74fbc61e9f088fad0127566f941c1b8d3b68f03d83cc5ca55a27720813",
+      "characters": 16766,
+      "sections": 13,
+      "math_expressions": 39
     },
     {
       "id": "distributed-inference",
       "file": "chapters/distributed-inference.html",
-      "sha256": "6a61a6cbf56c849491171dfa7a5ee9864a9aff3a9a7296e02b1d7b6e32807b7f",
-      "characters": 16469,
-      "sections": 15
+      "sha256": "92b8d3c95fea2d0210c9fce0dc4f9cadbb354f90622fc450dd1e1bda7039633b",
+      "characters": 16379,
+      "sections": 15,
+      "math_expressions": 13
     },
     {
       "id": "rope",
       "file": "chapters/rope.html",
-      "sha256": "c3028494854575c53e3505c4a479e52d069361a0c1c3881575c393649870a1f0",
-      "characters": 14012,
-      "sections": 14
+      "sha256": "482e2b5d62ccd1f0fecb393a0578932a0d814cf7e00a94622478e6133853cd80",
+      "characters": 13901,
+      "sections": 14,
+      "math_expressions": 28
     },
     {
       "id": "long-context",
       "file": "chapters/long-context.html",
-      "sha256": "66cc13e06d203a733b1ceb6eae2d2d8eedf3cddb3e51c3a53499650761993058",
-      "characters": 18016,
-      "sections": 14
+      "sha256": "38897e1db0b7fca203f1e99ea6dcff8d33fe53b65ebdc400c1e58fd4f00774b8",
+      "characters": 17894,
+      "sections": 14,
+      "math_expressions": 24
     },
     {
       "id": "moe",
       "file": "chapters/moe.html",
-      "sha256": "ebd746b6ae166fd52f0904d30395fd92f6ab762f1ce4d4790c5fa5704d886473",
-      "characters": 16419,
-      "sections": 16
+      "sha256": "df5f3dc81799a87e76e5e02add8aee9b95cae73d28860a1a209eaa11a4e6097c",
+      "characters": 16350,
+      "sections": 16,
+      "math_expressions": 24
     },
     {
       "id": "post-training",
       "file": "chapters/post-training.html",
-      "sha256": "c7cd48f955aafb8f02a3e2ee311d1524c81524a7bf3483806bd1c0411542e973",
-      "characters": 24417,
-      "sections": 15
+      "sha256": "8b3ed06278ddf336a2a3b8cdaabaaa60ac58be2522470e858a2520ca0e43789b",
+      "characters": 24161,
+      "sections": 15,
+      "math_expressions": 33
     },
     {
       "id": "reasoning",
       "file": "chapters/reasoning.html",
       "sha256": "ecb3537b2741b95453c74e812b7c78f736761752de7a5b678dd99d85741d220f",
       "characters": 14472,
-      "sections": 13
+      "sections": 13,
+      "math_expressions": 0
     },
     {
       "id": "evaluation",
       "file": "chapters/evaluation.html",
-      "sha256": "5373c710c6601551ecb9272df26a18339cfa256a234a74df33efb17d8483a058",
-      "characters": 17901,
-      "sections": 18
+      "sha256": "9ec4082caac43cc3c6eea56a05c6f634b69b930b3bddb5af4e85b8af5025a5f4",
+      "characters": 17899,
+      "sections": 18,
+      "math_expressions": 3
     },
     {
       "id": "calibration",
       "file": "chapters/calibration.html",
-      "sha256": "6bb0d3200585ade459616e679af1a40cbf5cbecec06a35a427403471dafc1e75",
-      "characters": 20089,
-      "sections": 17
+      "sha256": "d84404d06555d13e13c2231fd44a803e37935acafc45d538aad1edc94038c547",
+      "characters": 19494,
+      "sections": 17,
+      "math_expressions": 31
     },
     {
       "id": "tool-calling",
       "file": "chapters/tool-calling.html",
-      "sha256": "1316a1747683a35a7044f3972ecd397b6705449f815f5f7aa5b7d214714adec2",
-      "characters": 20413,
-      "sections": 14
+      "sha256": "fae3b3169a555c8bc9559305064a893d16a0ea9c33ca065b0c2979451fa45883",
+      "characters": 20397,
+      "sections": 14,
+      "math_expressions": 1
     },
     {
       "id": "agents",
       "file": "chapters/agents.html",
       "sha256": "041d71c578b1425bf5df84d112347edb4dd5fb4bf7f4b6144c0f534a4a06cc0e",
       "characters": 17395,
-      "sections": 17
+      "sections": 17,
+      "math_expressions": 0
     },
     {
       "id": "quantization",
       "file": "chapters/quantization.html",
-      "sha256": "dd16cd60c43d0234bb1e2088ff7841e7fed4f60dd75606c19c6d1a7de986afdb",
-      "characters": 17043,
-      "sections": 17
+      "sha256": "a26a8df23ef75aaaaa60ed87acae8a7a061d38fe44e75edfcaca5a72b01dcd14",
+      "characters": 16855,
+      "sections": 17,
+      "math_expressions": 25
     },
     {
       "id": "speculative-decoding",
       "file": "chapters/speculative-decoding.html",
-      "sha256": "0e311ec9033f0f1b2922af2e1c19b2bfaf79be2abdf2dfb11b36a57f6377a9ba",
-      "characters": 15077,
-      "sections": 14
+      "sha256": "ad6ddd249a79b37ebf903630443e7183b9dc61f6844125881e4fb18c8a91da3f",
+      "characters": 15052,
+      "sections": 14,
+      "math_expressions": 22
     },
     {
       "id": "multimodal",
       "file": "chapters/multimodal.html",
-      "sha256": "3538558f7bbc72ce69841c3ceac90ea4626c87610ea1922329855dc696304f75",
-      "characters": 11739,
-      "sections": 12
+      "sha256": "088eceeb11ebc1efae79255e3a143413af0f4159170aafe9601b6b57db9c5280",
+      "characters": 11720,
+      "sections": 12,
+      "math_expressions": 5
     },
     {
       "id": "cross-attention",
       "file": "chapters/cross-attention.html",
-      "sha256": "23cb5c317114293c533e5d5e2e43fdc876a43a6604f129a5f0e8445756ee66d3",
-      "characters": 18402,
-      "sections": 14
+      "sha256": "90f3aa10b3237ae186d78336cb7abfd68e96f6f1f8a4f0e89070185ed2528d65",
+      "characters": 18166,
+      "sections": 14,
+      "math_expressions": 45
     },
     {
       "id": "ssm",
       "file": "chapters/ssm.html",
-      "sha256": "e74106b641601401ad8bada3ce804ba85dfb475ff97e57f0b209176e91e2793b",
-      "characters": 22006,
-      "sections": 17
+      "sha256": "012d277e3277a4fa45e854b85a1d014dc98d08621078a970580586a8c925a727",
+      "characters": 21412,
+      "sections": 17,
+      "math_expressions": 79
     },
     {
       "id": "scaling-laws",
       "file": "chapters/scaling-laws.html",
-      "sha256": "3e386d2f55ffa3a05169dde34d549bed295f82d728ce5a46ca5efbe0d6ec3ffa",
-      "characters": 16316,
-      "sections": 14
+      "sha256": "c05c0864e3d4dbe2e15ff56fa912a3ce3de685362c383bd992a766f08cf942de",
+      "characters": 16190,
+      "sections": 14,
+      "math_expressions": 26
     },
     {
       "id": "synthetic-data",
       "file": "chapters/synthetic-data.html",
-      "sha256": "a9df580fc42be194f76bc25abe02c725cd2bbc2ddf33a7ed63eb3c34ce550600",
-      "characters": 19248,
-      "sections": 20
+      "sha256": "96d232323edac36394281712425ce6748eeff28490608c4583430804838aacc5",
+      "characters": 19242,
+      "sections": 20,
+      "math_expressions": 2
     },
     {
       "id": "compile-kernels",
       "file": "chapters/compile-kernels.html",
-      "sha256": "c8c9d209da78e1d00b3332a8fb917c746ac3bf43e0ad2ed673ec36abd296eddd",
-      "characters": 19714,
-      "sections": 15
+      "sha256": "aa84fb4b3f66bf9af446350932390af0d1168b03b997e62099f79664831af9a9",
+      "characters": 19616,
+      "sections": 15,
+      "math_expressions": 15
     },
     {
       "id": "security",
       "file": "chapters/security.html",
       "sha256": "27a676767ecb3dc4902911a69c899200c8701dac920c4e4e20ce9f04923ad1eb",
       "characters": 18773,
-      "sections": 15
+      "sections": 15,
+      "math_expressions": 0
     },
     {
       "id": "probabilistic-modelling",
       "file": "chapters/probabilistic-modelling.html",
-      "sha256": "31a3694ee17d85a99ad5cc7d169513601891efb09db2ccb5e391ad240689acec",
-      "characters": 22805,
-      "sections": 15
+      "sha256": "c2e25c29f0cb7801f95c6458f0706abf9c0cd4ddc378b4cb7dc859a0cc044090",
+      "characters": 21770,
+      "sections": 15,
+      "math_expressions": 132
     },
     {
       "id": "uncertainty-quantification",
       "file": "chapters/uncertainty-quantification.html",
-      "sha256": "2eb90b8304153c029702b1c8c15d0ea165061a1545667d77c474a834dc099c63",
-      "characters": 14912,
-      "sections": 11
+      "sha256": "cb170e4f4aac1652de06a5a5b69439d46a8d42b11ed3497e8abe30b0d3dbe444",
+      "characters": 14800,
+      "sections": 11,
+      "math_expressions": 20
     },
     {
       "id": "bayesian-variational-inference",
       "file": "chapters/bayesian-variational-inference.html",
-      "sha256": "ad74a273c33c447d0981da50ef9c85d9c7ac13824cc56dfd3f7d7a52536eec7a",
-      "characters": 19704,
-      "sections": 16
+      "sha256": "67d6fe275491b7d229a710fa9856814f79df4d94b08db5535a5613b94ba936dd",
+      "characters": 19404,
+      "sections": 16,
+      "math_expressions": 56
     },
     {
       "id": "gaussian-processes",
       "file": "chapters/gaussian-processes.html",
-      "sha256": "0bf4feff889b1051ce674402f7db11a294bb803ffe4854c00fde0dc56307091d",
-      "characters": 17015,
-      "sections": 13
+      "sha256": "e206b7b3af4f180697183b4e44be3b340108b8e16e0909ef5dd14e2f9b231c4f",
+      "characters": 16460,
+      "sections": 13,
+      "math_expressions": 70
     },
     {
       "id": "hmm-state-space",
       "file": "chapters/hmm-state-space.html",
-      "sha256": "90987995473850af87cc4e1846ec02fda6e586c4afc02d47f7845f21468caa17",
-      "characters": 13729,
-      "sections": 12
+      "sha256": "2425bdc2eb7369e33b6ed5590d38e1c7d3f5058f96dabba05cadc23ec849a98d",
+      "characters": 13440,
+      "sections": 12,
+      "math_expressions": 84
     },
     {
       "id": "stochastic-processes-sdes",
       "file": "chapters/stochastic-processes-sdes.html",
-      "sha256": "768e2fc17c9f7b7a5669f9b2f24716b6062f43bc9e847e315a32f20d0abc6257",
-      "characters": 14909,
-      "sections": 13
+      "sha256": "d42e746a382bcd1ad7c04256f2c9bf8182a0445a84b1680e280f8c71f152c495",
+      "characters": 14136,
+      "sections": 13,
+      "math_expressions": 102
     },
     {
       "id": "sequential-monte-carlo",
       "file": "chapters/sequential-monte-carlo.html",
-      "sha256": "7e394ef15d14341056cd375672e5e6ee285cad06abee811e857c4de2102a0086",
-      "characters": 11476,
-      "sections": 11
+      "sha256": "042ead162225abb4561f44a3099fb7079d6a2283a9d891b246190ddb25424e6f",
+      "characters": 11180,
+      "sections": 11,
+      "math_expressions": 46
     },
     {
       "id": "diffusion-models",
       "file": "chapters/diffusion-models.html",
-      "sha256": "4ad7074f4373024b46e534d3ee8ed72559c629eb21c1ef8531a0fc7abc7eae2d",
-      "characters": 19867,
-      "sections": 14
+      "sha256": "664bbd5a62e3987cfb56740146a7358f894248394b210337e6be532262dad005",
+      "characters": 18993,
+      "sections": 14,
+      "math_expressions": 88
     },
     {
       "id": "energy-based-models",
       "file": "chapters/energy-based-models.html",
-      "sha256": "9ea7c315a53319e368feb2614beca4b8b4e7888cf16199fe6caf30ce53d71c0a",
-      "characters": 16493,
-      "sections": 12
+      "sha256": "0fd25aaf31fd9c7abd5043b2b6e186c7843883e440e879f3ed548d3a052e7f0a",
+      "characters": 15260,
+      "sections": 12,
+      "math_expressions": 56
     },
     {
       "id": "flow-matching",
       "file": "chapters/flow-matching.html",
-      "sha256": "29e49931c2802ea43b7be6088a57e7b4900a4f874124ab1e8f778d1caff78c1a",
-      "characters": 15189,
-      "sections": 12
+      "sha256": "b291abdf5e582cf4bebd3b18b4274fea4ecd7e0e38580906ee534ec48b3c4fec",
+      "characters": 14751,
+      "sections": 12,
+      "math_expressions": 51
     },
     {
       "id": "normalizing-flows",
       "file": "chapters/normalizing-flows.html",
-      "sha256": "331b73b827f5ebdd03ff280f429b502a5bb3a3408301fb3f3eb507ca9ecb0879",
-      "characters": 12068,
-      "sections": 11
+      "sha256": "f0d1b6c817f8cb44a60038c0f4a8913d3bf833b68d50fa3cca4f660b4b5b86d3",
+      "characters": 11756,
+      "sections": 11,
+      "math_expressions": 34
     },
     {
       "id": "path-signatures",
       "file": "chapters/path-signatures.html",
-      "sha256": "290bb18de1377ef782349f93523ff90749919897bdfe8467fa3ac2884f224f2e",
-      "characters": 18340,
-      "sections": 11
+      "sha256": "51371d669708dcbc200584e901460dfcd0ed462905a7cf36e6cc268bc90ab925",
+      "characters": 17767,
+      "sections": 11,
+      "math_expressions": 56
     }
   ]
 }

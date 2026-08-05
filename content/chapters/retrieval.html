@@ -4,11 +4,10 @@
 <h2 id="technical-framing">Technical framing</h2>
 <p>The RAG landmark combines parametric generation with an external corpus or index, commonly called non-parametric memory; the retriever, reranker, encoders, and generator may still be parameterized. REALM integrates latent retrieval during pretraining. In its reported setup, RETRO retrieved from a roughly two-trillion-token corpus and let a smaller model reach Pile performance comparable to named much larger baselines. That result is not a general law that retrieval replaces parameter scaling. These systems shift some knowledge from weights into an updatable corpus, but introduce indexing, recall, context-construction, and latency concerns; retrieval alone guarantees neither factuality nor freshness, grounding, or attribution.</p>
 <p>Cross-attention provides the conditioning mechanism:</p>
-<div class="math-display">Q = X_query W_Q
+<div class="math-display" data-tex="\begin{aligned}Q &amp;= X_{\text{query}} W_{Q}\\K &amp;= X_{\text{context}} W_{K}\\V &amp;= X_{\text{context}} W_{V}\\\operatorname{Attention}(Q,K,V) &amp;= \operatorname{softmax}(QK^{\top} / \sqrt{d}) V\end{aligned}">Q = X_query W_Q
 K = X_context W_K
 V = X_context W_V
-Attention(Q,K,V) = softmax(QKᵀ / √d) V
-</div>
+Attention(Q,K,V) = softmax(QKᵀ / √d) V</div>
 <p>Queries and context may have different sequence lengths. In latent cross-attention, a small set of latent queries reads a much larger input. This reduces later computation but creates a bottleneck that may discard information.</p>
 <h2 id="retrieval-architecture">Retrieval architecture</h2>
 <p>Candidate generation and candidate scoring are separate stages:</p>
@@ -22,18 +21,17 @@ Attention(Q,K,V) = softmax(QKᵀ / √d) V
 <p>Cosine similarity equals a dot product only after vector normalization. Index configuration, embedding version, and score calibration must therefore be recorded together.</p>
 <p>Metadata filters—tenant, permission, date, geography, document type—are security and correctness constraints. They should be applied in retrieval, not left to the language model after unauthorized text has entered context.</p>
 <h2 id="bm25-from-first-principles">BM25 from first principles</h2>
-<p>BM25 scores a document <code class="math-inline">D</code> against query <code>q</code> by adding a contribution for each query term. A common positive-IDF form is:</p>
-<div class="math-display">score(q,D) = Σ[t ∈ q] IDF(t) · f(t,D)(k₁ + 1)
+<p>BM25 scores a document <span class="math-inline" data-tex="D">D</span> against query <code>q</code> by adding a contribution for each query term. A common positive-IDF form is:</p>
+<div class="math-display" data-tex="\begin{aligned}\text{score}(q,D) &amp;= \sum [t \in  q] IDF(t) \cdot  f(t,D)(k_{1} + 1)\\\rule{20em}{0.4pt}\\f(t,D) + k_{1}(1 - b + b\mid D\mid /\text{avgdl})\\IDF(t) &amp;= \text{ln}(1 + (N - n(t) + 0.5)/(n(t) + 0.5))\end{aligned}">score(q,D) = Σ[t ∈ q] IDF(t) · f(t,D)(k₁ + 1)
                                       ─────────────────────────────
                                       f(t,D) + k₁(1 - b + b|D|/avgdl)
 
-IDF(t) = ln(1 + (N - n(t) + 0.5)/(n(t) + 0.5))
-</div>
-<p>Here <code>f(t,D)</code> is term frequency in the document, <code>|D|</code> is document length, <code>avgdl</code> is average document length, <code class="math-inline">N</code> is the corpus size, and <code>n(t)</code> is the number of documents containing the term. The IDF term makes rare terms more valuable. BM25 usually omits query-term frequency because web-style queries are short; variants can add it.</p>
-<p>The fraction is a saturating term-frequency function: the first few matches help most, while repeated occurrences approach an upper bound of <code class="math-inline">k_{1} + 1</code>. <code class="math-inline">k_{1}</code> controls how quickly frequency saturates: <code class="math-inline">k_{1} = 0</code> makes term presence almost binary, while a larger value rewards repetition for longer. <code>b</code> controls document-length normalization: <code class="math-inline">b = 0</code> applies none, while <code class="math-inline">b = 1</code> fully scales by <code>|D|/avgdl</code>. Typical starting points are <code class="math-inline">k_{1} \approx  1.2</code> and <code class="math-inline">b \approx  0.75</code>, but both should be tuned on the target corpus.</p>
+IDF(t) = ln(1 + (N - n(t) + 0.5)/(n(t) + 0.5))</div>
+<p>Here <code>f(t,D)</code> is term frequency in the document, <code>|D|</code> is document length, <code>avgdl</code> is average document length, <span class="math-inline" data-tex="N">N</span> is the corpus size, and <code>n(t)</code> is the number of documents containing the term. The IDF term makes rare terms more valuable. BM25 usually omits query-term frequency because web-style queries are short; variants can add it.</p>
+<p>The fraction is a saturating term-frequency function: the first few matches help most, while repeated occurrences approach an upper bound of <span class="math-inline" data-tex="k_{1} + 1">k₁ + 1</span>. <span class="math-inline" data-tex="k_{1}">k₁</span> controls how quickly frequency saturates: <span class="math-inline" data-tex="k_{1} = 0">k₁ = 0</span> makes term presence almost binary, while a larger value rewards repetition for longer. <code>b</code> controls document-length normalization: <span class="math-inline" data-tex="b = 0">b = 0</span> applies none, while <span class="math-inline" data-tex="b = 1">b = 1</span> fully scales by <code>|D|/avgdl</code>. Typical starting points are <span class="math-inline" data-tex="k_{1} \approx  1.2">k₁ ≈ 1.2</span> and <span class="math-inline" data-tex="b \approx  0.75">b ≈ 0.75</span>, but both should be tuned on the target corpus.</p>
 <h3 id="worked-bm25-example">Worked retrieval example</h3>
-<p>Suppose <code class="math-inline">N = 1,000,000</code>, <code class="math-inline">\text{avgdl} = 100</code>, <code class="math-inline">k_{1} = 1.2</code>, and <code class="math-inline">b = 0.75</code>. The query is <code>vector database</code>. A 150-token document contains <code>vector</code> three times and <code>database</code> once; their document frequencies are 1,000 and 10,000.</p>
-<div class="math-display">length term = k₁(1 - b + b|D|/avgdl)
+<p>Suppose <span class="math-inline" data-tex="N = 1,000,000">N = 1,000,000</span>, <span class="math-inline" data-tex="\text{avgdl} = 100">avgdl = 100</span>, <span class="math-inline" data-tex="k_{1} = 1.2">k₁ = 1.2</span>, and <span class="math-inline" data-tex="b = 0.75">b = 0.75</span>. The query is <code>vector database</code>. A 150-token document contains <code>vector</code> three times and <code>database</code> once; their document frequencies are 1,000 and 10,000.</p>
+<div class="math-display" data-tex="\begin{aligned}\text{length} \text{term} &amp;= k_{1}(1 - b + b\mid D\mid /\text{avgdl})\\&amp;= 1.2(0.25 + 0.75\cdot 1.5) = 1.65\\IDF(\text{vector})   \approx  \text{ln}(1 + 999000.5/1000.5)   &amp;= 6.907\\IDF(\text{database}) \approx  \text{ln}(1 + 990000.5/10000.5)  &amp;= 4.605\\\text{TFsat}(\text{vector})   &amp;= 3\cdot 2.2/(3 + 1.65) = 1.419\\\text{TFsat}(\text{database}) &amp;= 1\cdot 2.2/(1 + 1.65) = 0.830\\\text{score} \approx  6.907\cdot 1.419 + 4.605\cdot 0.830 &amp;= 13.62\end{aligned}">length term = k₁(1 - b + b|D|/avgdl)
             = 1.2(0.25 + 0.75·1.5) = 1.65
 
 IDF(vector)   ≈ ln(1 + 999000.5/1000.5)   = 6.907
@@ -42,21 +40,18 @@ IDF(database) ≈ ln(1 + 990000.5/10000.5)  = 4.605
 TFsat(vector)   = 3·2.2/(3 + 1.65) = 1.419
 TFsat(database) = 1·2.2/(1 + 1.65) = 0.830
 
-score ≈ 6.907·1.419 + 4.605·0.830 = 13.62
-</div>
+score ≈ 6.907·1.419 + 4.605·0.830 = 13.62</div>
 <p>The rarer term contributes more, three occurrences do not count as three independent matches, and the above-average document length reduces both contributions. Scores are meaningful for ranking within one index and query, not as calibrated probabilities.</p>
 <h2 id="training-dense-retrievers">Training dense retrievers</h2>
-<p>A bi-encoder computes <code class="math-inline">q = \text{Eq}(\text{text})</code> and <code class="math-inline">d = \text{Ed}(\text{passage})</code> independently. Dot product and cosine similarity differ unless vectors are normalized:</p>
-<div class="math-display">dot(q,d) = qᵀd
+<p>A bi-encoder computes <span class="math-inline" data-tex="q = \text{Eq}(\text{text})">q = Eq(text)</span> and <span class="math-inline" data-tex="d = \text{Ed}(\text{passage})">d = Ed(passage)</span> independently. Dot product and cosine similarity differ unless vectors are normalized:</p>
+<div class="math-display" data-tex="\begin{aligned}\text{dot}(q,d) &amp;= q^{\top}d\\\operatorname{cos}(q,d) &amp;= q^{\top}d / (\lVert q\rVert_{2} \lVert d\rVert_{2})\\\widehat{q} &amp;= q/\lVert q\rVert_{2}, \widehat{d} = d/\lVert d\rVert_{2}  \Rightarrow   \operatorname{cos}(q,d) = \widehat{q}^{\top}\widehat{d}\end{aligned}">dot(q,d) = qᵀd
 cos(q,d) = qᵀd / (||q||₂ ||d||₂)
-q̂ = q/||q||₂, d̂ = d/||d||₂  ⇒  cos(q,d) = q̂ᵀd̂
-</div>
+q̂ = q/||q||₂, d̂ = d/||d||₂  ⇒  cos(q,d) = q̂ᵀd̂</div>
 <p>Unnormalized dot product lets vector norms affect rank and can encode confidence or popularity, but it may encourage norm growth. L2 normalization removes that degree of freedom and makes cosine search implementable as maximum inner-product search. Apply the same normalization during training, indexing, and serving.</p>
 <p>An InfoNCE-style loss gives one positive passage probability mass over a candidate pool:</p>
-<div class="math-display">s(q,d) = sim(Eq(q), Ed(d))
-Lq = -log [ exp(s(q,d⁺)/τ) / Σ[d ∈ {d⁺} ∪ Nq] exp(s(q,d)/τ) ]
-</div>
-<p>The temperature <code class="math-inline">\tau</code> controls softmax sharpness: lower values amplify small score differences and gradients, while values that are too low make noisy or false negatives dominate. It can be fixed or learned, but must be monitored with embedding norms and negative-pool size.</p>
+<div class="math-display" data-tex="\begin{aligned}s(q,d) &amp;= \text{sim}(\text{Eq}(q), \text{Ed}(d))\\\text{Lq} &amp;= -\operatorname{log} [ \operatorname{exp}(s(q,d^{+})/\tau ) / \sum [d \in  {d^{+}} \cup  \text{Nq}] \operatorname{exp}(s(q,d)/\tau ) ]\end{aligned}">s(q,d) = sim(Eq(q), Ed(d))
+Lq = -log [ exp(s(q,d⁺)/τ) / Σ[d ∈ {d⁺} ∪ Nq] exp(s(q,d)/τ) ]</div>
+<p>The temperature <span class="math-inline" data-tex="\tau">τ</span> controls softmax sharpness: lower values amplify small score differences and gradients, while values that are too low make noisy or false negatives dominate. It can be fixed or learned, but must be monitored with embedding norms and negative-pool size.</p>
 <p>Queries and documents are asymmetric: a query states an information need, while a passage contains evidence and is often much longer. Encoders may share weights for efficiency or use separate weights, prompts, and maximum lengths to model that asymmetry. Pooling can use a special <code>[CLS]</code> token, masked mean pooling, or the final non-padding token. Mean pooling spreads evidence across tokens; special-token or last-token pooling delegates aggregation to training. The deployed pooling, truncation, and <a href="tokenization.html">tokenization</a> must exactly match index construction.</p>
 <p>Training data should match deployment query style, document domain, language, and granularity. A retriever trained on short factual questions may perform poorly on long engineering requests or code identifiers. Domain adaptation should therefore be evaluated against both target-domain recall and regression on broader traffic.</p>
 <h2 id="negative-sampling">Negative sampling and mining</h2>
@@ -71,13 +66,12 @@ Lq = -log [ exp(s(q,d⁺)/τ) / Σ[d ∈ {d⁺} ∪ Nq] exp(s(q,d)/τ) ]
 </tbody>
 </table>
 <p>A false negative is actually relevant but labelled negative. It pushes useful evidence away and is especially likely for duplicate passages, multi-answer questions, and in-batch pools. Mitigate it with deduplication, multiple-positive labels, teacher or human checks, and a margin that ignores ambiguous candidates rather than forcing every pair apart.</p>
-<p>Distributed training can all-gather passage embeddings across workers, turning a local batch of <code class="math-inline">B</code> into roughly <code>world_size × B</code> in-batch candidates. This improves pool diversity but increases communication and the chance of false negatives; gradients and masking semantics must be explicit. A practical curriculum starts with random and in-batch negatives, introduces BM25 hard negatives after basic alignment, then periodically mines dense or cross-encoder negatives from fresh checkpoints. Re-mine between rounds rather than on every step, and retain a mix of easy and hard examples so training does not collapse onto a narrow error distribution.</p>
+<p>Distributed training can all-gather passage embeddings across workers, turning a local batch of <span class="math-inline" data-tex="B">B</span> into roughly <code>world_size × B</code> in-batch candidates. This improves pool diversity but increases communication and the chance of false negatives; gradients and masking semantics must be explicit. A practical curriculum starts with random and in-batch negatives, introduces BM25 hard negatives after basic alignment, then periodically mines dense or cross-encoder negatives from fresh checkpoints. Re-mine between rounds rather than on every step, and retain a mix of easy and hard examples so training does not collapse onto a narrow error distribution.</p>
 <h2 id="late-interaction">Late interaction</h2>
 <p>A ColBERT-style model encodes every query and document token into contextual, usually normalized vectors. It performs the expensive encoding independently, then retains token-level interaction at search time:</p>
-<div class="math-display">Eq(q) = [q₁, …, qₘ]       Ed(D) = [d₁, …, dₙ]
+<div class="math-display" data-tex="\begin{aligned}\text{Eq}(q) &amp;= [q_{1}, \ldots , q_{m}]       \text{Ed}(D) = [d_{1}, \ldots , d_{n}]\\\text{MaxSim}(q_{i},D) &amp;= \operatorname{max}[j=1\ldots n] q_{i}^{\top}d_{j}\\\text{score}(q,D) &amp;= \sum [i=1\ldots m] \text{MaxSim}(q_{i},D)\end{aligned}">Eq(q) = [q₁, …, qₘ]       Ed(D) = [d₁, …, dₙ]
 MaxSim(qᵢ,D) = max[j=1…n] qᵢᵀdⱼ
-score(q,D) = Σ[i=1…m] MaxSim(qᵢ,D)
-</div>
+score(q,D) = Σ[i=1…m] MaxSim(qᵢ,D)</div>
 <p>Each query token finds its best document-token match, preserving fine-grained evidence that a single pooled vector can blur. The price is storing and searching many vectors per passage rather than one; compression and token pruning help, but memory, index traffic, and latency remain above a bi-encoder.</p>
 <table>
 <thead><tr><th>Scorer</th><th>Stored document representation</th><th>Query-time interaction</th><th>Typical role</th></tr></thead>
@@ -93,25 +87,24 @@ score(q,D) = Σ[i=1…m] MaxSim(qᵢ,D)
 <thead><tr><th>Index</th><th>Internal idea</th><th>Construction parameters</th><th>Query parameters</th><th>Best fit and trade-offs</th></tr></thead>
 <tbody>
 <tr><td>Flat exact</td><td>Contiguous vectors; exhaustive SIMD/GPU scan</td><td>Vector dtype and layout</td><td>Batch size; optional exact top-k</td><td>Highest recall, trivial updates, no training; latency and bandwidth grow linearly with corpus size</td></tr>
-<tr><td>HNSW</td><td>Multi-layer proximity graph; greedy descent then local beam search</td><td><code class="math-inline">M</code> neighbours per node; <code>efConstruction</code></td><td><code>efSearch</code></td><td>Excellent recall/latency and incremental inserts; graph overhead costs memory and heavy deletion is awkward</td></tr>
+<tr><td>HNSW</td><td>Multi-layer proximity graph; greedy descent then local beam search</td><td><span class="math-inline" data-tex="M">M</span> neighbours per node; <code>efConstruction</code></td><td><code>efSearch</code></td><td>Excellent recall/latency and incremental inserts; graph overhead costs memory and heavy deletion is awkward</td></tr>
 <tr><td>IVF</td><td>K-means coarse centroids partition vectors into inverted lists</td><td><code>nlist</code>, training sample, clustering iterations</td><td><code>nprobe</code> lists searched</td><td>Scales well and batches efficiently; misses vectors when the right cell is not probed</td></tr>
 <tr><td>IVF/PQ</td><td>IVF pruning plus product-quantized residual or vector codes</td><td><code>nlist</code>, PQ subspaces <code>m</code>, bits per code, codebooks</td><td><code>nprobe</code>, candidates to rescore</td><td>Lowest memory and fast distance tables; quantization adds ranking error and requires representative training data</td></tr>
 </tbody>
 </table>
-<p>Product quantization splits a vector into <code>m</code> subvectors and replaces each with a short codebook identifier. Distances are approximated by table lookups, often followed by exact rescoring of a small candidate set. More HNSW <code>efSearch</code>, IVF <code>nprobe</code>, or rescore candidates generally improves recall while increasing latency. Larger <code class="math-inline">M</code>/<code>efConstruction</code>, more IVF centroids, and larger PQ codebooks increase build cost or memory but can improve the attainable frontier. Tune construction and query parameters separately against exact-search neighbours.</p>
+<p>Product quantization splits a vector into <code>m</code> subvectors and replaces each with a short codebook identifier. Distances are approximated by table lookups, often followed by exact rescoring of a small candidate set. More HNSW <code>efSearch</code>, IVF <code>nprobe</code>, or rescore candidates generally improves recall while increasing latency. Larger <span class="math-inline" data-tex="M">M</span>/<code>efConstruction</code>, more IVF centroids, and larger PQ codebooks increase build cost or memory but can improve the attainable frontier. Tune construction and query parameters separately against exact-search neighbours.</p>
 <p>The index version must be coupled to the embedding model, normalization, pooling, tokenization, distance function, and document preprocessing. Re-embedding only part of a corpus with a new model creates an incoherent vector space unless the migration strategy is explicit.</p>
 <p>Updates are also index-specific. Flat indexes make append and compact operations simple. HNSW supports inserts, but deletion often marks a tombstone because rewiring the graph is costly. IVF can append to lists; many deletes or distribution drift make lists imbalanced. A common design searches an immutable bulk index plus a small mutable fresh index, filters tombstoned IDs at query time, and periodically compacts or fully rebuilds. Permission revocation must update the authoritative filter immediately even if physical deletion and reindexing lag.</p>
 <h2 id="hybrid-fusion">Hybrid fusion</h2>
-<p>Hybrid retrieval first forms a candidate-set union, for example <code class="math-inline">C = \text{topKBM}25 \cup  \text{topKdense}</code>, then deduplicates by canonical document or passage ID. Fusion can be rank-based or score-based:</p>
-<div class="math-display">RRF(d) = Σ[r ∈ retrievers] 1 / (c + rankᵣ(d))
-weighted(d) = α · calibrated_sparse(d) + (1 - α) · calibrated_dense(d)
-</div>
+<p>Hybrid retrieval first forms a candidate-set union, for example <span class="math-inline" data-tex="C = \text{topKBM}25 \cup  \text{topKdense}">C = topKBM25 ∪ topKdense</span>, then deduplicates by canonical document or passage ID. Fusion can be rank-based or score-based:</p>
+<div class="math-display" data-tex="\begin{aligned}RRF(d) &amp;= \sum [r \in  \text{retrievers}] 1 / (c + \operatorname{rank}_{r}(d))\\\text{weighted}(d) &amp;= \alpha  \cdot  \text{calibrated}_{\text{sparse}}(d) + (1 - \alpha ) \cdot  \text{calibrated}_{\text{dense}}(d)\end{aligned}">RRF(d) = Σ[r ∈ retrievers] 1 / (c + rankᵣ(d))
+weighted(d) = α · calibrated_sparse(d) + (1 - α) · calibrated_dense(d)</div>
 <p>Reciprocal-rank fusion (RRF) needs no comparable raw scores; <code>c</code>, often around 60, reduces the dominance of rank 1. Weighted fusion can exploit score magnitude, but BM25 is unbounded and query-dependent while cosine is bounded and often tightly clustered. Raw addition can therefore let one retriever dominate after a corpus, query-length, or model change. Calibrate per retriever on held-out queries using rank normalization, z-scores with guarded variance, min-max statistics, or a learned relevance calibration model. Calibration must be versioned and checked by query slice; when distributions drift or a retriever returns very few candidates, RRF is usually safer.</p>
 <h2 id="reranking-and-latency-budgets">Reranking and latency budgets</h2>
 <p>A cross-encoder processes each query-candidate pair jointly, enabling token-level interaction and usually stronger precision. Common training objectives are:</p>
 <ul>
 <li><strong>Pointwise:</strong> predict relevance for each pair independently with binary cross-entropy, graded regression, or ordinal loss. It is simple but does not directly optimize ordering.</li>
-<li><strong>Pairwise:</strong> prefer a positive over a negative, for example <code class="math-inline">-\operatorname{log} \sigma (s(q,d^{+}) - s(q,d^{-}))</code>. It learns relative order but sampling determines which comparisons matter.</li>
+<li><strong>Pairwise:</strong> prefer a positive over a negative, for example <span class="math-inline" data-tex="-\operatorname{log} \sigma (s(q,d^{+}) - s(q,d^{-}))">-log σ(s(q,d⁺) - s(q,d⁻))</span>. It learns relative order but sampling determines which comparisons matter.</li>
 <li><strong>Listwise:</strong> normalize scores across a candidate list and match a target relevance distribution. It best reflects ranking context but costs more memory and depends on constructing representative lists.</li>
 </ul>
 <p>The candidate budget determines both the ceiling and the cost: a reranker cannot recover a relevant passage absent from its input, while its compute grows roughly with candidate count and token length. Batch pairs to use accelerators efficiently, bucket by length to reduce padding, and cap both query and passage tokens. Large batches improve throughput but may wait too long at low traffic, so use a short queue deadline and monitor p95/p99 latency.</p>
@@ -129,12 +122,11 @@ weighted(d) = α · calibrated_sparse(d) + (1 - α) · calibrated_dense(d)
 <p>The retrieval pipeline totals about 49 ms before generation. Within the 30-candidate rerank set, suppose passage A was first-stage rank 1 but merely defines “vector database” and receives cross-encoder score 1.1; passage B was rank 7, directly answers the query, and scores 4.6; passage C was rank 12, gives a relevant benchmark, and scores 3.9. Reranking produces B, C, A; the final selector keeps B and C, then fills three slots with non-duplicate evidence. This improves precision without asking the cross-encoder to score all one million documents.</p>
 <p>If the reranker times out, a low-risk fallback can return the fused first-stage order, record degraded mode, and lower the answer-confidence signal. For security-sensitive or high-stakes queries, fail closed or abstain rather than silently changing ranking semantics. Define separate behavior for an unavailable dense index, sparse index, metadata service, and reranker.</p>
 <h2 id="metrics">Metrics</h2>
-<div class="math-display">Recall@k    = |relevant ∩ top-k| / |relevant|
+<div class="math-display" data-tex="\begin{aligned}\text{Recall}@k    &amp;= \mid \text{relevant} \cap  \text{top}-k\mid  / \mid \text{relevant}\mid\\\text{Precision}@k &amp;= \mid \text{relevant} \cap  \text{top}-k\mid  / k\\RR(q)        &amp;= 1 / \operatorname{rank} \text{of} \text{first} \text{relevant} \text{result};  MRR = \text{meanq} RR(q)\\DCG@k        &amp;= \sum [i=1\ldots k] (2^{\text{rel}}_{i} - 1) / \operatorname{log}_{2}(i + 1)\\\text{nDCG}@k       &amp;= DCG@k / \text{ideal}_{DCG}@k\end{aligned}">Recall@k    = |relevant ∩ top-k| / |relevant|
 Precision@k = |relevant ∩ top-k| / k
 RR(q)        = 1 / rank of first relevant result;  MRR = meanq RR(q)
 DCG@k        = Σ[i=1…k] (2^relᵢ - 1) / log₂(i + 1)
-nDCG@k       = DCG@k / ideal_DCG@k
-</div>
+nDCG@k       = DCG@k / ideal_DCG@k</div>
 <p><code>Recall@k</code> measures evidence coverage and is the key ceiling before reranking; define how queries with no labelled relevant item are handled. <code>Precision@k</code> measures result purity. MRR emphasizes the first relevant result and ignores later relevant items. nDCG rewards putting highly graded evidence early and works well when relevance is not binary.</p>
 <p>Final answer quality is not a clean retrieval metric. A capable model may answer from parametric memory despite bad retrieval, while a weak generator may fail despite perfect evidence. Maintain versioned, labelled retrieval sets with pooled judgements from multiple systems, hard negatives, domain terminology, freshness cases, and sufficient coverage of all relevant passages. Evaluate first-stage recall, post-rerank ordering, and final <a href="rag.html">RAG</a> answer quality separately.</p>
 <p>Report paired confidence intervals for system differences, preferably by bootstrap resampling whole queries rather than individual documents; also report the number of queries and practical effect size. Inspect query slices for length, language, rare identifiers, temporal freshness, ambiguous intent, multi-hop evidence, document type, tenant, and permission regime. Averages can improve while a critical slice regresses, so predeclare guardrail slices and minimum sample sizes. See <a href="evaluation.html">evaluation methodology</a> for broader experimental design.</p>

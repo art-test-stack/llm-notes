@@ -15,7 +15,7 @@ token IDs → token pieces → undo byte/space representation → decoded text</
 <h3 id="bpe-initial-symbols-and-pre-tokenization">Initial alphabet and pre-tokenization</h3>
 <p>First choose the atomic symbols and the boundaries across which merges are legal:</p>
 <ul>
-<li>Character BPE starts from characters plus required boundary markers. Characters excluded by a coverage threshold need <code class="math-inline">\lt \text{unk}\gt</code> or byte fallback.</li>
+<li>Character BPE starts from characters plus required boundary markers. Characters excluded by a coverage threshold need <span class="math-inline" data-tex="\lt \text{unk}\gt">&lt;unk&gt;</span> or byte fallback.</li>
 <li>Byte-level BPE starts from all 256 byte values, usually mapped reversibly to displayable code points. It has no unknown byte.</li>
 <li>Classic subword BPE pre-tokenizes words and prevents cross-word merges, often using an end-of-word marker.</li>
 <li>A GPT-style regular-expression pre-tokenizer forms chunks before byte-level BPE. SentencePiece can instead learn from raw sentences and represent a space with a visible marker such as <code>▁</code>.</li>
@@ -47,20 +47,20 @@ token IDs → token pieces → undo byte/space representation → decoded text</
 <p>For an overlapping pair such as <code>(a,a)</code> in <code>a a a</code>, replacement must be defined, normally left-to-right and non-overlapping, producing <code>aa a</code>. Trainer and runtime must share this convention.</p>
 
 <h3 id="bpe-complete-worked-example">Complete worked example</h3>
-<p>Use the pre-tokenized corpus below, where <code class="math-inline">\lt /w\gt</code> is an end-of-word symbol and the number is the word frequency:</p>
+<p>Use the pre-tokenized corpus below, where <span class="math-inline" data-tex="\lt /w\gt">&lt;/w&gt;</span> is an end-of-word symbol and the number is the word frequency:</p>
 <pre><code class="language-text">low    × 5  →  l o w &lt;/w&gt;
 lower  × 2  →  l o w e r &lt;/w&gt;
 newest × 6  →  n e w e s t &lt;/w&gt;
 widest × 3  →  w i d e s t &lt;/w&gt;</code></pre>
-<p>The largest initial counts include <code class="math-inline">(e,s)=9</code>, <code class="math-inline">(s,t)=9</code>, <code class="math-inline">(l,o)=7</code>, <code class="math-inline">(o,w)=7</code>, and <code class="math-inline">(w,e)=8</code>. The last value is <code class="math-inline">2+6=8</code>: the <code>w</code> in <code>widest</code> is followed by <code>i</code>, not <code>e</code>. With the stated lexical tie rule, training proceeds as follows:</p>
+<p>The largest initial counts include <span class="math-inline" data-tex="(e,s)=9">(e,s)=9</span>, <span class="math-inline" data-tex="(s,t)=9">(s,t)=9</span>, <span class="math-inline" data-tex="(l,o)=7">(l,o)=7</span>, <span class="math-inline" data-tex="(o,w)=7">(o,w)=7</span>, and <span class="math-inline" data-tex="(w,e)=8">(w,e)=8</span>. The last value is <span class="math-inline" data-tex="2+6=8">2+6=8</span>: the <code>w</code> in <code>widest</code> is followed by <code>i</code>, not <code>e</code>. With the stated lexical tie rule, training proceeds as follows:</p>
 <table>
 <thead><tr><th>Rank</th><th>Selected pair</th><th>Count before merge</th><th>New symbol</th><th>Relevant sequences after merge</th></tr></thead>
 <tbody>
-<tr><td>0</td><td><code>(e,s)</code></td><td>9</td><td><code>es</code></td><td><code class="math-inline">n e w \text{es} t \lt /w\gt</code>; <code class="math-inline">w i d \text{es} t \lt /w\gt</code></td></tr>
-<tr><td>1</td><td><code>(es,t)</code></td><td>9</td><td><code>est</code></td><td><code class="math-inline">n e w \text{est} \lt /w\gt</code>; <code class="math-inline">w i d \text{est} \lt /w\gt</code></td></tr>
-<tr><td>2</td><td><code class="math-inline">(\text{est},\lt /w\gt )</code></td><td>9</td><td><code class="math-inline">\text{est}\lt /w\gt</code></td><td><code class="math-inline">n e w \text{est}\lt /w\gt</code>; <code class="math-inline">w i d \text{est}\lt /w\gt</code></td></tr>
-<tr><td>3</td><td><code>(l,o)</code></td><td>7</td><td><code>lo</code></td><td><code class="math-inline">\text{lo} w \lt /w\gt</code>; <code class="math-inline">\text{lo} w e r \lt /w\gt</code></td></tr>
-<tr><td>4</td><td><code>(lo,w)</code></td><td>7</td><td><code>low</code></td><td><code class="math-inline">\text{low} \lt /w\gt</code>; <code class="math-inline">\text{low} e r \lt /w\gt</code></td></tr>
+<tr><td>0</td><td><code>(e,s)</code></td><td>9</td><td><code>es</code></td><td><span class="math-inline" data-tex="n e w \text{es} t \lt /w\gt">n e w es t &lt;/w&gt;</span>; <span class="math-inline" data-tex="w i d \text{es} t \lt /w\gt">w i d es t &lt;/w&gt;</span></td></tr>
+<tr><td>1</td><td><code>(es,t)</code></td><td>9</td><td><code>est</code></td><td><span class="math-inline" data-tex="n e w \text{est} \lt /w\gt">n e w est &lt;/w&gt;</span>; <span class="math-inline" data-tex="w i d \text{est} \lt /w\gt">w i d est &lt;/w&gt;</span></td></tr>
+<tr><td>2</td><td><span class="math-inline" data-tex="(\text{est},\lt /w\gt )">(est,&lt;/w&gt;)</span></td><td>9</td><td><span class="math-inline" data-tex="\text{est}\lt /w\gt">est&lt;/w&gt;</span></td><td><span class="math-inline" data-tex="n e w \text{est}\lt /w\gt">n e w est&lt;/w&gt;</span>; <span class="math-inline" data-tex="w i d \text{est}\lt /w\gt">w i d est&lt;/w&gt;</span></td></tr>
+<tr><td>3</td><td><code>(l,o)</code></td><td>7</td><td><code>lo</code></td><td><span class="math-inline" data-tex="\text{lo} w \lt /w\gt">lo w &lt;/w&gt;</span>; <span class="math-inline" data-tex="\text{lo} w e r \lt /w\gt">lo w e r &lt;/w&gt;</span></td></tr>
+<tr><td>4</td><td><code>(lo,w)</code></td><td>7</td><td><code>low</code></td><td><span class="math-inline" data-tex="\text{low} \lt /w\gt">low &lt;/w&gt;</span>; <span class="math-inline" data-tex="\text{low} e r \lt /w\gt">low e r &lt;/w&gt;</span></td></tr>
 </tbody>
 </table>
 <p>The pair <code>(s,t)</code> tied for the first choice but disappears after <code>(e,s)</code> is merged; counts must therefore be updated after every selected merge. The learned rank table is:</p>
@@ -82,19 +82,19 @@ widest × 3  →  w i d e s t &lt;/w&gt;</code></pre>
         _, i = min(candidates)              # rank first, left position second
         symbols[i:i + 2] = [symbols[i] + symbols[i + 1]]
 </code></pre>
-<p>Encoding <code>lowest</code> starts as <code class="math-inline">l o w e s t \lt /w\gt</code>:</p>
+<p>Encoding <code>lowest</code> starts as <span class="math-inline" data-tex="l o w e s t \lt /w\gt">l o w e s t &lt;/w&gt;</span>:</p>
 <pre><code class="language-text">rank 0: l o w e s t &lt;/w&gt;   → l o w es t &lt;/w&gt;
 rank 1: l o w es t &lt;/w&gt;    → l o w est &lt;/w&gt;
 rank 2: l o w est &lt;/w&gt;     → l o w est&lt;/w&gt;
 rank 3: l o w est&lt;/w&gt;       → lo w est&lt;/w&gt;
 rank 4: lo w est&lt;/w&gt;        → low est&lt;/w&gt;</code></pre>
-<p>The final segmentation is <code class="math-inline">{}[\text{low}, \text{est}\lt /w\gt ]</code>. “Choose the longest vocabulary token” is not in general equivalent: BPE must respect the causal merge ranks that made a piece constructible.</p>
+<p>The final segmentation is <span class="math-inline" data-tex="{}[\text{low}, \text{est}\lt /w\gt ]">[low, est&lt;/w&gt;]</span>. “Choose the longest vocabulary token” is not in general equivalent: BPE must respect the causal merge ranks that made a piece constructible.</p>
 
 <h3 id="bpe-complexity-and-data-structures">Complexity and implementation data structures</h3>
 <ul>
-<li>A clear trainer that rescans all <code class="math-inline">N</code> current symbol positions for each of <code class="math-inline">M</code> merges costs <code class="math-inline">O(MN)</code> time. It is useful as a reference implementation.</li>
+<li>A clear trainer that rescans all <span class="math-inline" data-tex="N">N</span> current symbol positions for each of <span class="math-inline" data-tex="M">M</span> merges costs <span class="math-inline" data-tex="O(MN)">O(MN)</span> time. It is useful as a reference implementation.</li>
 <li>A production trainer stores each sequence as a linked list, maps each pair to its occurrence locations, and keeps pair counts in a max-heap. A merge touches only occurrences of the winning pair and their two neighboring pairs. Heap entries can use version numbers for lazy invalidation. Worst cases remain data-dependent, but ordinary work is proportional to changed occurrences plus heap operations rather than a full corpus scan.</li>
-<li>The simple encoder above is <code class="math-inline">O(n^{2})</code> in the number of initial symbols because it rescans and splices. A linked list plus a min-heap of adjacent merge ranks gives approximately <code class="math-inline">O(n \operatorname{log} n)</code>; each candidate stores neighbor/version IDs so stale heap entries are rejected.</li>
+<li>The simple encoder above is <span class="math-inline" data-tex="O(n^{2})">O(n²)</span> in the number of initial symbols because it rescans and splices. A linked list plus a min-heap of adjacent merge ranks gives approximately <span class="math-inline" data-tex="O(n \operatorname{log} n)">O(n log n)</span>; each candidate stores neighbor/version IDs so stale heap entries are rejected.</li>
 <li>Cache encoded pre-tokens only when normalization and pre-tokenization make them reusable. Bound the cache: URLs and identifiers can otherwise create unbounded cardinality.</li>
 </ul>
 <p><strong>Concrete BPE invariants:</strong> pair counts equal a slow recomputation after every test merge; merge ranks are unique; no encoder merge is applied before either child exists; decode(encode(x)) equals the documented normalized input; and identical model bytes produce identical IDs across processes.</p>
@@ -103,8 +103,8 @@ rank 4: lo w est&lt;/w&gt;        → low est&lt;/w&gt;</code></pre>
 <p>Unigram tokenization reverses the BPE direction: begin with an overcomplete candidate vocabulary, fit piece probabilities, and prune pieces while preserving coverage. It defines a probability over every valid segmentation instead of a single merge history.</p>
 
 <h3 id="unigram-candidates-and-probability">Candidate vocabulary and segmentation probability</h3>
-<p>Create seed pieces from frequent substrings (often using suffix-array statistics), required characters, reserved symbols, and optionally 256 byte-fallback pieces. For a normalized string <code>x</code>, let <code>Z(x)</code> be all segmentations whose concatenated pieces equal <code>x</code>. Each piece <code>v</code> has probability <code>p(v)</code>, with <code class="math-inline">\sum _v p(v)=1</code>:</p>
-<div class="math-display">P(z = [v₁, ..., vₖ]) = ∏ₖ p(vᵢ)
+<p>Create seed pieces from frequent substrings (often using suffix-array statistics), required characters, reserved symbols, and optionally 256 byte-fallback pieces. For a normalized string <code>x</code>, let <code>Z(x)</code> be all segmentations whose concatenated pieces equal <code>x</code>. Each piece <code>v</code> has probability <code>p(v)</code>, with <span class="math-inline" data-tex="\sum _v p(v)=1">Σ_v p(v)=1</span>:</p>
+<div class="math-display" data-tex="\begin{aligned}P(z &amp;= [v_{1}, ..., v_{k}]) = \prod _{k} p(v_{i})\\P(x) &amp;= \sum _{z \in  Z(x)} P(z)\end{aligned}">P(z = [v₁, ..., vₖ]) = ∏ₖ p(vᵢ)
 P(x) = Σ_{z ∈ Z(x)} P(z)</div>
 <p>The independence assumption is intentionally simple; it scores segmentations, not natural-language sequences. Required atomic pieces ensure <code>Z(x)</code> is nonempty.</p>
 
@@ -127,13 +127,13 @@ P(x) = Σ_{z ∈ Z(x)} P(z)</div>
     if back[n] is None:
         raise UnencodableInput
     return reverse_backtrace(back, n)</code></pre>
-<p>Suppose <code>text = "abc"</code> and <code class="math-inline">p(a)=0.30</code>, <code class="math-inline">p(b)=0.20</code>, <code class="math-inline">p(c)=0.20</code>, <code class="math-inline">p(\text{ab})=0.25</code>, <code class="math-inline">p(\text{bc})=0.04</code>, and <code class="math-inline">p(\text{abc})=0.01</code>. The four paths score:</p>
+<p>Suppose <code>text = "abc"</code> and <span class="math-inline" data-tex="p(a)=0.30">p(a)=0.30</span>, <span class="math-inline" data-tex="p(b)=0.20">p(b)=0.20</span>, <span class="math-inline" data-tex="p(c)=0.20">p(c)=0.20</span>, <span class="math-inline" data-tex="p(\text{ab})=0.25">p(ab)=0.25</span>, <span class="math-inline" data-tex="p(\text{bc})=0.04">p(bc)=0.04</span>, and <span class="math-inline" data-tex="p(\text{abc})=0.01">p(abc)=0.01</span>. The four paths score:</p>
 <table>
 <thead><tr><th>Segmentation</th><th>Product</th><th>Natural log</th></tr></thead>
 <tbody>
-<tr><td><code>[a,b,c]</code></td><td><code class="math-inline">0.30\times 0.20\times 0.20 = 0.012</code></td><td><code>-4.423</code></td></tr>
-<tr><td><code>[ab,c]</code></td><td><code class="math-inline">0.25\times 0.20 = 0.050</code></td><td><code>-2.996</code></td></tr>
-<tr><td><code>[a,bc]</code></td><td><code class="math-inline">0.30\times 0.04 = 0.012</code></td><td><code>-4.423</code></td></tr>
+<tr><td><code>[a,b,c]</code></td><td><span class="math-inline" data-tex="0.30\times 0.20\times 0.20 = 0.012">0.30×0.20×0.20 = 0.012</span></td><td><code>-4.423</code></td></tr>
+<tr><td><code>[ab,c]</code></td><td><span class="math-inline" data-tex="0.25\times 0.20 = 0.050">0.25×0.20 = 0.050</span></td><td><code>-2.996</code></td></tr>
+<tr><td><code>[a,bc]</code></td><td><span class="math-inline" data-tex="0.30\times 0.04 = 0.012">0.30×0.04 = 0.012</span></td><td><code>-4.423</code></td></tr>
 <tr><td><code>[abc]</code></td><td><code>0.010</code></td><td><code>-4.605</code></td></tr>
 </tbody>
 </table>
@@ -143,27 +143,27 @@ P(x) = Σ_{z ∈ Z(x)} P(z)</div>
 <ol>
 <li><strong>Initialize:</strong> assign nonzero probabilities to the large seed vocabulary.</li>
 <li><strong>E-step:</strong> for each sentence, use forward-backward on the segmentation lattice to compute each edge's posterior probability. Sum posteriors into expected count <code>c(v)</code>.</li>
-<li><strong>M-step:</strong> update <code class="math-inline">p(v)=c(v)/\sum _u c(u)</code> (with the implementation's smoothing/floor policy), then repeat until likelihood improvement is small.</li>
+<li><strong>M-step:</strong> update <span class="math-inline" data-tex="p(v)=c(v)/\sum _u c(u)">p(v)=c(v)/Σ_u c(u)</span> (with the implementation's smoothing/floor policy), then repeat until likelihood improvement is small.</li>
 <li><strong>Prune:</strong> estimate the corpus-likelihood increase caused by removing each piece and resegmenting its affected occurrences. Remove a fraction of the lowest-impact pieces, never required characters, bytes, or meta-symbols.</li>
 <li>Run EM again and alternate fitting/pruning until the target vocabulary size is reached.</li>
 </ol>
-<p>Forward scores use <code class="math-inline">\alpha [0]=1</code> and <code class="math-inline">\alpha [j]=\sum _{i,v=x[i:j]}\alpha [i]p(v)</code>; backward scores are analogous. Production code operates in log space with log-sum-exp. The posterior of edge <code>(i,j,v)</code> is <code class="math-inline">\alpha [i]p(v)\beta [j]/P(x)</code>.</p>
+<p>Forward scores use <span class="math-inline" data-tex="\alpha [0]=1">α[0]=1</span> and <span class="math-inline" data-tex="\alpha [j]=\sum _{i,v=x[i:j]}\alpha [i]p(v)">α[j]=Σ_{i,v=x[i:j]}α[i]p(v)</span>; backward scores are analogous. Production code operates in log space with log-sum-exp. The posterior of edge <code>(i,j,v)</code> is <span class="math-inline" data-tex="\alpha [i]p(v)\beta [j]/P(x)">α[i]p(v)β[j]/P(x)</span>.</p>
 <p><strong>Concrete unigram invariants:</strong> probabilities are finite, positive for retained pieces, and sum to one within tolerance; every training and validation string has at least one lattice path; Viterbi pieces concatenate exactly to normalized input; forward and backward partition functions agree; expected piece counts sum to the expected number of pieces; and pruning cannot remove required coverage symbols.</p>
 
 <h3 id="subword-regularization">Subword regularization and segmentation sampling</h3>
 <p>At evaluation, use the Viterbi path. During model training, sample alternative paths to reduce brittleness to one arbitrary segmentation. A common tempered distribution is</p>
-<div class="math-display">qα(z | x) = P(z)^α / Σ_{z&#x27; ∈ Z(x)} P(z&#x27;)^α</div>
-<p>Sample a complete path from the lattice with dynamic programming, or sample from an <code>n</code>-best list as an approximation. <code class="math-inline">\alpha  \to  \infty</code> approaches Viterbi; smaller positive <code class="math-inline">\alpha</code> flattens the distribution. Sampling belongs in model-data augmentation, not validation, serving, cache keys, or golden tokenizer tests.</p>
+<div class="math-display" data-tex="q\alpha (z \mid  x) = P(z)^\alpha  / \sum _{z&#x27; \in  Z(x)} P(z&#x27;)^\alpha">qα(z | x) = P(z)^α / Σ_{z&#x27; ∈ Z(x)} P(z&#x27;)^α</div>
+<p>Sample a complete path from the lattice with dynamic programming, or sample from an <code>n</code>-best list as an approximation. <span class="math-inline" data-tex="\alpha  \to  \infty">α → ∞</span> approaches Viterbi; smaller positive <span class="math-inline" data-tex="\alpha">α</span> flattens the distribution. Sampling belongs in model-data augmentation, not validation, serving, cache keys, or golden tokenizer tests.</p>
 
 <h2 id="tokenizer-family-comparison">Tokenizer-family comparison</h2>
 <p>“SentencePiece” names a normalization/pre-tokenization framework and file format that can host either BPE or unigram; it is not itself one segmentation objective. Likewise, “byte fallback” is a coverage mechanism that can be attached to a character-based model, not a competing training objective.</p>
 <table>
 <thead><tr><th>Family</th><th>Training objective / construction</th><th>Encoding algorithm</th><th>Unknown behavior</th><th>Typical failure modes</th></tr></thead>
 <tbody>
-<tr><td>BPE</td><td>Greedily merge the most frequent adjacent pair; merge count or final vocabulary sets capacity.</td><td>Apply adjacent learned merges in rank order.</td><td>Needs complete base-character coverage, <code class="math-inline">\lt \text{unk}\gt</code>, or fallback.</td><td>Corpus-majority merges, deterministic but brittle segmentation, pre-tokenizer mismatch, poor rare-script fertility.</td></tr>
+<tr><td>BPE</td><td>Greedily merge the most frequent adjacent pair; merge count or final vocabulary sets capacity.</td><td>Apply adjacent learned merges in rank order.</td><td>Needs complete base-character coverage, <span class="math-inline" data-tex="\lt \text{unk}\gt">&lt;unk&gt;</span>, or fallback.</td><td>Corpus-majority merges, deterministic but brittle segmentation, pre-tokenizer mismatch, poor rare-script fertility.</td></tr>
 <tr><td>WordPiece</td><td>Common descriptions select merges by a likelihood-inspired association score rather than raw pair count; deployed vocabularies are often treated as the artifact of record.</td><td>For each pre-token, greedy longest-match-first from the start, using continuation markers such as <code>##</code>.</td><td>If any position cannot be covered, classic BERT emits one <code>[UNK]</code> for the whole pre-token.</td><td>A single unseen character can erase an entire identifier; quadratic naive longest-match search; basic-tokenizer case/accent drift.</td></tr>
-<tr><td>SentencePiece BPE</td><td>BPE over normalized raw-sentence pieces, often with a visible whitespace marker; implementation targets an exact vocabulary size.</td><td>SentencePiece's BPE merge semantics after its normalizer.</td><td><code class="math-inline">\lt \text{unk}\gt</code> unless character coverage or byte fallback covers the input.</td><td>Unexpected NFKC changes, whitespace-marker fertility, confusing its semantics with another BPE implementation.</td></tr>
-<tr><td>SentencePiece unigram</td><td>Maximize marginal likelihood over segmentations with EM-style fitting and iterative vocabulary pruning.</td><td>Viterbi best path; optional lattice sampling for training.</td><td><code class="math-inline">\lt \text{unk}\gt</code> unless coverage/fallback guarantees a path.</td><td>Seed-vocabulary bias, aggressive pruning, probability underflow without log space, stochastic token counts during sampling.</td></tr>
+<tr><td>SentencePiece BPE</td><td>BPE over normalized raw-sentence pieces, often with a visible whitespace marker; implementation targets an exact vocabulary size.</td><td>SentencePiece's BPE merge semantics after its normalizer.</td><td><span class="math-inline" data-tex="\lt \text{unk}\gt">&lt;unk&gt;</span> unless character coverage or byte fallback covers the input.</td><td>Unexpected NFKC changes, whitespace-marker fertility, confusing its semantics with another BPE implementation.</td></tr>
+<tr><td>SentencePiece unigram</td><td>Maximize marginal likelihood over segmentations with EM-style fitting and iterative vocabulary pruning.</td><td>Viterbi best path; optional lattice sampling for training.</td><td><span class="math-inline" data-tex="\lt \text{unk}\gt">&lt;unk&gt;</span> unless coverage/fallback guarantees a path.</td><td>Seed-vocabulary bias, aggressive pruning, probability underflow without log space, stochastic token counts during sampling.</td></tr>
 <tr><td>Byte-level BPE</td><td>BPE whose atomic alphabet is all 256 bytes, usually inside pre-tokenized chunks.</td><td>Map input bytes reversibly, then apply BPE ranks.</td><td>No unknown byte; arbitrary byte strings are representable.</td><td>Long runs for rare scripts or binary data, confusing byte/code-point offsets, regex/pre-tokenizer differences, mojibake in token displays.</td></tr>
 <tr><td>Byte fallback</td><td>Not an objective: reserve byte pieces and use them only when the primary character/piece model cannot cover input.</td><td>Run the main model, then decompose uncovered spans into UTF-8 bytes.</td><td>No unknown for valid encoded bytes when all 256 byte tokens exist.</td><td>Rare text expands by up to its byte length; incomplete runtime support; invalid UTF-8 policy and streaming decode bugs.</td></tr>
 </tbody>
@@ -171,26 +171,26 @@ P(x) = Σ_{z ∈ Z(x)} P(z)</div>
 <p>WordPiece training details vary across accounts and implementations; in a technical discussion, separate that historical training heuristic from the unambiguous deployed encoding rule: greedy longest-match-first over a fixed vocabulary.</p>
 
 <h2 id="vocabulary-size-trade-off">Vocabulary-size trade-off</h2>
-<p>Let vocabulary size be <code class="math-inline">V</code>, model width <code>d</code>, and sequence length <code class="math-inline">T</code>.</p>
+<p>Let vocabulary size be <span class="math-inline" data-tex="V">V</span>, model width <code>d</code>, and sequence length <span class="math-inline" data-tex="T">T</span>.</p>
 <ul>
 <li>Input embedding parameters: <code>Vd</code>.</li>
-<li>Untied output projection parameters: another <code>Vd</code>, usually plus <code class="math-inline">V</code> biases.</li>
-<li>Weight tying reuses the input embedding as the output matrix, saving approximately <code>Vd</code> parameters, but logits still cost roughly <code class="math-inline">O(TVd)</code> arithmetic and <code class="math-inline">O(TV)</code> materialized storage if logits are retained.</li>
-<li>Full attention score work/storage scales as <code class="math-inline">O(T^{2})</code> per layer; MLP work, residual activations, and KV-cache size scale approximately linearly with <code class="math-inline">T</code>.</li>
+<li>Untied output projection parameters: another <code>Vd</code>, usually plus <span class="math-inline" data-tex="V">V</span> biases.</li>
+<li>Weight tying reuses the input embedding as the output matrix, saving approximately <code>Vd</code> parameters, but logits still cost roughly <span class="math-inline" data-tex="O(TVd)">O(TVd)</span> arithmetic and <span class="math-inline" data-tex="O(TV)">O(TV)</span> materialized storage if logits are retained.</li>
+<li>Full attention score work/storage scales as <span class="math-inline" data-tex="O(T^{2})">O(T²)</span> per layer; MLP work, residual activations, and KV-cache size scale approximately linearly with <span class="math-inline" data-tex="T">T</span>.</li>
 </ul>
 <h3 id="vocabulary-numerical-comparison">Numerical comparison</h3>
-<p>Compare tied decoder-only models with <code class="math-inline">d=4096</code>. Suppose a representative document takes <code class="math-inline">T=2048</code> tokens with a 32k vocabulary and <code class="math-inline">T=1536</code> tokens with a 128k vocabulary.</p>
+<p>Compare tied decoder-only models with <span class="math-inline" data-tex="d=4096">d=4096</span>. Suppose a representative document takes <span class="math-inline" data-tex="T=2048">T=2048</span> tokens with a 32k vocabulary and <span class="math-inline" data-tex="T=1536">T=1536</span> tokens with a 128k vocabulary.</p>
 <table>
 <thead><tr><th>Quantity</th><th>32k vocabulary</th><th>128k vocabulary</th><th>Effect</th></tr></thead>
 <tbody>
-<tr><td>Tied embedding/output parameters</td><td><code class="math-inline">32,000\times 4,096 = 131.072M</code></td><td><code class="math-inline">128,000\times 4,096 = 524.288M</code></td><td><code>+393.216M</code> parameters</td></tr>
+<tr><td>Tied embedding/output parameters</td><td><span class="math-inline" data-tex="32,000\times 4,096 = 131.072M">32,000×4,096 = 131.072M</span></td><td><span class="math-inline" data-tex="128,000\times 4,096 = 524.288M">128,000×4,096 = 524.288M</span></td><td><code>+393.216M</code> parameters</td></tr>
 <tr><td>BF16 weight bytes</td><td><code>262.144 MB</code></td><td><code>1,048.576 MB</code></td><td><code>+786.432 MB</code>; untied would double both values</td></tr>
 <tr><td>Positions</td><td><code>2048</code></td><td><code>1536</code></td><td><code>-25%</code> linear sequence costs</td></tr>
-<tr><td>Attention-score cells per head/layer</td><td><code class="math-inline">2048^{2} = 4.194M</code></td><td><code class="math-inline">1536^{2} = 2.359M</code></td><td><code>-43.75%</code> quadratic term</td></tr>
-<tr><td>Token–vocabulary logit rows</td><td><code class="math-inline">2048\times 32k = 65.536M</code></td><td><code class="math-inline">1536\times 128k = 196.608M</code></td><td><code>3×</code> despite the shorter sequence</td></tr>
+<tr><td>Attention-score cells per head/layer</td><td><span class="math-inline" data-tex="2048^{2} = 4.194M">2048² = 4.194M</span></td><td><span class="math-inline" data-tex="1536^{2} = 2.359M">1536² = 2.359M</span></td><td><code>-43.75%</code> quadratic term</td></tr>
+<tr><td>Token–vocabulary logit rows</td><td><span class="math-inline" data-tex="2048\times 32k = 65.536M">2048×32k = 65.536M</span></td><td><span class="math-inline" data-tex="1536\times 128k = 196.608M">1536×128k = 196.608M</span></td><td><code>3×</code> despite the shorter sequence</td></tr>
 </tbody>
 </table>
-<p>The break-even point depends on hardware, sampled/adaptive softmax choices, batching, and how much the larger vocabulary actually reduces <code class="math-inline">T</code>. A larger vocabulary can save attention work while making parameters and the final projection dominant. Measure on the intended data and runtime.</p>
+<p>The break-even point depends on hardware, sampled/adaptive softmax choices, batching, and how much the larger vocabulary actually reduces <span class="math-inline" data-tex="T">T</span>. A larger vocabulary can save attention work while making parameters and the final projection dominant. Measure on the intended data and runtime.</p>
 
 <h2 id="domain-specific-pathologies">Domain-specific pathologies</h2>
 <table>
@@ -202,7 +202,7 @@ P(x) = Σ_{z ∈ Z(x)} P(z)</div>
 <tr><td>URLs and identifiers</td><td>High-entropy paths, UUIDs, hashes, camelCase, snake_case, and percent encoding defeat word statistics and poison unbounded caches.</td><td>Evaluate length tails and cache growth; preserve delimiters useful to structure; include unseen domains and repository names.</td></tr>
 <tr><td>Unicode normalization</td><td>NFC/NFKC can combine canonically equivalent forms or destroy distinctions such as compatibility characters; grapheme, code point, and byte boundaries differ.</td><td>Test composed/decomposed accents, emoji sequences, joiners, confusables, and invalid-byte policy. Define round-trip against raw or normalized input.</td></tr>
 <tr><td>Multilingual fertility</td><td>A globally frequent vocabulary can compress English while spelling underrepresented scripts as characters or UTF-8 bytes, consuming context and compute.</td><td>Stratify tokens per word/code point/byte by language and script; inspect worst quantiles, not only weighted means; rebalance corpus sampling or reserve coverage.</td></tr>
-<tr><td>Chat templates and special-token collisions</td><td>User text that resembles <code class="math-inline">\lt \mid \text{assistant}\mid \gt</code> may be parsed as control syntax; automatically adding BOS/EOS can duplicate template tokens.</td><td>Separate “ordinary text” and “parse allowed special tokens” APIs; escape or reject collisions; golden-test the exact serialized prompt and IDs.</td></tr>
+<tr><td>Chat templates and special-token collisions</td><td>User text that resembles <span class="math-inline" data-tex="\lt \mid \text{assistant}\mid \gt">&lt;|assistant|&gt;</span> may be parsed as control syntax; automatically adding BOS/EOS can duplicate template tokens.</td><td>Separate “ordinary text” and “parse allowed special tokens” APIs; escape or reject collisions; golden-test the exact serialized prompt and IDs.</td></tr>
 </tbody>
 </table>
 
@@ -222,11 +222,11 @@ P(x) = Σ_{z ∈ Z(x)} P(z)</div>
 </ol>
 
 <h3 id="metrics-and-normalization">Metrics and normalization</h3>
-<p>For a held-out sample with <code class="math-inline">B</code> original bytes, <code class="math-inline">C</code> Unicode code points, <code class="math-inline">W</code> words under a declared word splitter, <code class="math-inline">N</code> model tokens, and total autoregressive negative log-likelihood <code>L=-Σ log p(x_t|x_&lt;t)</code> in nats:</p>
-<div class="math-display">tokens per byte  = N / B             bytes per token = B / N
+<p>For a held-out sample with <span class="math-inline" data-tex="B">B</span> original bytes, <span class="math-inline" data-tex="C">C</span> Unicode code points, <span class="math-inline" data-tex="W">W</span> words under a declared word splitter, <span class="math-inline" data-tex="N">N</span> model tokens, and total autoregressive negative log-likelihood <code>L=-Σ log p(x_t|x_&lt;t)</code> in nats:</p>
+<div class="math-display" data-tex="\begin{aligned}\text{tokens} \text{per} \text{byte}  &amp;= N / B             \text{bytes} \text{per} \text{token} = B / N\\\text{tokens} \text{per} \text{word}  &amp;= N / W             \text{tokens} \text{per} \text{code} \text{point} = N / C\\\text{token} \text{perplexity} &amp;= \operatorname{exp}(L / N)        \text{bits} \text{per} \text{byte} = L / (B \text{ln} 2)\end{aligned}">tokens per byte  = N / B             bytes per token = B / N
 tokens per word  = N / W             tokens per code point = N / C
 token perplexity = exp(L / N)        bits per byte = L / (B ln 2)</div>
-<p><strong>Token-level perplexity is not comparable across tokenizers.</strong> Changing token boundaries changes <code class="math-inline">N</code>, the prediction events, and the vocabulary. Bits per byte normalizes the same text likelihood by original byte count and is the preferred cross-tokenizer comparison for lossless byte-recoverable models. If normalization is lossy, report that fact and use the same original-byte denominator only with care: the models are no longer assigning probability to exactly the same observable strings.</p>
+<p><strong>Token-level perplexity is not comparable across tokenizers.</strong> Changing token boundaries changes <span class="math-inline" data-tex="N">N</span>, the prediction events, and the vocabulary. Bits per byte normalizes the same text likelihood by original byte count and is the preferred cross-tokenizer comparison for lossless byte-recoverable models. If normalization is lossy, report that fact and use the same original-byte denominator only with care: the models are no longer assigning probability to exactly the same observable strings.</p>
 <p>“Compression ratio” is ambiguous; always name the direction (<code>bytes/token</code> or <code>tokens/byte</code>) and whether special tokens are included. Fertility is likewise denominator-dependent, so report tokens per word, code point, and byte where relevant. Cross-link sequence length to <a href="long-context.html">Long-Context Modelling</a> and vocabulary projection/cache effects to <a href="inference.html">Inference</a>.</p>
 
 <h3 id="round-trip-and-golden-tests">Round-trip and golden tests</h3>
@@ -271,7 +271,7 @@ assert checkpoint.tokenizer_hash == sha256(tokenizer_artifact_bytes)</code></pre
 <li>Derive the unigram Viterbi recurrence and explain how forward-backward changes it from best-path decoding to EM estimation.</li>
 <li>Why can unigram select more tokens than a competing segmentation? When and how would you sample segmentations?</li>
 <li>Contrast BPE, WordPiece, SentencePiece BPE, SentencePiece unigram, byte-level BPE, and byte fallback without treating library names as objectives.</li>
-<li>For <code class="math-inline">V=32k</code> versus <code class="math-inline">V=128k</code> and <code class="math-inline">d=4096</code>, calculate tied and untied parameter deltas. Which compute terms shrink if sequence length falls 25%?</li>
+<li>For <span class="math-inline" data-tex="V=32k">V=32k</span> versus <span class="math-inline" data-tex="V=128k">V=128k</span> and <span class="math-inline" data-tex="d=4096">d=4096</span>, calculate tied and untied parameter deltas. Which compute terms shrink if sequence length falls 25%?</li>
 <li>Why can two models have different token perplexities but identical bits per byte? Which denominator supports tokenizer comparison?</li>
 <li>Design a fertility report that would catch regressions in Arabic, Python indentation, UUIDs, arithmetic, and emoji.</li>
 <li>How can a chat-template delimiter become an injection primitive? Where should literal user content and allowed special tokens be separated?</li>

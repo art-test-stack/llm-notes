@@ -3,12 +3,11 @@
 <p>You should be able to explain empirical power-law scaling, distinguish parameter-, data-, and compute-limited regimes, use the <code>6ND</code> training-FLOP approximation with its caveats, and discuss why Chinchilla-style compute optimality changed model/data allocation.</p>
 <h2 id="empirical-power-law-models">Empirical power-law models</h2>
 <p>Scaling laws summarize an observed frontier; they are fitted models, not physical laws. A common separable approximation for a dense, well-optimized language model is:</p>
-<div class="math-display">L(N,D) = L∞ + A N^{-α} + B D^{-β} + ε
-</div>
-<p><code class="math-inline">N</code> is parameter count, <code class="math-inline">D</code> is the number of processed training tokens, and <code class="math-inline">L\infty</code> is the irreducible loss for the chosen data distribution, tokenizer, objective, and evaluation set. The parameter term measures finite-capacity error, the data term measures finite-data error, and <code class="math-inline">\varepsilon</code> collects optimization error, run noise, and model misspecification. Some studies fit envelopes or alternative coupled forms because the two resource effects need not be perfectly separable.</p>
+<div class="math-display" data-tex="L(N,D) = L\infty  + A N^{-\alpha } + B D^{-\beta } + \varepsilon">L(N,D) = L∞ + A N^{-α} + B D^{-β} + ε</div>
+<p><span class="math-inline" data-tex="N">N</span> is parameter count, <span class="math-inline" data-tex="D">D</span> is the number of processed training tokens, and <span class="math-inline" data-tex="L\infty">L∞</span> is the irreducible loss for the chosen data distribution, tokenizer, objective, and evaluation set. The parameter term measures finite-capacity error, the data term measures finite-data error, and <span class="math-inline" data-tex="\varepsilon">ε</span> collects optimization error, run noise, and model misspecification. Some studies fit envelopes or alternative coupled forms because the two resource effects need not be perfectly separable.</p>
 <h3 id="fitting-in-log-space">Fitting in log space</h3>
-<p>After choosing or jointly fitting <code class="math-inline">L\infty</code>, a one-variable slice gives <code class="math-inline">\operatorname{log}(L-L\infty ) = \operatorname{log} A - \alpha  \operatorname{log} N</code>. Thus a straight line on a log-log plot has slope <code class="math-inline">-\alpha</code>; similarly, <code class="math-inline">-\beta</code> is the slope with respect to data. Larger exponents mean the corresponding loss term falls faster as that resource grows. They do <em>not</em> directly say which resource deserves more compute: the coefficients, the other exponent, and the compute constraint also matter.</p>
-<p>Least-squares on logged points is convenient but can be misleading. Runs that share datasets, checkpoints, hyperparameters, or evaluation examples have correlated errors, so treating every point as independent produces confidence intervals that are too narrow. Noise is often heteroskedastic, and an uncertain <code class="math-inline">L\infty</code> strongly couples the fitted floor and exponents. Reasonable fits use weighted or generalized least squares, bootstrap whole runs or experimental groups, and report joint confidence intervals or posterior ranges for <code class="math-inline">L\infty , A, B, \alpha , \beta</code>.</p>
+<p>After choosing or jointly fitting <span class="math-inline" data-tex="L\infty">L∞</span>, a one-variable slice gives <span class="math-inline" data-tex="\operatorname{log}(L-L\infty ) = \operatorname{log} A - \alpha  \operatorname{log} N">log(L-L∞) = log A - α log N</span>. Thus a straight line on a log-log plot has slope <span class="math-inline" data-tex="-\alpha">-α</span>; similarly, <span class="math-inline" data-tex="-\beta">-β</span> is the slope with respect to data. Larger exponents mean the corresponding loss term falls faster as that resource grows. They do <em>not</em> directly say which resource deserves more compute: the coefficients, the other exponent, and the compute constraint also matter.</p>
+<p>Least-squares on logged points is convenient but can be misleading. Runs that share datasets, checkpoints, hyperparameters, or evaluation examples have correlated errors, so treating every point as independent produces confidence intervals that are too narrow. Noise is often heteroskedastic, and an uncertain <span class="math-inline" data-tex="L\infty">L∞</span> strongly couples the fitted floor and exponents. Reasonable fits use weighted or generalized least squares, bootstrap whole runs or experimental groups, and report joint confidence intervals or posterior ranges for <span class="math-inline" data-tex="L\infty , A, B, \alpha , \beta">L∞, A, B, α, β</span>.</p>
 <p>Finite-range effects matter: a curve can look linear across one decade while bending at very small models, near data exhaustion, or after an architecture or optimizer transition. Fit on pilot scales, reserve one or more larger <strong>held-out scales</strong>, and compare the predicted loss and uncertainty interval with the completed run. Residual plots should show no systematic curvature by model size, token budget, domain, or seed.</p>
 <p>Extrapolation can fail when the tokenizer, data mixture, data quality, architecture, context length, optimizer, training stability, or objective changes; when repeated data stops adding independent information; or when loss approaches a floor. A narrow-range fit may interpolate well yet forecast the wrong frontier outside its measured regime.</p>
 <h2 id="resource-limited-regimes">Parameter-, data-, and optimization-limited regimes</h2>
@@ -26,7 +25,7 @@
 <tr>
 <td>Parameter limited</td>
 <td>Relatively high; train and validation losses are often close because the model underfits</td>
-<td>Improves when <code class="math-inline">N</code> grows at sufficient data and optimization</td>
+<td>Improves when <span class="math-inline" data-tex="N">N</span> grows at sufficient data and optimization</td>
 <td>Add capacity, then retune optimization</td>
 </tr>
 <tr>
@@ -45,8 +44,8 @@
 </table>
 <p>A conceptual diagnostic plot uses tokens or FLOPs on the horizontal axis and both losses on the vertical axis. A high, shrinking train/validation pair suggests parameter limitation; a falling training curve with a flat validation curve suggests data limitation; and both curves still improving at cutoff, stalling early, or behaving unstably above comparable runs suggests optimization limitation. These signals are not proofs: distribution shift can imitate a data-limited gap, while an oversized learning rate can imitate a capacity floor. Controlled ablations distinguish them.</p>
 <h2 id="compute-optimal-allocation">Compute-optimal allocation</h2>
-<p>For a dense Transformer, impose the first-order training budget <code class="math-inline">C \approx  6ND</code>. Ignoring <code class="math-inline">L\infty</code>, minimize the reducible loss:</p>
-<div class="math-display">minimize    A N^{-α} + B D^{-β}
+<p>For a dense Transformer, impose the first-order training budget <span class="math-inline" data-tex="C \approx  6ND">C ≈ 6ND</span>. Ignoring <span class="math-inline" data-tex="L\infty">L∞</span>, minimize the reducible loss:</p>
+<div class="math-display" data-tex="\begin{aligned}\text{minimize}    A N^{-\alpha } + B D^{-\beta }\\\text{subject} \text{to}  6ND &amp;= C\\D &amp;= C/(6N)\\f(N) &amp;= A N^{-\alpha } + B(6N/C)^\beta\\d f/d N &amp;= 0\\\Rightarrow  \alpha  A N^{-\alpha } &amp;= \beta  B D^{-\beta }\\\Rightarrow  (N^{\ast})^{\alpha +\beta } &amp;= (\alpha A/\beta B)(C/6)^\beta\\\text{Therefore}:\\N^{\ast} \propto  C^{\beta /(\alpha +\beta )}\\D^{\ast} \propto  C^{\alpha /(\alpha +\beta )}\end{aligned}">minimize    A N^{-α} + B D^{-β}
 subject to  6ND = C
 
 D = C/(6N)
@@ -58,17 +57,16 @@ df/dN = 0
 
 Therefore:
 N* ∝ C^{β/(α+β)}
-D* ∝ C^{α/(α+β)}
-</div>
-<p>The optimum balances the <em>marginal</em> loss reduction from spending compute on parameters against spending it on tokens; it does not generally make the two loss terms equal. If <code class="math-inline">\alpha  = \beta</code>, both <code class="math-inline">N</code> and <code class="math-inline">D</code> grow roughly as <code class="math-inline">C^{1/2}</code>. If the fitted exponents differ, their compute-growth rates differ. Coefficients shift the ratio too, which is why a tokens-per-parameter number cannot be universal.</p>
+D* ∝ C^{α/(α+β)}</div>
+<p>The optimum balances the <em>marginal</em> loss reduction from spending compute on parameters against spending it on tokens; it does not generally make the two loss terms equal. If <span class="math-inline" data-tex="\alpha  = \beta">α = β</span>, both <span class="math-inline" data-tex="N">N</span> and <span class="math-inline" data-tex="D">D</span> grow roughly as <span class="math-inline" data-tex="C^{1/2}">C^{1/2}</span>. If the fitted exponents differ, their compute-growth rates differ. Coefficients shift the ratio too, which is why a tokens-per-parameter number cannot be universal.</p>
 <h3 id="numerical-allocation-example">Numerical allocation example</h3>
 <p>Consider two candidates with equal first-order compute:</p>
 <table>
 <thead>
 <tr>
 <th>Candidate</th>
-<th>Parameters <code class="math-inline">N</code></th>
-<th>Tokens <code class="math-inline">D</code></th>
+<th>Parameters <span class="math-inline" data-tex="N">N</span></th>
+<th>Tokens <span class="math-inline" data-tex="D">D</span></th>
 <th><code>6ND</code></th>
 </tr>
 </thead>
@@ -94,8 +92,7 @@ D* ∝ C^{α/(α+β)}
 <p>The durable lesson is joint allocation, not a universal “20 tokens per parameter” constant. That ratio described a particular fitted regime and objective. Modern optima move with deduplication and domain mixture, the diminishing value of repeated epochs, synthetic-data filtering, tokenizer and architecture changes, context length, optimizer quality, and whether the goal is minimum training loss, best downstream score, low inference latency, or minimum lifecycle cost.</p>
 <h2 id="compute-accounting">Compute accounting</h2>
 <p>For a dense Transformer, counting a multiply and add as two FLOPs, large weight matrix multiplies cost roughly <code>2N</code> FLOPs per token in the forward pass. Backpropagation computes activation gradients and weight gradients and is roughly another <code>4N</code>, motivating:</p>
-<div class="math-display">dense training model FLOPs ≈ (2N forward + 4N backward)D ≈ 6ND
-</div>
+<div class="math-display" data-tex="\text{dense} \text{training} \text{model} FLOPs \approx  (2N \text{forward} + 4N \text{backward})D \approx  6ND">dense training model FLOPs ≈ (2N forward + 4N backward)D ≈ 6ND</div>
 <p>This is a model-arithmetic approximation, not a complete job-cost measurement:</p>
 <ul>
 <li><strong>Attention:</strong> score and value operations include terms proportional to sequence length (roughly quadratic per sequence for full attention), so long-context runs depart from a parameter-only count.</li>
@@ -109,10 +106,9 @@ D* ∝ C^{α/(α+β)}
 <p>Report the convention, what is included, sequence length, active versus total parameters, and processed versus unique tokens. Otherwise two identical “FLOP” numbers may describe different work.</p>
 <h2 id="hardware-efficiency">Hardware efficiency</h2>
 <p><strong>Theoretical/model FLOPs</strong> estimate the arithmetic required by the training algorithm. <strong>Achieved FLOP/s</strong> is that counted work divided by wall time. Neither is the accelerator's advertised <strong>peak FLOP/s</strong>, which is an upper bound for a specific datatype and operation shape.</p>
-<div class="math-display">MFU = nominal model FLOPs / (peak FLOP/s × devices × elapsed time)
+<div class="math-display" data-tex="\begin{aligned}MFU &amp;= \text{nominal} \text{model} FLOPs / (\text{peak} FLOP/s \times  \text{devices} \times  \text{elapsed} \text{time})\\HFU &amp;= \text{executed} \text{hardware} FLOPs / (\text{peak} FLOP/s \times  \text{devices} \times  \text{elapsed} \text{time})\end{aligned}">MFU = nominal model FLOPs / (peak FLOP/s × devices × elapsed time)
 
-HFU = executed hardware FLOPs / (peak FLOP/s × devices × elapsed time)
-</div>
+HFU = executed hardware FLOPs / (peak FLOP/s × devices × elapsed time)</div>
 <p>MFU measures how effectively the system turns peak capacity into useful model arithmetic. HFU, when reported, can include recomputation and other executed tensor operations, so checkpointing may raise HFU without raising MFU. Definitions vary across papers and profilers; always state the numerator. A high theoretical FLOP count says nothing about achieved efficiency.</p>
 <table>
 <thead>
@@ -142,7 +138,7 @@ HFU = executed hardware FLOPs / (peak FLOP/s × devices × elapsed time)
 </table>
 <p><strong>Strong scaling</strong> keeps the global workload fixed while adding devices; ideal wall time falls proportionally, but communication eventually dominates. <strong>Weak scaling</strong> increases the workload with device count, usually keeping work per device fixed; ideal step time stays constant. Report both throughput and scaling efficiency, since aggregate tokens/s can rise while per-device efficiency falls. See <a href="distributed-training.html">Distributed LLM Training</a> for parallelism and communication trade-offs.</p>
 <h2 id="data-quality-aware-scaling">Data-quality-aware scaling</h2>
-<p>Raw token count is not information content. Near duplicates, boilerplate, corrupted text, and repeated epochs supply less novelty than diverse, task-relevant examples. Deduplication can reduce nominal <code class="math-inline">D</code> while improving validation loss and reducing memorization. Domain mixtures change which validation distributions improve; oversampling a high-value domain may help its target metrics while harming broad coverage.</p>
+<p>Raw token count is not information content. Near duplicates, boilerplate, corrupted text, and repeated epochs supply less novelty than diverse, task-relevant examples. Deduplication can reduce nominal <span class="math-inline" data-tex="D">D</span> while improving validation loss and reducing memorization. Domain mixtures change which validation distributions improve; oversampling a high-value domain may help its target metrics while harming broad coverage.</p>
 <p>Synthetic data can add targeted coverage, explanations, or hard examples, but correlated generator errors and low-diversity templates can saturate quickly. Filtering and mixing policy therefore belong in the scaling specification. See <a href="pretraining-data.html">Pretraining Data, Cleaning and Mixtures</a> and <a href="synthetic-data.html">Synthetic Data Generation and Filtering</a>.</p>
 <p>One can model an informal “effective data” budget through high-quality-token weighting based on quality, novelty, or target relevance, but those weights must be estimated from controlled experiments rather than declared. Repeating a corpus may still help optimization and expose rare patterns again, yet the marginal gain normally decays across epochs. Consequently, a scaling fit on mostly unique web tokens need not predict a replay-heavy or high-quality curated run, and the compute-optimal <code>N/D</code> balance can shift toward capacity or toward acquiring better data.</p>
 <h2 id="beyond-dense-pretraining">Beyond dense pretraining</h2>
@@ -190,7 +186,7 @@ HFU = executed hardware FLOPs / (peak FLOP/s × devices × elapsed time)
 <p>A training-optimal design minimizes loss under a one-time training budget. An inference-optimal design accounts for latency, memory, energy, request volume, and test-time strategy. A smaller, overtrained or distilled model can be cheaper across many requests; a sparse model can carry more capacity at similar active FLOPs; retrieval can update knowledge without retraining; and a stronger verifier may make additional test-time samples valuable. Compare total lifecycle cost and service constraints, not parameter count alone.</p>
 <h2 id="experimental-protocol">Experimental protocol</h2>
 <ol>
-<li><strong>Choose pilot scales:</strong> span enough <code class="math-inline">N</code> and <code class="math-inline">D</code> values to reveal curvature, include multiple allocations at matched compute, and reserve at least one larger scale for validation.</li>
+<li><strong>Choose pilot scales:</strong> span enough <span class="math-inline" data-tex="N">N</span> and <span class="math-inline" data-tex="D">D</span> values to reveal curvature, include multiple allocations at matched compute, and reserve at least one larger scale for validation.</li>
 <li><strong>Match data:</strong> hold tokenizer, deduplication, ordering, mixture, quality filters, and validation distribution fixed. Record both processed and unique tokens.</li>
 <li><strong>Match optimization:</strong> use tuned but comparable learning-rate schedules, batch conventions, regularization, precision, and stopping rules. Verify that each run reaches its stable frontier.</li>
 <li><strong>Repeat where feasible:</strong> use multiple seeds, especially at small pilot scales, to estimate run variance and detect unstable recipes.</li>

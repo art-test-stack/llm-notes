@@ -2,34 +2,32 @@
 <h2 id="learning-objectives">Learning objectives</h2>
 <p>You should be able to construct RoPE frequencies, derive the relative-position identity in real and complex notation, implement the common layout and cache variants, and evaluate long-context extensions for both quality and numerical correctness.</p>
 <h2 id="frequency-construction">Frequency construction</h2>
-<p>Let the even rotary width be <code class="math-inline">d</code>, let <code class="math-inline">i=0,\ldots,d/2-1</code> index feature pairs, and usually set <code class="math-inline">b=10{,}000</code>. The angular frequency of pair <code class="math-inline">i</code>, in radians per token, is:</p>
-<div class="math-display">inverse_freq_i = base^(-2i/d)
+<p>Let the even rotary width be <span class="math-inline" data-tex="d">d</span>, let <span class="math-inline" data-tex="i=0,\ldots,d/2-1">i = 0, …, d/2 - 1</span> index feature pairs, and usually set <span class="math-inline" data-tex="b=10{,}000">base = 10,000</span>. The angular frequency of pair <span class="math-inline" data-tex="i">i</span>, in radians per token, is:</p>
+<div class="math-display" data-tex="\begin{aligned}\omega_i&amp;=b^{-2i/d},\\\theta_i&amp;=\omega_i.\end{aligned}">inverse_freq_i = base^(-2i/d)
 θ_i = inverse_freq_i</div>
-<p>For positions <code class="math-inline">p=(p_0,\ldots,p_{T-1})</code>, form the position-frequency outer product:</p>
+<p>For positions <span class="math-inline" data-tex="p=(p_0,\ldots,p_{T-1})">p = [p₀, …, pₜ₋₁]</span>, form the position-frequency outer product:</p>
 <pre><code class="language-text">angles[p, i] = p × inverse_freq_i
 angles = outer(position_ids, inverse_freq)     # [T, d/2]
 </code></pre>
-<p>The first pairs have the largest <code class="math-inline">\theta_i</code> and rotate fastest; later pairs have progressively smaller frequencies and rotate more slowly. A pair's wavelength is <code class="math-inline">\lambda_i=2\pi/\theta_i</code> tokens: positions separated by one wavelength have the same phase in that pair. Fast dimensions distinguish nearby offsets finely but wrap often. Slow dimensions vary little locally but retain phase information across longer spans. RoPE combines many wavelengths; no single pair uniquely identifies every possible offset.</p>
+<p>The first pairs have the largest <span class="math-inline" data-tex="\theta_i">θ_i</span> and rotate fastest; later pairs have progressively smaller frequencies and rotate more slowly. A pair's wavelength is <span class="math-inline" data-tex="\lambda_i=2\pi/\theta_i">λ_i = 2π/θ_i</span> tokens: positions separated by one wavelength have the same phase in that pair. Fast dimensions distinguish nearby offsets finely but wrap often. Slow dimensions vary little locally but retain phase information across longer spans. RoPE combines many wavelengths; no single pair uniquely identifies every possible offset.</p>
 <h2 id="core-rotation">Core rotation</h2>
-<p>For one pair <code class="math-inline">(x_0,x_1)</code> at position <code class="math-inline">p</code> and frequency <code class="math-inline">\theta</code>:</p>
-<div class="math-display">[x&#x27;₀]   [ cos(pθ)  -sin(pθ) ] [x₀]
-[x&#x27;₁] = [ sin(pθ)   cos(pθ) ] [x₁]
-</div>
-<p>Write this matrix as <code class="math-inline">R(p\theta)</code>. Since rotations are orthogonal and compose by adding angles:</p>
-<div class="math-display">(R(pθ)q)ᵀ(R(sθ)k)
+<p>For one pair <span class="math-inline" data-tex="(x_0,x_1)">(x₀, x₁)</span> at position <span class="math-inline" data-tex="p">p</span> and frequency <span class="math-inline" data-tex="\theta">θ</span>:</p>
+<div class="math-display" data-tex="\begin{bmatrix}x&#x27;_0\\x&#x27;_1\end{bmatrix}=\begin{bmatrix}\cos(p\theta)&amp;-\sin(p\theta)\\\sin(p\theta)&amp;\cos(p\theta)\end{bmatrix}\begin{bmatrix}x_0\\x_1\end{bmatrix}">[x&#x27;₀]   [ cos(pθ)  -sin(pθ) ] [x₀]
+[x&#x27;₁] = [ sin(pθ)   cos(pθ) ] [x₁]</div>
+<p>Write this matrix as <span class="math-inline" data-tex="R(p\theta)">R(pθ)</span>. Since rotations are orthogonal and compose by adding angles:</p>
+<div class="math-display" data-tex="\begin{aligned}(R(p_\theta )q)^{\top}(R(s_\theta )k)\\&amp;= q^{\top} R(p_\theta )^{\top} R(s_\theta ) k\\&amp;= q^{\top} R((s - p)\theta ) k\end{aligned}">(R(pθ)q)ᵀ(R(sθ)k)
 = qᵀ R(pθ)ᵀ R(sθ) k
-= qᵀ R((s - p)θ) k
-</div>
+= qᵀ R((s - p)θ) k</div>
 <p>Summing this identity over all pairs makes each query-key dot product depend on the relative offset <code>s - p</code> through several frequencies.</p>
 <h2 id="complex-number-derivation">Complex-number derivation</h2>
-<p>Identify a real pair with a complex number: <code class="math-inline">z=x_0+ix_1</code>. Rotation at position <code class="math-inline">p</code> is multiplication by a unit phasor:</p>
-<div class="math-display">z̃_p = z exp(i pθ)
+<p>Identify a real pair with a complex number: <span class="math-inline" data-tex="z=x_0+ix_1">z = x₀ + i x₁</span>. Rotation at position <span class="math-inline" data-tex="p">p</span> is multiplication by a unit phasor:</p>
+<div class="math-display" data-tex="\begin{aligned}\widetilde{z}_p &amp;= z \operatorname{exp}(i p_\theta )\\&amp;= (x_{0} + i x_{1})(\operatorname{cos}(p_\theta ) + i \operatorname{sin}(p_\theta ))\end{aligned}">z̃_p = z exp(i pθ)
         = (x₀ + i x₁)(cos(pθ) + i sin(pθ))</div>
-<p>For complex query and key pairs <code class="math-inline">q</code> and <code class="math-inline">k</code>, their two-dimensional real dot product is the real part of one value times the other's conjugate:</p>
-<div class="math-display">dot(q̃_p, k̃_s)
+<p>For complex query and key pairs <span class="math-inline" data-tex="q">q</span> and <span class="math-inline" data-tex="k">k</span>, their two-dimensional real dot product is the real part of one value times the other's conjugate:</p>
+<div class="math-display" data-tex="\begin{aligned}\text{dot}(\widetilde{q}_p, \widetilde{k}_s)\\&amp;= \operatorname{Re}[(q \operatorname{exp}(i p_\theta )) \text{conjugate}(k \operatorname{exp}(i s_\theta ))]\\&amp;= \operatorname{Re}[q \text{conjugate}(k) \operatorname{exp}(i (p - s)\theta )]\end{aligned}">dot(q̃_p, k̃_s)
 = Re[(q exp(i pθ)) conjugate(k exp(i sθ))]
 = Re[q conjugate(k) exp(i (p - s)θ)]</div>
-<p>The phase therefore depends on relative displacement, not the two absolute indices separately. More precisely, RoPE makes this positional contribution to an attention logit invariant to a joint shift <code class="math-inline">(p,s)\mapsto(p+c,s+c)</code>. It does <em>not</em> make the whole model translation invariant: token content, causal and padding boundaries, finite windows, cache eviction, special tokens, and layers outside this dot product can distinguish absolute placement. Nor are logits invariant if only the query or only the key is shifted.</p>
+<p>The phase therefore depends on relative displacement, not the two absolute indices separately. More precisely, RoPE makes this positional contribution to an attention logit invariant to a joint shift <span class="math-inline" data-tex="(p,s)\mapsto(p+c,s+c)">(p, s) → (p + c, s + c)</span>. It does <em>not</em> make the whole model translation invariant: token content, causal and padding boundaries, finite windows, cache eviction, special tokens, and layers outside this dot product can distinguish absolute placement. Nor are logits invariant if only the query or only the key is shifted.</p>
 <h2 id="implementation-variants">Implementation variants</h2>
 <table>
 <thead>
@@ -53,7 +51,7 @@ angles = outer(position_ids, inverse_freq)     # [T, d/2]
 </tr>
 <tr>
 <td>GQA/MQA</td>
-<td>Q may have <code class="math-inline">H_{q}</code> heads while K has <code class="math-inline">H_{\text{kv}}</code>. Broadcast one position table across each tensor's head axis independently; do not require equal head counts or materialize repeated K merely to apply RoPE.</td>
+<td>Q may have <span class="math-inline" data-tex="H_{q}">H_q</span> heads while K has <span class="math-inline" data-tex="H_{\text{kv}}">H_kv</span>. Broadcast one position table across each tensor's head axis independently; do not require equal head counts or materialize repeated K merely to apply RoPE.</td>
 </tr>
 <tr>
 <td>Padded batches</td>
@@ -107,12 +105,12 @@ def project_and_cache(x, position_ids, cache):
 <tbody>
 <tr>
 <td>Position interpolation</td>
-<td>For extension factor <code class="math-inline">\alpha  = L_{\text{new}}/L_{\text{train}}</code>, use <code class="math-inline">p' = p/\alpha</code>, compressing the longer sequence into the trained position range.</td>
+<td>For extension factor <span class="math-inline" data-tex="\alpha  = L_{\text{new}}/L_{\text{train}}">α = L_new/L_train</span>, use <span class="math-inline" data-tex="p&#x27; = p/\alpha">p&#x27; = p/α</span>, compressing the longer sequence into the trained position range.</td>
 <td>Avoids unseen maximum angles but reduces resolution between nearby positions; usually benefits from adaptation training.</td>
 </tr>
 <tr>
 <td>Linear scaling</td>
-<td>Use <code class="math-inline">\theta '_i = \theta _i/\alpha</code>. For a fixed factor this is mathematically equivalent to globally scaling positions.</td>
+<td>Use <span class="math-inline" data-tex="\theta &#x27;_i = \theta _i/\alpha">θ&#x27;_i = θ_i/α</span>. For a fixed factor this is mathematically equivalent to globally scaling positions.</td>
 <td>Simple and predictable, but applies the same stretch to fast and slow bands and can regress short-context behavior.</td>
 </tr>
 <tr>
@@ -140,7 +138,7 @@ def project_and_cache(x, position_ids, cache):
 <p>No method is universally optimal. The choice depends on the extension factor, whether weights can be trained, required local resolution, cache behavior, serving kernels, and measured quality across both short and long inputs. Scaling only changes positional geometry; it does not solve quadratic attention cost, KV-cache memory, or weak use of distant evidence.</p>
 <h2 id="numerical-behavior">Numerical behavior</h2>
 <ul>
-<li><strong>Large positions:</strong> the product <code class="math-inline">p_{\theta_i}</code> grows, so finite-precision argument reduction for sine and cosine can accumulate phase error even though the returned values remain bounded.</li>
+<li><strong>Large positions:</strong> the product <span class="math-inline" data-tex="p_{\theta_i}">pθ_i</span> grows, so finite-precision argument reduction for sine and cosine can accumulate phase error even though the returned values remain bounded.</li>
 <li><strong>BF16/FP16:</strong> large integers cannot represent every adjacent position in these formats. Casting positions or angles too early can make distinct tokens share a phase or introduce abrupt errors.</li>
 <li><strong>Wider angle path:</strong> construct inverse frequencies, multiply positions, and evaluate trigonometric functions in at least FP32 (or wider where justified), then cast sine/cosine or the rotated output to the model dtype. Validate fused kernels against this reference.</li>
 <li><strong>Cache offsets:</strong> track the logical per-request position separately from physical cache length, especially after eviction, prefix reuse, batching, or speculative rollback.</li>
@@ -185,7 +183,7 @@ def project_and_cache(x, position_ids, cache):
 <ol>
 <li><strong>Position zero:</strong> for random FP32 tensors and every supported pairing/layout, assert <code>rope(x, 0) == x</code>; include partial rotation and verify the pass-through tail bit-for-bit.</li>
 <li><strong>Norm preservation:</strong> compare the L2 norm of every rotated pair before and after RoPE at small and large positions. Use dtype-specific tolerances and a high-precision reference.</li>
-<li><strong>Relative/offset equivalence:</strong> check <code class="math-inline">\text{dot}(R_{p} q, R_{s} k) \approx  \text{dot}(q, R_(s-p) k)</code>, then jointly add several offsets <code>c</code> and verify the dot product is unchanged. Include negative relative offsets and non-contiguous position IDs.</li>
+<li><strong>Relative/offset equivalence:</strong> check <span class="math-inline" data-tex="\text{dot}(R_{p} q, R_{s} k) \approx  \text{dot}(q, R_(s-p) k)">dot(R_p q, R_s k) ≈ dot(q, R_(s-p) k)</span>, then jointly add several offsets <code>c</code> and verify the dot product is unchanged. Include negative relative offsets and non-contiguous position IDs.</li>
 <li><strong>Cached versus uncached logits:</strong> run a tiny deterministic decoder once on the full causal sequence and once token by token. Compare logits at every step, not just sampled tokens, for rotated and unrotated cache implementations.</li>
 <li><strong>Cache-offset cases:</strong> repeat the logit comparison with left-padded unequal prompts, a nonzero prefix offset, sliding-window eviction, and speculative append/rollback. Assert positions follow logical token count rather than physical cache length.</li>
 <li><strong>GQA shapes:</strong> test <code>H_q/H_kv</code> ratios such as <code>8/2</code> and MQA <code>8/1</code>, batch size greater than one, multiple sequence lengths, and partial rotary width. Assert Q and K shapes are preserved and each KV head receives the same position phases as its query-head group.</li>
