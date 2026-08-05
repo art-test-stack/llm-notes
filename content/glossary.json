@@ -1,0 +1,402 @@
+[
+  {
+    "id": "activation-checkpointing",
+    "term": "Activation checkpointing",
+    "definition": "Recomputing selected forward activations during backward to reduce saved-activation memory."
+  },
+  {
+    "id": "adamw",
+    "term": "AdamW",
+    "definition": "An adaptive optimizer that applies decoupled weight decay separately from the gradient update."
+  },
+  {
+    "id": "aleatoric-uncertainty",
+    "term": "Aleatoric uncertainty",
+    "definition": "Uncertainty caused by observation noise or intrinsic ambiguity that cannot necessarily be removed with more data."
+  },
+  {
+    "id": "all-gather",
+    "term": "All-gather",
+    "definition": "A collective that gathers each rank's shard and returns the concatenated result to every participating rank."
+  },
+  {
+    "id": "all-reduce",
+    "term": "All-reduce",
+    "definition": "A collective that reduces values across ranks and returns the reduced result to every rank."
+  },
+  {
+    "id": "all-to-all",
+    "term": "All-to-all",
+    "definition": "A collective in which each rank sends a distinct slice to every other rank."
+  },
+  {
+    "id": "approximate-nearest-neighbour",
+    "term": "Approximate nearest neighbour",
+    "definition": "A search method that trades some exact recall for lower latency or memory when retrieving similar vectors."
+  },
+  {
+    "id": "arithmetic-intensity",
+    "term": "Arithmetic intensity",
+    "definition": "The ratio of arithmetic operations to bytes moved, used to reason about compute versus memory bottlenecks."
+  },
+  {
+    "id": "autoregressive-decoding",
+    "term": "Autoregressive decoding",
+    "definition": "Generating a sequence one token at a time while conditioning on the existing prefix."
+  },
+  {
+    "id": "backpressure",
+    "term": "Backpressure",
+    "definition": "A mechanism that slows or rejects new work when downstream capacity is saturated."
+  },
+  {
+    "id": "beam-search",
+    "term": "Beam search",
+    "definition": "A decoding procedure that retains several high-scoring partial sequences at each step."
+  },
+  {
+    "id": "brier-score",
+    "term": "Brier score",
+    "definition": "A proper scoring rule equal to the mean squared error between predicted probabilities and binary outcomes."
+  },
+  {
+    "id": "byte-pair-encoding",
+    "term": "Byte-pair encoding",
+    "definition": "A subword tokenization method that repeatedly merges frequent adjacent symbol pairs."
+  },
+  {
+    "id": "calibration",
+    "term": "Calibration",
+    "definition": "Agreement between predictive confidence and observed correctness over a distribution."
+  },
+  {
+    "id": "candidate-generation",
+    "term": "Candidate generation",
+    "definition": "The fast first retrieval stage that produces a set for later filtering or reranking."
+  },
+  {
+    "id": "causal-mask",
+    "term": "Causal mask",
+    "definition": "An attention mask that prevents a position from attending to future positions."
+  },
+  {
+    "id": "chen-s-identity",
+    "term": "Chen's identity",
+    "definition": "The algebraic rule expressing the signature of a concatenated path as the tensor product of segment signatures."
+  },
+  {
+    "id": "classifier-free-guidance",
+    "term": "Classifier-free guidance",
+    "definition": "A sampling technique that combines conditional and unconditional model predictions to strengthen conditioning."
+  },
+  {
+    "id": "conformal-prediction",
+    "term": "Conformal prediction",
+    "definition": "A framework that constructs prediction sets with finite-sample coverage under exchangeability assumptions."
+  },
+  {
+    "id": "continuous-batching",
+    "term": "Continuous batching",
+    "definition": "A serving strategy that admits and retires requests while an existing decode batch is running."
+  },
+  {
+    "id": "continuous-normalizing-flow",
+    "term": "Continuous normalizing flow",
+    "definition": "An invertible ODE-based density model whose log-density change is the integrated divergence of its vector field."
+  },
+  {
+    "id": "contrastive-divergence",
+    "term": "Contrastive divergence",
+    "definition": "A biased energy-based-model update using finite-step negative samples, usually without differentiating through the sampler."
+  },
+  {
+    "id": "cross-attention",
+    "term": "Cross-attention",
+    "definition": "Attention in which queries come from one representation stream and keys and values come from another."
+  },
+  {
+    "id": "data-parallelism",
+    "term": "Data parallelism",
+    "definition": "Replicating a model across workers while partitioning the input batch."
+  },
+  {
+    "id": "ddp",
+    "term": "DDP",
+    "definition": "Distributed Data Parallel, a replicated-model training method that synchronizes gradients across ranks."
+  },
+  {
+    "id": "decoupled-weight-decay",
+    "term": "Decoupled weight decay",
+    "definition": "Multiplicative parameter shrinkage applied separately from the gradient, as in AdamW."
+  },
+  {
+    "id": "dense-retrieval",
+    "term": "Dense retrieval",
+    "definition": "Retrieval based on learned continuous vector representations of queries and documents."
+  },
+  {
+    "id": "diffusion-model",
+    "term": "Diffusion model",
+    "definition": "A generative model trained to reverse or score a gradual noising process."
+  },
+  {
+    "id": "distillation",
+    "term": "Distillation",
+    "definition": "Training a smaller or cheaper model to reproduce selected behavior of a stronger teacher."
+  },
+  {
+    "id": "distributed-inference",
+    "term": "Distributed inference",
+    "definition": "Inference that partitions weights, layers, experts, context, or requests across devices or processes."
+  },
+  {
+    "id": "dpo",
+    "term": "DPO",
+    "definition": "Direct Preference Optimization, an objective that trains from preferred and rejected response pairs without an explicit online RL loop."
+  },
+  {
+    "id": "effective-sample-size",
+    "term": "Effective sample size",
+    "definition": "A diagnostic for importance-weight concentration, often estimated as one divided by the sum of squared normalized weights."
+  },
+  {
+    "id": "elbo",
+    "term": "ELBO",
+    "definition": "Evidence lower bound, the variational objective combining expected log likelihood and a KL divergence to the prior."
+  },
+  {
+    "id": "embedding",
+    "term": "Embedding",
+    "definition": "A learned vector representation used to encode similarity or features of discrete or structured inputs."
+  },
+  {
+    "id": "energy-based-model",
+    "term": "Energy-based model",
+    "definition": "A model that assigns energies to configurations and defines preferences or densities through lower energy."
+  },
+  {
+    "id": "epistemic-uncertainty",
+    "term": "Epistemic uncertainty",
+    "definition": "Uncertainty caused by limited knowledge, data, or model specification that may shrink with better information."
+  },
+  {
+    "id": "expected-calibration-error",
+    "term": "Expected calibration error",
+    "definition": "A binned summary of the gap between average confidence and empirical accuracy."
+  },
+  {
+    "id": "expert-parallelism",
+    "term": "Expert parallelism",
+    "definition": "Distributing mixture-of-experts components across ranks and routing tokens to their assigned experts."
+  },
+  {
+    "id": "flow-matching",
+    "term": "Flow matching",
+    "definition": "Training a velocity field by regression against a prescribed probability path."
+  },
+  {
+    "id": "fokker-planck-equation",
+    "term": "Fokker–Planck equation",
+    "definition": "A partial differential equation describing density evolution under an Itô stochastic differential equation."
+  },
+  {
+    "id": "fsdp",
+    "term": "FSDP",
+    "definition": "Fully Sharded Data Parallel, a method that shards model states across data-parallel workers and materializes them around computation."
+  },
+  {
+    "id": "gaussian-process",
+    "term": "Gaussian process",
+    "definition": "A probability distribution over functions specified by a mean function and positive-semidefinite kernel."
+  },
+  {
+    "id": "gqa",
+    "term": "GQA",
+    "definition": "Grouped-query attention, where several query heads share each key/value head."
+  },
+  {
+    "id": "gradient-accumulation",
+    "term": "Gradient accumulation",
+    "definition": "Summing gradients over several microbatches before applying an optimizer update."
+  },
+  {
+    "id": "grammar-constrained-decoding",
+    "term": "Grammar-constrained decoding",
+    "definition": "Decoding that masks tokens according to a formal grammar and parser state."
+  },
+  {
+    "id": "groundedness",
+    "term": "Groundedness",
+    "definition": "The degree to which a claim is supported by the provided or permitted evidence."
+  },
+  {
+    "id": "grpo",
+    "term": "GRPO",
+    "definition": "A group-relative policy-optimization family that compares sampled responses within a prompt group."
+  },
+  {
+    "id": "hallucination",
+    "term": "Hallucination",
+    "definition": "A generated claim that is unsupported, incorrect, or inconsistent with available evidence."
+  },
+  {
+    "id": "hard-negative",
+    "term": "Hard negative",
+    "definition": "A non-relevant example that resembles a positive and provides an informative training contrast."
+  },
+  {
+    "id": "hidden-markov-model",
+    "term": "Hidden Markov model",
+    "definition": "A sequential probabilistic model with discrete latent states, Markov transitions, and conditionally independent emissions."
+  },
+  {
+    "id": "hnsw",
+    "term": "HNSW",
+    "definition": "Hierarchical Navigable Small World graphs, a graph-based approximate-nearest-neighbour index."
+  },
+  {
+    "id": "idempotency-key",
+    "term": "Idempotency key",
+    "definition": "A stable operation identifier that lets a service suppress duplicate side effects during retries."
+  },
+  {
+    "id": "importance-sampling",
+    "term": "Importance sampling",
+    "definition": "Estimating expectations under a target distribution using samples from a proposal and likelihood-ratio weights."
+  },
+  {
+    "id": "in-batch-negative",
+    "term": "In-batch negative",
+    "definition": "A contrastive-training negative drawn from other examples in the same batch."
+  },
+  {
+    "id": "indirect-prompt-injection",
+    "term": "Indirect prompt injection",
+    "definition": "Malicious instructions embedded in retrieved or tool-provided data rather than sent directly by the user."
+  },
+  {
+    "id": "inter-token-latency",
+    "term": "Inter-token latency",
+    "definition": "The time between successive generated tokens during streaming decode."
+  },
+  {
+    "id": "it-sde",
+    "term": "Itô SDE",
+    "definition": "A stochastic differential equation interpreted with Itô integration and its associated correction rules."
+  },
+  {
+    "id": "json-schema",
+    "term": "JSON schema",
+    "definition": "A machine-readable specification of the structure and constraints of JSON data."
+  },
+  {
+    "id": "kalman-filter",
+    "term": "Kalman filter",
+    "definition": "The exact recursive filter for linear Gaussian state-space models."
+  },
+  {
+    "id": "kernel",
+    "term": "Kernel",
+    "definition": "A positive-semidefinite similarity function defining covariance in a Gaussian process or features in a kernel method."
+  },
+  {
+    "id": "kv-cache",
+    "term": "KV cache",
+    "definition": "Stored attention keys and values for past positions used to avoid recomputation during autoregressive decoding."
+  },
+  {
+    "id": "late-interaction",
+    "term": "Late interaction",
+    "definition": "A retrieval design that keeps multiple token-level vectors and scores interactions after independent encoding."
+  },
+  {
+    "id": "load-balancing-loss",
+    "term": "Load balancing loss",
+    "definition": "An auxiliary objective encouraging mixture-of-experts routing to use experts more evenly."
+  },
+  {
+    "id": "log-score",
+    "term": "Log score",
+    "definition": "A proper scoring rule based on the negative log probability assigned to the observed outcome."
+  },
+  {
+    "id": "long-context",
+    "term": "Long context",
+    "definition": "Model operation over sequences substantially longer than the ordinary training or deployment window."
+  },
+  {
+    "id": "lora",
+    "term": "LoRA",
+    "definition": "Low-Rank Adaptation, a parameter-efficient method that learns low-rank updates to selected weight matrices."
+  },
+  {
+    "id": "map",
+    "term": "MAP",
+    "definition": "Maximum a posteriori estimation, which selects the parameter value maximizing posterior density."
+  },
+  {
+    "id": "mean-field-variational-inference",
+    "term": "Mean-field variational inference",
+    "definition": "A variational approximation that factorizes the approximate posterior across dimensions or variable groups."
+  },
+  {
+    "id": "microbatch",
+    "term": "Microbatch",
+    "definition": "A subset of a larger effective batch processed in one forward/backward pass."
+  },
+  {
+    "id": "mixed-precision",
+    "term": "Mixed precision",
+    "definition": "Using multiple numerical formats to improve speed or memory while preserving necessary numerical stability."
+  },
+  {
+    "id": "moe",
+    "term": "MoE",
+    "definition": "Mixture of Experts, an architecture that routes each token to a sparse subset of expert networks."
+  },
+  {
+    "id": "mqa",
+    "term": "MQA",
+    "definition": "Multi-query attention, where all query heads share one key head and one value head."
+  },
+  {
+    "id": "mrr",
+    "term": "MRR",
+    "definition": "Mean reciprocal rank, the average reciprocal position of the first relevant retrieval result."
+  },
+  {
+    "id": "ndcg",
+    "term": "nDCG",
+    "definition": "Normalized Discounted Cumulative Gain, a ranking metric that supports graded relevance and position discounts."
+  },
+  {
+    "id": "normalizing-flow",
+    "term": "Normalizing flow",
+    "definition": "An invertible transformation of a tractable base distribution with likelihood computed by change of variables."
+  },
+  {
+    "id": "paged-attention",
+    "term": "Paged attention",
+    "definition": "KV-cache management using fixed-size blocks so requests need not occupy contiguous memory."
+  },
+  {
+    "id": "particle-filter",
+    "term": "Particle filter",
+    "definition": "A sequential Monte Carlo algorithm representing a filtering posterior with weighted particles."
+  },
+  {
+    "id": "pipeline-parallelism",
+    "term": "Pipeline parallelism",
+    "definition": "Assigning consecutive model stages to different devices and scheduling microbatches through them."
+  },
+  {
+    "id": "posterior-predictive",
+    "term": "Posterior predictive",
+    "definition": "The predictive distribution obtained by averaging predictions over a posterior distribution."
+  },
+  {
+    "id": "ppo",
+    "term": "PPO",
+    "definition": "Proximal Policy Optimization, a policy-gradient method using clipped updates and often a KL control."
+  }
+]

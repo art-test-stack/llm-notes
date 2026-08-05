@@ -1,0 +1,512 @@
+[
+  {
+    "id": "tokenization",
+    "title": "Tokenization and Vocabulary Design",
+    "track": "Data",
+    "summary": "Tokenization maps text or other symbolic inputs to discrete model units. A good vocabulary balances sequence length, coverage, reversibility, multilingual behavior, and implementation cost.",
+    "prerequisites": [],
+    "connections": [
+      "pretraining-data",
+      "long-context",
+      "rag"
+    ]
+  },
+  {
+    "id": "pretraining-data",
+    "title": "Pretraining Data, Cleaning and Mixtures",
+    "track": "Data",
+    "summary": "Pretraining quality depends on what enters the mixture, how examples are cleaned and deduplicated, and how sampling weights evolve during training.",
+    "prerequisites": [
+      "tokenization"
+    ],
+    "connections": [
+      "scaling-laws",
+      "synthetic-data",
+      "evaluation"
+    ]
+  },
+  {
+    "id": "retrieval",
+    "title": "Embeddings, Retrieval and Reranking",
+    "track": "Applied LLM",
+    "summary": "Retrieval systems separate fast candidate generation from more expensive relevance scoring. Sparse, dense, hybrid, and reranking stages solve different failure modes.",
+    "prerequisites": [],
+    "connections": [
+      "rag",
+      "evaluation"
+    ]
+  },
+  {
+    "id": "rag",
+    "title": "Retrieval-Augmented Generation",
+    "track": "Applied LLM",
+    "summary": "RAG combines retrieval, context construction, and generation. The system is only as reliable as its evidence selection, authorization boundary, prompt design, and evaluation decomposition.",
+    "prerequisites": [
+      "retrieval"
+    ],
+    "connections": [
+      "agents",
+      "evaluation",
+      "security"
+    ]
+  },
+  {
+    "id": "inference",
+    "title": "LLM Inference: Prefill, Decode and KV Cache",
+    "track": "Inference",
+    "summary": "Autoregressive inference has a parallel prefill phase and a sequential decode phase. KV caching avoids recomputing past key and value projections while preserving attention over the prefix.",
+    "prerequisites": [],
+    "connections": [
+      "serving",
+      "speculative-decoding",
+      "quantization",
+      "long-context"
+    ]
+  },
+  {
+    "id": "serving",
+    "title": "LLM Serving and Request Scheduling",
+    "track": "Inference",
+    "summary": "Serving turns model inference into a multi-tenant scheduling and memory-management problem. Throughput, time to first token, inter-token latency, fairness, and reliability often conflict.",
+    "prerequisites": [
+      "inference"
+    ],
+    "connections": [
+      "speculative-decoding",
+      "quantization",
+      "distributed-inference"
+    ]
+  },
+  {
+    "id": "distributed-training",
+    "title": "Distributed LLM Training",
+    "track": "Systems",
+    "summary": "Distributed training partitions data or model state while coordinating mathematically equivalent updates. Correctness depends on collective order, data ownership, numerical scaling, and restart semantics.",
+    "prerequisites": [],
+    "connections": [
+      "parallelism",
+      "compile-kernels",
+      "scaling-laws"
+    ]
+  },
+  {
+    "id": "parallelism",
+    "title": "Tensor, Pipeline, Context and Expert Parallelism",
+    "track": "Systems",
+    "summary": "Model parallelism partitions work that cannot fit or run efficiently on one device. Tensor, pipeline, context, and expert dimensions introduce different communication patterns.",
+    "prerequisites": [
+      "distributed-training"
+    ],
+    "connections": [
+      "moe",
+      "distributed-inference"
+    ]
+  },
+  {
+    "id": "distributed-inference",
+    "title": "Distributed LLM Inference",
+    "track": "Inference",
+    "summary": "Distributed inference partitions weights, layers, experts, context, or requests. The correct design depends on whether the primary constraint is memory capacity, latency, throughput, or availability.",
+    "prerequisites": [
+      "inference",
+      "parallelism"
+    ],
+    "connections": [
+      "serving",
+      "quantization"
+    ]
+  },
+  {
+    "id": "rope",
+    "title": "RoPE and Positional Extrapolation",
+    "track": "Architecture",
+    "summary": "Rotary positional embeddings encode relative position by rotating query and key subspaces with position-dependent phases.",
+    "prerequisites": [],
+    "connections": [
+      "long-context",
+      "inference"
+    ]
+  },
+  {
+    "id": "long-context",
+    "title": "Long-Context Modelling",
+    "track": "Architecture",
+    "summary": "Long-context systems must manage attention cost, KV memory, positional generalization, data quality, and evaluation over distant dependencies.",
+    "prerequisites": [
+      "inference"
+    ],
+    "connections": [
+      "rag",
+      "serving",
+      "rope"
+    ]
+  },
+  {
+    "id": "moe",
+    "title": "Mixture-of-Experts Models",
+    "track": "Architecture",
+    "summary": "MoE layers activate a small subset of experts per token, increasing parameter capacity without proportional dense compute.",
+    "prerequisites": [
+      "parallelism"
+    ],
+    "connections": [
+      "post-training",
+      "serving"
+    ]
+  },
+  {
+    "id": "post-training",
+    "title": "Post-Training: SFT, Reward Models, PPO, DPO and GRPO",
+    "track": "Post-training",
+    "summary": "Post-training adapts a pretrained model to instructions, preferences, safety constraints, and task-specific behavior using supervised and preference-based objectives.",
+    "prerequisites": [],
+    "connections": [
+      "reasoning",
+      "evaluation"
+    ]
+  },
+  {
+    "id": "reasoning",
+    "title": "Reasoning Training, RLVR and Test-Time Compute",
+    "track": "Post-training",
+    "summary": "Reasoning systems combine data, objectives, search, verification, and inference-time compute. Longer outputs alone do not establish better reasoning.",
+    "prerequisites": [
+      "post-training"
+    ],
+    "connections": [
+      "evaluation",
+      "synthetic-data"
+    ]
+  },
+  {
+    "id": "evaluation",
+    "title": "LLM Evaluation and Benchmark Design",
+    "track": "Evaluation",
+    "summary": "Evaluation should connect a model or system change to decisions under representative data, uncertainty, cost, and failure constraints.",
+    "prerequisites": [],
+    "connections": [
+      "calibration",
+      "rag",
+      "security"
+    ]
+  },
+  {
+    "id": "calibration",
+    "title": "Hallucination, Grounding and Calibration",
+    "track": "Evaluation",
+    "summary": "Calibration asks whether stated or derived confidence matches empirical correctness. Grounding asks whether claims are supported by permitted evidence.",
+    "prerequisites": [
+      "evaluation"
+    ],
+    "connections": [
+      "rag",
+      "security",
+      "uncertainty-quantification"
+    ]
+  },
+  {
+    "id": "tool-calling",
+    "title": "Tool Calling and Structured Outputs",
+    "track": "Agents",
+    "summary": "Tool use introduces an execution boundary: the model proposes actions, while deterministic software validates, authorizes, executes, and records them.",
+    "prerequisites": [],
+    "connections": [
+      "agents",
+      "security"
+    ]
+  },
+  {
+    "id": "agents",
+    "title": "Agents, Orchestration and Agent Evaluation",
+    "track": "Agents",
+    "summary": "An agent is a policy over observations, model calls, tools, state, and stopping decisions. Reliability comes from explicit orchestration and bounded authority.",
+    "prerequisites": [
+      "tool-calling",
+      "rag"
+    ],
+    "connections": [
+      "security",
+      "evaluation"
+    ]
+  },
+  {
+    "id": "quantization",
+    "title": "Quantization, Pruning and Distillation",
+    "track": "Efficiency",
+    "summary": "Compression reduces model memory, bandwidth, or compute by lowering precision, removing structure, or training smaller models to match larger ones.",
+    "prerequisites": [
+      "inference"
+    ],
+    "connections": [
+      "serving",
+      "speculative-decoding"
+    ]
+  },
+  {
+    "id": "speculative-decoding",
+    "title": "Speculative Decoding and Inference Acceleration",
+    "track": "Efficiency",
+    "summary": "Speculative decoding uses a cheaper proposal process and a target model that verifies several candidate tokens while preserving the target distribution under the exact algorithm.",
+    "prerequisites": [
+      "inference"
+    ],
+    "connections": [
+      "serving",
+      "quantization"
+    ]
+  },
+  {
+    "id": "multimodal",
+    "title": "Multimodal Transformers",
+    "track": "Architecture",
+    "summary": "Multimodal models align representations and generation across text, image, audio, video, or sensor inputs with modality-specific encoders and fusion mechanisms.",
+    "prerequisites": [],
+    "connections": [
+      "cross-attention",
+      "tokenization"
+    ]
+  },
+  {
+    "id": "cross-attention",
+    "title": "Encoder-Decoder Models and Cross-Attention",
+    "track": "Architecture",
+    "summary": "Cross-attention lets one sequence query representations from another. Encoder-decoder models use it to condition generation on a separately encoded source.",
+    "prerequisites": [],
+    "connections": [
+      "multimodal",
+      "rag"
+    ]
+  },
+  {
+    "id": "ssm",
+    "title": "State-Space Models and Alternative Sequence Architectures",
+    "track": "Architecture",
+    "summary": "State-space sequence models propagate a compact state through time and can admit recurrent, convolutional, or scan-based implementations.",
+    "prerequisites": [],
+    "connections": [
+      "long-context",
+      "inference",
+      "hmm-state-space",
+      "path-signatures"
+    ]
+  },
+  {
+    "id": "scaling-laws",
+    "title": "Scaling Laws and Compute-Optimal Training",
+    "track": "Training",
+    "summary": "Scaling laws model how loss or capability changes with parameters, data, and compute over a measured regime. They support planning but do not replace pilot experiments.",
+    "prerequisites": [
+      "pretraining-data"
+    ],
+    "connections": [
+      "distributed-training",
+      "synthetic-data"
+    ]
+  },
+  {
+    "id": "synthetic-data",
+    "title": "Synthetic Data Generation and Filtering",
+    "track": "Data",
+    "summary": "Synthetic data can expand coverage, generate verifiable tasks, distill behavior, or rebalance rare cases, but it can also amplify model errors and reduce diversity.",
+    "prerequisites": [
+      "evaluation"
+    ],
+    "connections": [
+      "reasoning",
+      "pretraining-data"
+    ]
+  },
+  {
+    "id": "compile-kernels",
+    "title": "torch.compile, Custom Kernels and GPU Performance",
+    "track": "Systems",
+    "summary": "GPU performance work connects model graphs, compiler transformations, kernels, memory traffic, launch overhead, and numerical constraints.",
+    "prerequisites": [],
+    "connections": [
+      "distributed-training",
+      "serving"
+    ]
+  },
+  {
+    "id": "security",
+    "title": "LLM Security, Prompt Injection and Data Leakage",
+    "track": "Safety",
+    "summary": "LLM security treats model inputs, retrieved content, tools, memory, and outputs as parts of a larger trust-boundary system.",
+    "prerequisites": [
+      "rag",
+      "tool-calling"
+    ],
+    "connections": [
+      "agents",
+      "evaluation"
+    ]
+  },
+  {
+    "id": "probabilistic-modelling",
+    "title": "Probabilistic Modelling Foundations",
+    "track": "Probabilistic foundations",
+    "summary": "Probabilistic modelling specifies random variables, distributions, conditional structure, and inference questions rather than only point predictions.",
+    "prerequisites": [],
+    "connections": [
+      "uncertainty-quantification",
+      "bayesian-variational-inference",
+      "gaussian-processes",
+      "stochastic-processes-sdes"
+    ]
+  },
+  {
+    "id": "uncertainty-quantification",
+    "title": "Uncertainty Quantification",
+    "track": "Bayesian inference and uncertainty",
+    "summary": "Uncertainty quantification represents and evaluates predictive uncertainty, separating irreducible observation noise from uncertainty caused by limited knowledge.",
+    "prerequisites": [
+      "probabilistic-modelling"
+    ],
+    "connections": [
+      "bayesian-variational-inference",
+      "gaussian-processes",
+      "calibration"
+    ]
+  },
+  {
+    "id": "bayesian-variational-inference",
+    "title": "Bayesian Deep Learning and Variational Inference",
+    "track": "Bayesian inference and uncertainty",
+    "summary": "Bayesian learning places a distribution over unknown parameters or functions. Variational inference approximates an intractable posterior with a tractable family.",
+    "prerequisites": [
+      "probabilistic-modelling"
+    ],
+    "connections": [
+      "uncertainty-quantification",
+      "gaussian-processes",
+      "energy-based-models"
+    ]
+  },
+  {
+    "id": "gaussian-processes",
+    "title": "Gaussian Processes",
+    "track": "Bayesian inference and uncertainty",
+    "summary": "A Gaussian process defines a distribution over functions through a mean function and positive-semidefinite kernel.",
+    "prerequisites": [
+      "probabilistic-modelling"
+    ],
+    "connections": [
+      "uncertainty-quantification",
+      "bayesian-variational-inference",
+      "stochastic-processes-sdes"
+    ]
+  },
+  {
+    "id": "hmm-state-space",
+    "title": "Hidden Markov and Probabilistic State-Space Models",
+    "track": "Stochastic processes and sequential models",
+    "summary": "State-space models represent latent dynamics and noisy observations. Hidden Markov models use discrete latent states; linear Gaussian models yield Kalman filtering.",
+    "prerequisites": [
+      "probabilistic-modelling"
+    ],
+    "connections": [
+      "stochastic-processes-sdes",
+      "sequential-monte-carlo",
+      "ssm"
+    ]
+  },
+  {
+    "id": "stochastic-processes-sdes",
+    "title": "Stochastic Processes and SDEs",
+    "track": "Stochastic processes and sequential models",
+    "summary": "A stochastic process is a collection of random variables indexed by time or another domain. SDEs combine deterministic drift with stochastic diffusion.",
+    "prerequisites": [
+      "probabilistic-modelling"
+    ],
+    "connections": [
+      "diffusion-models",
+      "flow-matching",
+      "hmm-state-space",
+      "sequential-monte-carlo"
+    ]
+  },
+  {
+    "id": "sequential-monte-carlo",
+    "title": "Sequential Monte Carlo and Particle Filters",
+    "track": "Stochastic processes and sequential models",
+    "summary": "Particle filters approximate sequential posteriors with weighted samples that propagate, reweight, and resample over time.",
+    "prerequisites": [
+      "probabilistic-modelling",
+      "hmm-state-space"
+    ],
+    "connections": [
+      "stochastic-processes-sdes",
+      "uncertainty-quantification"
+    ]
+  },
+  {
+    "id": "diffusion-models",
+    "title": "Diffusion and Score-Based Generative Models",
+    "track": "Generative modelling",
+    "summary": "Diffusion models learn to reverse a gradual noising process or estimate the score of intermediate distributions.",
+    "prerequisites": [
+      "probabilistic-modelling",
+      "stochastic-processes-sdes"
+    ],
+    "connections": [
+      "flow-matching",
+      "energy-based-models",
+      "normalizing-flows"
+    ]
+  },
+  {
+    "id": "energy-based-models",
+    "title": "Energy-Based Models",
+    "track": "Generative modelling",
+    "summary": "An energy-based model assigns low energy to preferred configurations and defines a normalized density when the exponential energy is integrable.",
+    "prerequisites": [
+      "probabilistic-modelling"
+    ],
+    "connections": [
+      "diffusion-models",
+      "flow-matching",
+      "post-training"
+    ]
+  },
+  {
+    "id": "flow-matching",
+    "title": "Flow Matching and Rectified Flows",
+    "track": "Generative modelling",
+    "summary": "Flow matching trains a time-dependent velocity field by regression and samples by solving an ODE from a base distribution to data.",
+    "prerequisites": [
+      "probabilistic-modelling",
+      "stochastic-processes-sdes"
+    ],
+    "connections": [
+      "diffusion-models",
+      "normalizing-flows",
+      "energy-based-models"
+    ]
+  },
+  {
+    "id": "normalizing-flows",
+    "title": "Normalizing Flows",
+    "track": "Generative modelling",
+    "summary": "Normalizing flows transform a tractable base distribution into a target while retaining likelihood evaluation through change of variables.",
+    "prerequisites": [
+      "probabilistic-modelling"
+    ],
+    "connections": [
+      "flow-matching",
+      "diffusion-models"
+    ]
+  },
+  {
+    "id": "path-signatures",
+    "title": "Path Signatures and Rough Paths",
+    "track": "Path-based modelling",
+    "summary": "A path signature is the ordered collection of iterated integrals of a path and provides a systematic feature representation for sequential data.",
+    "prerequisites": [
+      "stochastic-processes-sdes"
+    ],
+    "connections": [
+      "ssm",
+      "hmm-state-space"
+    ]
+  }
+]
