@@ -2,41 +2,41 @@
 <p>Energy-based models (EBMs) assign a scalar energy to each configuration. Low energy means high compatibility; probability is obtained by exponentiating the negative energy. This gives a flexible modelling language, but learning and sampling are coupled because low-energy configurations must be found to normalize the model and compute likelihood gradients.</p>
 
 <h2 id="energy-formulation">1. Energy formulation</h2>
-<p>For a state <code>x</code>, an EBM with parameters <code class="math-inline">\theta</code> defines</p>
-<p><code class="math-inline">p_\theta (x) = \operatorname{exp}(-E_\theta (x)) / Z_\theta</code>,</p>
+<p>For a state <code>x</code>, an EBM with parameters <span class="math-inline" data-tex="\theta">θ</span> defines</p>
+<p><span class="math-inline" data-tex="p_\theta (x) = \operatorname{exp}(-E_\theta (x)) / Z_\theta">pθ(x) = exp(-Eθ(x)) / Zθ</span>,</p>
 <p>where:</p>
 <ul>
-<li><strong>Energy</strong> <code class="math-inline">E_\theta (x)</code> is a learned scalar. Only relative energies determine probabilities: adding the same constant to every energy leaves <code class="math-inline">p_\theta</code> unchanged.</li>
-<li><strong>Partition function</strong> <code class="math-inline">Z_\theta  = \int  \operatorname{exp}(-E_\theta (x)) d\mu (x)</code> normalizes relative to the chosen base measure <code class="math-inline">\mu</code> (counting measure gives the discrete sum). The exact condition is integrability: <code class="math-inline">\operatorname{exp}(-E)</code> must have finite, nonzero integral. Sufficient tail growth is a common way to ensure this on unbounded Euclidean domains, but it is not a universal necessity on finite, discrete, or bounded domains.</li>
+<li><strong>Energy</strong> <span class="math-inline" data-tex="E_\theta (x)">Eθ(x)</span> is a learned scalar. Only relative energies determine probabilities: adding the same constant to every energy leaves <span class="math-inline" data-tex="p_\theta">pθ</span> unchanged.</li>
+<li><strong>Partition function</strong> <span class="math-inline" data-tex="Z_\theta  = \int  \operatorname{exp}(-E_\theta (x)) d\mu (x)">Zθ = ∫ exp(-Eθ(x)) dμ(x)</span> normalizes relative to the chosen base measure <span class="math-inline" data-tex="\mu">μ</span> (counting measure gives the discrete sum). The exact condition is integrability: <span class="math-inline" data-tex="\operatorname{exp}(-E)">exp(-E)</span> must have finite, nonzero integral. Sufficient tail growth is a common way to ensure this on unbounded Euclidean domains, but it is not a universal necessity on finite, discrete, or bounded domains.</li>
 </ul>
-<p>A <strong>normalized model</strong> exposes a tractable probability whose total mass is known to be one, as in an autoregressive model or a normalizing flow. An <strong>unnormalized model</strong> exposes only <code class="math-inline">q\theta (x) = \operatorname{exp}(-E_\theta (x))</code>; probabilities and likelihoods require the usually intractable <code class="math-inline">Z_\theta</code>. EBMs are often trained and used through this unnormalized representation.</p>
+<p>A <strong>normalized model</strong> exposes a tractable probability whose total mass is known to be one, as in an autoregressive model or a normalizing flow. An <strong>unnormalized model</strong> exposes only <span class="math-inline" data-tex="q\theta (x) = \operatorname{exp}(-E_\theta (x))">qθ(x) = exp(-Eθ(x))</span>; probabilities and likelihoods require the usually intractable <span class="math-inline" data-tex="Z_\theta">Zθ</span>. EBMs are often trained and used through this unnormalized representation.</p>
 <p>For a conditional EBM,</p>
-<p><code class="math-inline">p_\theta(y\mid x)=\frac{\exp\!\bigl(-E_\theta(x,y)\bigr)}{Z_\theta(x)}</code>, with <code class="math-inline">Z_\theta(x)=\sum_{y'}\exp\!\bigl(-E_\theta(x,y')\bigr)</code>.</p>
+<p><span class="math-inline" data-tex="p_\theta(y\mid x)=\frac{\exp\!\bigl(-E_\theta(x,y)\bigr)}{Z_\theta(x)}">pθ(y | x) = exp(-Eθ(x,y)) / Zθ(x)</span>, with <span class="math-inline" data-tex="Z_\theta(x)=\sum_{y&#x27;}\exp\!\bigl(-E_\theta(x,y&#x27;)\bigr)">Zθ(x) = Σy&#x27; exp(-Eθ(x,y&#x27;))</span>.</p>
 <p>The conditional partition function can be easy when <code>y</code> ranges over a small label set, yet intractable for sequences or combinatorial structures. Conditioning therefore does not remove normalization; it changes the space over which normalization is performed.</p>
 
 <h2 id="maximum-likelihood-gradient">2. Maximum-likelihood gradient</h2>
 <p>For one observation <code>x</code>, start from</p>
-<p><code class="math-inline">\log p_\theta(x)=-E_\theta(x)-\log Z_\theta</code>.</p>
+<p><span class="math-inline" data-tex="\log p_\theta(x)=-E_\theta(x)-\log Z_\theta">log pθ(x) = -Eθ(x) - log Zθ</span>.</p>
 <p>Differentiate the partition function explicitly:</p>
-<p><code class="math-inline">\nabla_\theta\log Z_\theta=\frac{1}{Z_\theta}\nabla_\theta\int\exp\!\bigl(-E_\theta(x')\bigr)\,dx'</code><br>
-<code class="math-inline">=-\frac{1}{Z_\theta}\int\exp\!\bigl(-E_\theta(x')\bigr)\nabla_\theta E_\theta(x')\,dx'</code><br>
-<code class="math-inline">=-\mathbb{E}_{x'\sim p_\theta}\!\left[\nabla_\theta E_\theta(x')\right]</code>.</p>
+<p><span class="math-inline" data-tex="\nabla_\theta\log Z_\theta=\frac{1}{Z_\theta}\nabla_\theta\int\exp\!\bigl(-E_\theta(x&#x27;)\bigr)\,dx&#x27;">∇θ log Zθ = (1 / Zθ) ∇θ ∫ exp(-Eθ(x&#x27;)) dx&#x27;</span><br>
+<span class="math-inline" data-tex="=-\frac{1}{Z_\theta}\int\exp\!\bigl(-E_\theta(x&#x27;)\bigr)\nabla_\theta E_\theta(x&#x27;)\,dx&#x27;">= -(1 / Zθ) ∫ exp(-Eθ(x&#x27;)) ∇θEθ(x&#x27;) dx&#x27;</span><br>
+<span class="math-inline" data-tex="=-\mathbb{E}_{x&#x27;\sim p_\theta}\!\left[\nabla_\theta E_\theta(x&#x27;)\right]">= -Ex&#x27; ~ pθ[∇θEθ(x&#x27;)]</span>.</p>
 <p>Substitution gives the log-likelihood gradient:</p>
-<p><code class="math-inline">\nabla_\theta\log p_\theta(x)=-\nabla_\theta E_\theta(x)+\mathbb{E}_{x'\sim p_\theta}\!\left[\nabla_\theta E_\theta(x')\right]</code>.</p>
+<p><span class="math-inline" data-tex="\nabla_\theta\log p_\theta(x)=-\nabla_\theta E_\theta(x)+\mathbb{E}_{x&#x27;\sim p_\theta}\!\left[\nabla_\theta E_\theta(x&#x27;)\right]">∇θ log pθ(x) = -∇θEθ(x) + Ex&#x27; ~ pθ[∇θEθ(x&#x27;)]</span>.</p>
 <p>Averaging over data gives</p>
-<p><code class="math-inline">\nabla_\theta\mathcal L=-\mathbb{E}_{x\sim p_{\mathrm{data}}}\!\left[\nabla_\theta E_\theta(x)\right]+\mathbb{E}_{x\sim p_\theta}\!\left[\nabla_\theta E_\theta(x)\right]</code>.</p>
+<p><span class="math-inline" data-tex="\nabla_\theta\mathcal L=-\mathbb{E}_{x\sim p_{\mathrm{data}}}\!\left[\nabla_\theta E_\theta(x)\right]+\mathbb{E}_{x\sim p_\theta}\!\left[\nabla_\theta E_\theta(x)\right]">∇θ L = -Ex ~ pdata[∇θEθ(x)] + Ex ~ pθ[∇θEθ(x)]</span>.</p>
 <ul>
-<li>The <strong>positive phase</strong>, <code class="math-inline">-\mathbb{E}_{p_{\mathrm{data}}}[\nabla E]</code>, lowers the energy of observed data under gradient ascent on log likelihood.</li>
-<li>The <strong>negative phase</strong>, <code class="math-inline">+\mathbb{E}_{p_\theta}[\nabla E]</code>, raises the energy of states sampled from the model.</li>
+<li>The <strong>positive phase</strong>, <span class="math-inline" data-tex="-\mathbb{E}_{p_{\mathrm{data}}}[\nabla E]">-Epdata[∇E]</span>, lowers the energy of observed data under gradient ascent on log likelihood.</li>
+<li>The <strong>negative phase</strong>, <span class="math-inline" data-tex="+\mathbb{E}_{p_\theta}[\nabla E]">+Epθ[∇E]</span>, raises the energy of states sampled from the model.</li>
 </ul>
-<p>For gradient descent on negative log likelihood, both signs reverse: <code class="math-inline">\nabla\mathrm{NLL}=\mathbb{E}_{\mathrm{data}}[\nabla E]-\mathbb{E}_{\mathrm{model}}[\nabla E]</code>. Naming conventions sometimes refer to the phases by their effect rather than their written sign, so stating the optimized objective avoids ambiguity.</p>
-<p>The data expectation is easy to estimate with a minibatch. The <strong>model expectation</strong> requires samples from the current normalized model. Computing <code class="math-inline">Z_\theta</code> exactly entails integrating or summing over the entire state space, while approximate sampling needs a Markov chain that itself uses the learned energy. This is the central maximum-likelihood training difficulty.</p>
+<p>For gradient descent on negative log likelihood, both signs reverse: <span class="math-inline" data-tex="\nabla\mathrm{NLL}=\mathbb{E}_{\mathrm{data}}[\nabla E]-\mathbb{E}_{\mathrm{model}}[\nabla E]">∇ NLL = Edata[∇E] - Emodel[∇E]</span>. Naming conventions sometimes refer to the phases by their effect rather than their written sign, so stating the optimized objective avoids ambiguity.</p>
+<p>The data expectation is easy to estimate with a minibatch. The <strong>model expectation</strong> requires samples from the current normalized model. Computing <span class="math-inline" data-tex="Z_\theta">Zθ</span> exactly entails integrating or summing over the entire state space, while approximate sampling needs a Markov chain that itself uses the learned energy. This is the central maximum-likelihood training difficulty.</p>
 
 <h2 id="mcmc-sampling">3. MCMC sampling</h2>
 <h3 id="langevin-dynamics">Langevin dynamics</h3>
-<p>For differentiable energies over continuous <code>x</code>, the score is <code class="math-inline">\nabla_x\log p_\theta(x)=-\nabla_xE_\theta(x)</code>. The unadjusted Langevin algorithm (ULA) iterates</p>
-<p><code class="math-inline">x_{t+1}=x_t-\frac{\varepsilon}{2}\nabla_xE_\theta(x_t)+\sqrt{\varepsilon}\,\xi_t</code>, where <code class="math-inline">\xi_t\sim\mathcal N(0,I)</code>.</p>
-<p>The gradient drifts toward lower energy and Gaussian noise prevents pure optimization, enabling distributional exploration. Equivalent conventions use <code class="math-inline">\varepsilon</code> for the drift and <code class="math-inline">\sqrt{2\varepsilon }</code> for the noise; the ratio must be consistent.</p>
+<p>For differentiable energies over continuous <code>x</code>, the score is <span class="math-inline" data-tex="\nabla_x\log p_\theta(x)=-\nabla_xE_\theta(x)">∇x log pθ(x) = -∇xEθ(x)</span>. The unadjusted Langevin algorithm (ULA) iterates</p>
+<p><span class="math-inline" data-tex="x_{t+1}=x_t-\frac{\varepsilon}{2}\nabla_xE_\theta(x_t)+\sqrt{\varepsilon}\,\xi_t">xt+1 = xt - (ε / 2) ∇xEθ(xt) + √ε ξt</span>, where <span class="math-inline" data-tex="\xi_t\sim\mathcal N(0,I)">ξt ~ N(0,I)</span>.</p>
+<p>The gradient drifts toward lower energy and Gaussian noise prevents pure optimization, enabling distributional exploration. Equivalent conventions use <span class="math-inline" data-tex="\varepsilon">ε</span> for the drift and <span class="math-inline" data-tex="\sqrt{2\varepsilon }">√(2ε)</span> for the noise; the ratio must be consistent.</p>
 <p><strong>Step size</strong> controls a bias–mixing trade-off. Large steps explore faster but discretize the diffusion poorly and can become unstable; small steps reduce discretization bias but require more transitions. ULA has finite-step stationary bias.</p>
 <p><strong>Metropolis-adjusted Langevin (MALA)</strong> proposes a Langevin step and accepts it using a Metropolis–Hastings correction based on both target-density and asymmetric proposal ratios. The unknown partition function cancels in the acceptance ratio. MALA is asymptotically exact for a fixed target, but rejections and acceptance-ratio calculations add cost; during rapidly changing neural-EBM training, practitioners often use unadjusted short-run chains instead.</p>
 <h3 id="discrete-and-persistent-chains">Discrete and persistent chains</h3>
@@ -45,8 +45,8 @@
 <p><strong>Persistent chains</strong> retain their final states across parameter updates instead of restarting from noise. A <strong>replay buffer</strong> stores past negative samples and initializes new chains from that reservoir, often mixing persistent states with fresh random starts. These mechanisms amortize burn-in, but stale or mode-collapsed buffers can make the negative phase unrepresentative as the energy changes.</p>
 
 <h2 id="contrastive-divergence">4. Contrastive divergence</h2>
-<p><strong>CD-k</strong> initializes a Markov chain at a data point, applies <code>k</code> transitions, and replaces the exact model expectation with the endpoint distribution. The difference <code class="math-inline">KL(p_{\mathrm{data}} \lVert  p_\theta ) - KL(\text{pk} \rVert p_\theta )</code> provides useful intuition when the transition kernel leaves the model invariant, but the practical update normally stops gradients through the parameter-dependent finite-step distribution <code>p<sub>k</sub></code>. It is therefore not generally the exact gradient of that KL difference, or of any fixed scalar objective.</p>
-<p>CD-k is cheap and its negatives expose nearby defects around data, but it is a <strong>biased</strong> likelihood-gradient estimator for finite <code>k</code>. It usually ignores the dependence of the sampling distribution on <code class="math-inline">\theta</code>, and short chains need not represent the equilibrium model.</p>
+<p><strong>CD-k</strong> initializes a Markov chain at a data point, applies <code>k</code> transitions, and replaces the exact model expectation with the endpoint distribution. The difference <span class="math-inline" data-tex="KL(p_{\mathrm{data}} \lVert  p_\theta ) - KL(\text{pk} \rVert p_\theta )">KL(pdata || pθ) - KL(pk || pθ)</span> provides useful intuition when the transition kernel leaves the model invariant, but the practical update normally stops gradients through the parameter-dependent finite-step distribution <code>p<sub>k</sub></code>. It is therefore not generally the exact gradient of that KL difference, or of any fixed scalar objective.</p>
+<p>CD-k is cheap and its negatives expose nearby defects around data, but it is a <strong>biased</strong> likelihood-gradient estimator for finite <code>k</code>. It usually ignores the dependence of the sampling distribution on <span class="math-inline" data-tex="\theta">θ</span>, and short chains need not represent the equilibrium model.</p>
 <p><strong>Persistent contrastive divergence (PCD)</strong> updates a bank of chains continuously across minibatches. If learning is slow relative to mixing, persistent states can better track the model distribution than chains restarted at data. That condition often fails for expressive, rapidly changing neural energies.</p>
 <table>
 <thead><tr><th>Sampling regime</th><th>Strength</th><th>Main risk</th></tr></thead>
@@ -61,18 +61,18 @@
 <table>
 <thead><tr><th>Objective</th><th>Core idea</th><th>Trade-off</th></tr></thead>
 <tbody>
-<tr><td><strong>Score matching</strong></td><td>Fit <code class="math-inline">\nabla_x\log p_\theta(x)=-\nabla_xE_\theta(x)</code> to the data score. Integration by parts yields a loss proportional to <code class="math-inline">\mathbb{E}_{\mathrm{data}}\!\left[\tfrac12\lVert\nabla_xE\rVert^2-\Delta_xE\right]</code>, without <code class="math-inline">Z</code>.</td><td>Requires smooth continuous densities and second derivatives or estimators of the trace of the Hessian.</td></tr>
-<tr><td><strong>Denoising score matching</strong></td><td>Corrupt data with known noise and regress the model score of the noisy density toward the corruption score, for Gaussian noise typically <code class="math-inline">-(\widetilde{x} - x) / \sigma ^{2}</code>.</td><td>Avoids clean-data score access and is scalable, but learns noise-level-dependent scores; the corruption schedule matters.</td></tr>
+<tr><td><strong>Score matching</strong></td><td>Fit <span class="math-inline" data-tex="\nabla_x\log p_\theta(x)=-\nabla_xE_\theta(x)">∇x log pθ(x) = -∇xEθ(x)</span> to the data score. Integration by parts yields a loss proportional to <span class="math-inline" data-tex="\mathbb{E}_{\mathrm{data}}\!\left[\tfrac12\lVert\nabla_xE\rVert^2-\Delta_xE\right]">Edata[0.5 ||∇xE||² - ΔxE]</span>, without <span class="math-inline" data-tex="Z">Z</span>.</td><td>Requires smooth continuous densities and second derivatives or estimators of the trace of the Hessian.</td></tr>
+<tr><td><strong>Denoising score matching</strong></td><td>Corrupt data with known noise and regress the model score of the noisy density toward the corruption score, for Gaussian noise typically <span class="math-inline" data-tex="-(\widetilde{x} - x) / \sigma ^{2}">-(x̃ - x) / σ²</span>.</td><td>Avoids clean-data score access and is scalable, but learns noise-level-dependent scores; the corruption schedule matters.</td></tr>
 <tr><td><strong>Noise-contrastive estimation (NCE)</strong></td><td>Train a classifier to distinguish data from samples drawn from a known noise distribution. The classifier uses the log unnormalized density, noise density, and often a learned log-normalizer.</td><td>Consistent under suitable conditions, but efficiency depends strongly on overlap and the number and quality of noise samples.</td></tr>
 <tr><td><strong>Ratio matching</strong></td><td>For discrete data, match ratios or conditional odds between neighboring states, causing the global normalizer to cancel.</td><td>Avoids global normalization but depends on a useful neighborhood structure and can require many local comparisons.</td></tr>
-<tr><td><strong>Pseudolikelihood</strong></td><td>Maximize <code class="math-inline">\sum_i\log p_\theta(x_i\mid x_{-i})</code>; each conditional normalizes only over values of one variable.</td><td>Often tractable and statistically consistent in classical settings, but it optimizes local conditionals rather than joint likelihood and can miss global structure at finite sample size.</td></tr>
+<tr><td><strong>Pseudolikelihood</strong></td><td>Maximize <span class="math-inline" data-tex="\sum_i\log p_\theta(x_i\mid x_{-i})">Σi log pθ(xi | x-i)</span>; each conditional normalizes only over values of one variable.</td><td>Often tractable and statistically consistent in classical settings, but it optimizes local conditionals rather than joint likelihood and can miss global structure at finite sample size.</td></tr>
 </tbody></table>
 
 <h2 id="connection-to-score-models">6. Connection to score models</h2>
 <p>For any differentiable EBM,</p>
-<p><code class="math-inline">s_\theta(x)=\nabla_x\log p_\theta(x)=-\nabla_xE_\theta(x)</code>,</p>
-<p>because <code class="math-inline">Z_\theta</code> does not depend on <code>x</code>. A scalar energy therefore induces a conservative score field. Conversely, an arbitrary learned vector field need not be the gradient of a globally consistent scalar energy.</p>
-<p><strong>Diffusion models</strong> estimate a family of scores <code class="math-inline">s_\theta(x_t,t)\approx\nabla_{x_t}\log p_t(x_t)</code> for progressively noised distributions. Sampling reverses the known forward noising process through an SDE, ODE, or discrete solver.</p>
+<p><span class="math-inline" data-tex="s_\theta(x)=\nabla_x\log p_\theta(x)=-\nabla_xE_\theta(x)">sθ(x) = ∇x log pθ(x) = -∇xEθ(x)</span>,</p>
+<p>because <span class="math-inline" data-tex="Z_\theta">Zθ</span> does not depend on <code>x</code>. A scalar energy therefore induces a conservative score field. Conversely, an arbitrary learned vector field need not be the gradient of a globally consistent scalar energy.</p>
+<p><strong>Diffusion models</strong> estimate a family of scores <span class="math-inline" data-tex="s_\theta(x_t,t)\approx\nabla_{x_t}\log p_t(x_t)">sθ(xt, t) ≈ ∇xt log pt(xt)</span> for progressively noised distributions. Sampling reverses the known forward noising process through an SDE, ODE, or discrete solver.</p>
 <table>
 <thead><tr><th>Aspect</th><th>Explicit EBM training</th><th>Diffusion / time-indexed score training</th></tr></thead>
 <tbody>
@@ -86,11 +86,11 @@
 
 <h2 id="conditional-and-structured-ebms">7. Conditional and structured EBMs</h2>
 <ul>
-<li><strong>Classification:</strong> assign one energy <code class="math-inline">E(x,y)</code> per class and compute a softmax over <code>-E(x,y)</code>. Cross-entropy is exactly conditional maximum likelihood when all classes are enumerated.</li>
+<li><strong>Classification:</strong> assign one energy <span class="math-inline" data-tex="E(x,y)">E(x,y)</span> per class and compute a softmax over <code>-E(x,y)</code>. Cross-entropy is exactly conditional maximum likelihood when all classes are enumerated.</li>
 <li><strong>Structured prediction:</strong> score entire candidate structures such as trees, segmentations, or label grids. Dynamic programming is possible when the energy factorizes; otherwise approximate search and normalization are required.</li>
 <li><strong>Sequence scoring:</strong> assign a sequence-level energy without committing to a left-to-right factorization. This permits global features but makes decoding and normalization over all sequences difficult.</li>
-<li><strong>Retrieval and reranking:</strong> treat <code class="math-inline">E(\text{query}, \text{item})</code> as negative compatibility. Softmax over a sampled candidate set gives a useful contrastive objective, but it is not the globally normalized probability over the full corpus unless the full denominator is represented or corrected.</li>
-<li><strong>Joint input–output energies:</strong> define <code class="math-inline">E(x,y)</code> for compatible pairs. The same function can support conditional prediction, joint modelling, or constraint injection, but each choice implies a different partition function and training objective.</li>
+<li><strong>Retrieval and reranking:</strong> treat <span class="math-inline" data-tex="E(\text{query}, \text{item})">E(query, item)</span> as negative compatibility. Softmax over a sampled candidate set gives a useful contrastive objective, but it is not the globally normalized probability over the full corpus unless the full denominator is represented or corrected.</li>
+<li><strong>Joint input–output energies:</strong> define <span class="math-inline" data-tex="E(x,y)">E(x,y)</span> for compatible pairs. The same function can support conditional prediction, joint modelling, or constraint injection, but each choice implies a different partition function and training objective.</li>
 </ul>
 
 <h2 id="modern-neural-ebms">8. Modern neural EBMs</h2>
@@ -110,25 +110,25 @@
 <li><strong>Calibration:</strong> for conditional predictions with tractable class normalization, use reliability curves, proper scoring rules, and selective-risk analysis. Raw energies are not probabilities and their scale is not calibrated confidence.</li>
 <li><strong>OOD detection limitations:</strong> low energy or high likelihood does not reliably imply in-distribution semantics. Background statistics, volume effects, architecture, and training negatives can give OOD inputs deceptively favorable scores. Evaluate multiple real OOD sets and near-boundary shifts.</li>
 <li><strong>MCMC diagnostics:</strong> run multiple chains; report trace plots, autocorrelation, effective sample size, acceptance rate for MALA, transition statistics, mode occupancy, and sensitivity to initialization and chain length.</li>
-<li><strong>Likelihood estimation difficulty:</strong> exact likelihood needs <code class="math-inline">Z</code>. Annealed importance sampling, sequential Monte Carlo, or thermodynamic integration can estimate it, but results depend on intermediate paths, effective sample size, and mixing. Report uncertainty and sanity-check on tractable cases.</li>
+<li><strong>Likelihood estimation difficulty:</strong> exact likelihood needs <span class="math-inline" data-tex="Z">Z</span>. Annealed importance sampling, sequential Monte Carlo, or thermodynamic integration can estimate it, but results depend on intermediate paths, effective sample size, and mixing. Report uncertainty and sanity-check on tractable cases.</li>
 </ul>
 
 <h2 id="worked-example">10. Worked example: exact finite-state EBM</h2>
-<p>Let <code>x ∈ {0,1,2}</code> and <code class="math-inline">E_\theta (x) = \theta x</code>. Choose <code class="math-inline">\theta  = \operatorname{log} 2</code>. The unnormalized weights are</p>
-<p><code class="math-inline">\operatorname{exp}(-E(0)) = 1</code>, <code class="math-inline">\operatorname{exp}(-E(1)) = 1/2</code>, and <code class="math-inline">\operatorname{exp}(-E(2)) = 1/4</code>.</p>
+<p>Let <code>x ∈ {0,1,2}</code> and <span class="math-inline" data-tex="E_\theta (x) = \theta x">Eθ(x) = θx</span>. Choose <span class="math-inline" data-tex="\theta  = \operatorname{log} 2">θ = log 2</span>. The unnormalized weights are</p>
+<p><span class="math-inline" data-tex="\operatorname{exp}(-E(0)) = 1">exp(-E(0)) = 1</span>, <span class="math-inline" data-tex="\operatorname{exp}(-E(1)) = 1/2">exp(-E(1)) = 1/2</span>, and <span class="math-inline" data-tex="\operatorname{exp}(-E(2)) = 1/4">exp(-E(2)) = 1/4</span>.</p>
 <p>Therefore</p>
-<p><code class="math-inline">Z_\theta  = 1 + 1/2 + 1/4 = 7/4</code>,</p>
+<p><span class="math-inline" data-tex="Z_\theta  = 1 + 1/2 + 1/4 = 7/4">Zθ = 1 + 1/2 + 1/4 = 7/4</span>,</p>
 <p>and the exact normalized probabilities are</p>
-<p><code class="math-inline">p(0) = 4/7</code>, <code class="math-inline">p(1) = 2/7</code>, <code class="math-inline">p(2) = 1/7</code>.</p>
-<p>Suppose the training set contains one observation <code class="math-inline">\text{xdata} = 2</code>. Since <code class="math-inline">\partial E_\theta (x)/\partial \theta  = x</code>, the positive-phase term in the log-likelihood gradient is <code class="math-inline">-\text{xdata} = -2</code>. The exact model expectation is</p>
-<p><code class="math-inline">\text{Ep}\theta [x] = 0(4/7) + 1(2/7) + 2(1/7) = 4/7</code>.</p>
+<p><span class="math-inline" data-tex="p(0) = 4/7">p(0) = 4/7</span>, <span class="math-inline" data-tex="p(1) = 2/7">p(1) = 2/7</span>, <span class="math-inline" data-tex="p(2) = 1/7">p(2) = 1/7</span>.</p>
+<p>Suppose the training set contains one observation <span class="math-inline" data-tex="\text{xdata} = 2">xdata = 2</span>. Since <span class="math-inline" data-tex="\partial E_\theta (x)/\partial \theta  = x">∂Eθ(x)/∂θ = x</span>, the positive-phase term in the log-likelihood gradient is <span class="math-inline" data-tex="-\text{xdata} = -2">-xdata = -2</span>. The exact model expectation is</p>
+<p><span class="math-inline" data-tex="\text{Ep}\theta [x] = 0(4/7) + 1(2/7) + 2(1/7) = 4/7">Epθ[x] = 0(4/7) + 1(2/7) + 2(1/7) = 4/7</span>.</p>
 <p>Hence</p>
-<p><code class="math-inline">\partial  \operatorname{log} p_\theta (2) / \partial \theta  = -2 + 4/7 = -10/7</code>.</p>
-<p>Equivalently, the negative-log-likelihood gradient is <code>+10/7</code>. Gradient descent therefore decreases <code class="math-inline">\theta</code>, which lowers the energy of the observed high-<code>x</code> state relative to the other states and raises its probability. In a large state space, the simple exact sum producing <code>4/7</code> would be replaced by the difficult model-expectation estimate.</p>
+<p><span class="math-inline" data-tex="\partial  \operatorname{log} p_\theta (2) / \partial \theta  = -2 + 4/7 = -10/7">∂ log pθ(2) / ∂θ = -2 + 4/7 = -10/7</span>.</p>
+<p>Equivalently, the negative-log-likelihood gradient is <code>+10/7</code>. Gradient descent therefore decreases <span class="math-inline" data-tex="\theta">θ</span>, which lowers the energy of the observed high-<code>x</code> state relative to the other states and raises its probability. In a large state space, the simple exact sum producing <code>4/7</code> would be replaced by the difficult model-expectation estimate.</p>
 
 <h2 id="review-summary">Review summary</h2>
 <ol>
-<li>An EBM becomes probabilistic through <code class="math-inline">\operatorname{exp}(-E)</code> and a partition function.</li>
+<li>An EBM becomes probabilistic through <span class="math-inline" data-tex="\operatorname{exp}(-E)">exp(-E)</span> and a partition function.</li>
 <li>Maximum likelihood lowers data energy and raises model-sample energy; the latter requires sampling from the current model.</li>
 <li>Langevin dynamics combines energy-gradient drift with noise, but finite step size and poor mixing bias practical negative samples.</li>
 <li>Contrastive divergence, score matching, NCE, ratio matching, and pseudolikelihood avoid or approximate the exact negative phase in different ways.</li>

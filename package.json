@@ -1,0 +1,13 @@
+{
+  "name": "llm-notes-build",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Build-time dependencies for the static LLM Notes site.",
+  "license": "MIT",
+  "devDependencies": {
+    "katex": "0.18.1"
+  },
+  "scripts": {
+    "render-math": "node scripts/render_math.cjs"
+  }
+}

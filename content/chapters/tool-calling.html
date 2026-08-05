@@ -53,7 +53,7 @@
 <tr><td>Recursive structures</td><td>What depth and size are allowed?</td><td>Grammar recursion needs runtime depth, node-count, and payload limits to prevent unbounded generation or parser work.</td></tr>
 <tr><td>Numeric ranges</td><td>Are bounds inclusive, and what precision is valid?</td><td>A grammar may constrain lexical shape; validate numeric value, precision, overflow, and domain range after parsing.</td></tr>
 <tr><td>Units</td><td>Is <code>duration</code> milliseconds, seconds, or an ISO duration?</td><td>Encode units in field names or a typed value such as <code>{"value":5,"unit":"minutes"}</code>; normalize only at the boundary.</td></tr>
-<tr><td>Cross-field constraints</td><td>Must <code class="math-inline">\text{start} \lt  \text{end}</code>, or must one field be present only for a given mode?</td><td>These are usually semantic validation rules, not token-level grammar rules. Return a path-specific, non-secret error.</td></tr>
+<tr><td>Cross-field constraints</td><td>Must <span class="math-inline" data-tex="\text{start} \lt  \text{end}">start &lt; end</span>, or must one field be present only for a given mode?</td><td>These are usually semantic validation rules, not token-level grammar rules. Return a path-specific, non-secret error.</td></tr>
 <tr><td>Backward-compatible schema versioning</td><td>Which producer and consumer versions interoperate?</td><td>Prefer additive optional fields, stable meanings, tolerant readers, and explicit version negotiation. Rename or type-change via a new version; keep old handlers during migration.</td></tr>
 </tbody>
 </table>

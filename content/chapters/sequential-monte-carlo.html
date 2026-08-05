@@ -3,43 +3,43 @@
 
 <h2 id="importance-sampling">1. Importance sampling</h2>
 <h3 id="target-and-proposal">Target and proposal distributions</h3>
-<p>Suppose the target distribution is <code class="math-inline">\pi (x) = \gamma (x) / Z</code>, where <code class="math-inline">\gamma</code> is evaluable but the normalizing constant <code class="math-inline">Z</code> may be unknown. Draw samples <code class="math-inline">x^{(i)} ~ q(x)</code> from a proposal distribution that is easy to sample and evaluate.</p>
+<p>Suppose the target distribution is <span class="math-inline" data-tex="\pi (x) = \gamma (x) / Z">π(x) = γ(x) / Z</span>, where <span class="math-inline" data-tex="\gamma">γ</span> is evaluable but the normalizing constant <span class="math-inline" data-tex="Z">Z</span> may be unknown. Draw samples <span class="math-inline" data-tex="x^{(i)} ~ q(x)">x⁽ⁱ⁾ ~ q(x)</span> from a proposal distribution that is easy to sample and evaluate.</p>
 <h3 id="importance-weights">Importance weights</h3>
 <p>The unnormalized and normalized importance weights are</p>
-<div class="math-display">u⁽ⁱ⁾ = γ(x⁽ⁱ⁾) / q(x⁽ⁱ⁾)
+<div class="math-display" data-tex="\begin{aligned}u^{(i)} &amp;= \gamma (x^{(i)}) / q(x^{(i)})\\w^{(i)} &amp;= u^{(i)} / \sum _{j} u^{(j)}.\end{aligned}">u⁽ⁱ⁾ = γ(x⁽ⁱ⁾) / q(x⁽ⁱ⁾)
 w⁽ⁱ⁾ = u⁽ⁱ⁾ / Σⱼ u⁽ʲ⁾.</div>
-<p>The ratio corrects for drawing from <code>q</code> rather than <code class="math-inline">\pi</code>. If <code class="math-inline">Z</code> is known, the ordinary estimator <code class="math-inline">(1/N) \sum _{i} h(x^{(i)})\pi (x^{(i)})/q(x^{(i)})</code> is unbiased under standard integrability conditions.</p>
+<p>The ratio corrects for drawing from <code>q</code> rather than <span class="math-inline" data-tex="\pi">π</span>. If <span class="math-inline" data-tex="Z">Z</span> is known, the ordinary estimator <span class="math-inline" data-tex="(1/N) \sum _{i} h(x^{(i)})\pi (x^{(i)})/q(x^{(i)})">(1/N) Σᵢ h(x⁽ⁱ⁾)π(x⁽ⁱ⁾)/q(x⁽ⁱ⁾)</span> is unbiased under standard integrability conditions.</p>
 <h3 id="self-normalized-estimator">Self-normalized estimator</h3>
-<p>When <code class="math-inline">Z</code> is unknown, use</p>
-<div class="math-display">Eπ[h(X)] ≈ Σᵢ w⁽ⁱ⁾ h(x⁽ⁱ⁾).</div>
-<p>This estimator is generally biased at finite <code class="math-inline">N</code>, but consistent as <code class="math-inline">N</code> grows under suitable conditions.</p>
+<p>When <span class="math-inline" data-tex="Z">Z</span> is unknown, use</p>
+<div class="math-display" data-tex="E\pi [h(X)] \approx  \sum _{i} w^{(i)} h(x^{(i)}).">Eπ[h(X)] ≈ Σᵢ w⁽ⁱ⁾ h(x⁽ⁱ⁾).</div>
+<p>This estimator is generally biased at finite <span class="math-inline" data-tex="N">N</span>, but consistent as <span class="math-inline" data-tex="N">N</span> grows under suitable conditions.</p>
 <h3 id="weight-variance-and-support-mismatch">Weight variance and support mismatch</h3>
-<p>A good proposal covers the target and places mass where <code class="math-inline">\mid \gamma (x)h(x)\mid</code> is large. If <code class="math-inline">q(x) = 0</code> where the target contributes nonzero mass, importance sampling cannot recover that region: the estimator has a support mismatch. A proposal with lighter tails or a poor shape match can produce a few enormous weights, high estimator variance, and an effectively tiny sample. Weight variance is therefore a central diagnostic, not merely a numerical nuisance.</p>
+<p>A good proposal covers the target and places mass where <span class="math-inline" data-tex="\mid \gamma (x)h(x)\mid">|γ(x)h(x)|</span> is large. If <span class="math-inline" data-tex="q(x) = 0">q(x) = 0</span> where the target contributes nonzero mass, importance sampling cannot recover that region: the estimator has a support mismatch. A proposal with lighter tails or a poor shape match can produce a few enormous weights, high estimator variance, and an effectively tiny sample. Weight variance is therefore a central diagnostic, not merely a numerical nuisance.</p>
 
 <h2 id="sequential-importance-sampling">2. Sequential importance sampling</h2>
 <h3 id="path-space-target">Path-space target</h3>
-<p>For latent states <code class="math-inline">x_{0}:_{t}</code> and observations <code class="math-inline">y_{0}:_{t}</code>, a state-space model factorizes as</p>
-<div class="math-display">γₜ(x₀:ₜ) = p(x₀:ₜ, y₀:ₜ)
+<p>For latent states <span class="math-inline" data-tex="x_{0}:_{t}">x₀:ₜ</span> and observations <span class="math-inline" data-tex="y_{0}:_{t}">y₀:ₜ</span>, a state-space model factorizes as</p>
+<div class="math-display" data-tex="\begin{aligned}\gamma _{t}(x_{0}:_{t}) &amp;= p(x_{0}:_{t}, y_{0}:_{t})\\&amp;= \mu (x_{0}) g_{0}(y_{0} \mid  x_{0}) \prod _{s=1}^{t} f_{s}(x_{s} \mid  x_{s-1}) g_{s}(y_{s} \mid  x_{s}),\\\pi _{t}(x_{0}:_{t}) &amp;= p(x_{0}:_{t} \mid  y_{0}:_{t}).\end{aligned}">γₜ(x₀:ₜ) = p(x₀:ₜ, y₀:ₜ)
           = μ(x₀) g₀(y₀ | x₀) ∏ₛ₌₁ᵗ fₛ(xₛ | xₛ₋₁) gₛ(yₛ | xₛ),
 πₜ(x₀:ₜ) = p(x₀:ₜ | y₀:ₜ).</div>
-<p>Here <code class="math-inline">\mu</code> is the initial-state distribution, <code>fₜ</code> is the state transition, and <code>gₜ</code> is the observation likelihood. A sequential proposal has the form</p>
-<div class="math-display">qₜ(x₀:ₜ | y₀:ₜ) = q₀(x₀ | y₀) ∏ₛ₌₁ᵗ qₛ(xₛ | x₀:ₛ₋₁, y₀:ₛ).</div>
+<p>Here <span class="math-inline" data-tex="\mu">μ</span> is the initial-state distribution, <code>fₜ</code> is the state transition, and <code>gₜ</code> is the observation likelihood. A sequential proposal has the form</p>
+<div class="math-display" data-tex="q_{t}(x_{0}:_{t} \mid  y_{0}:_{t}) = q_{0}(x_{0} \mid  y_{0}) \prod _{s=1}^{t} q_{s}(x_{s} \mid  x_{0}:_{s-1}, y_{0}:_{s}).">qₜ(x₀:ₜ | y₀:ₜ) = q₀(x₀ | y₀) ∏ₛ₌₁ᵗ qₛ(xₛ | x₀:ₛ₋₁, y₀:ₛ).</div>
 <h3 id="recursive-weight-update">Deriving the recursive weight update</h3>
-<p>Define <code class="math-inline">u_{t} = \gamma _{t}/q_{t}</code>. Both the target and proposal extend their previous path by one factor:</p>
-<div class="math-display">uₜ = γₜ(x₀:ₜ) / qₜ(x₀:ₜ | y₀:ₜ)
+<p>Define <span class="math-inline" data-tex="u_{t} = \gamma _{t}/q_{t}">uₜ = γₜ/qₜ</span>. Both the target and proposal extend their previous path by one factor:</p>
+<div class="math-display" data-tex="\begin{aligned}u_{t} &amp;= \gamma _{t}(x_{0}:_{t}) / q_{t}(x_{0}:_{t} \mid  y_{0}:_{t})\\&amp;= [\gamma _{t-1}(x_{0}:_{t-1}) f_{t}(x_{t} \mid  x_{t-1}) g_{t}(y_{t} \mid  x_{t})]\\/ [q_{t-1}(x_{0}:_{t-1} \mid  y_{0}:_{t-1}) q_{t}(x_{t} \mid  x_{0}:_{t-1}, y_{0}:_{t})]\\&amp;= u_{t-1} \times  f_{t}(x_{t} \mid  x_{t-1}) g_{t}(y_{t} \mid  x_{t})\\/ q_{t}(x_{t} \mid  x_{0}:_{t-1}, y_{0}:_{t}).\end{aligned}">uₜ = γₜ(x₀:ₜ) / qₜ(x₀:ₜ | y₀:ₜ)
    = [γₜ₋₁(x₀:ₜ₋₁) fₜ(xₜ | xₜ₋₁) gₜ(yₜ | xₜ)]
      / [qₜ₋₁(x₀:ₜ₋₁ | y₀:ₜ₋₁) qₜ(xₜ | x₀:ₜ₋₁, y₀:ₜ)]
    = uₜ₋₁ × fₜ(xₜ | xₜ₋₁) gₜ(yₜ | xₜ)
               / qₜ(xₜ | x₀:ₜ₋₁, y₀:ₜ).</div>
-<p>The initial weight is <code class="math-inline">u_{0} = \mu (x_{0})g_{0}(y_{0}\mid x_{0})/q_{0}(x_{0}\mid y_{0})</code>. This recursion avoids re-evaluating the full trajectory. Without resampling, however, the variance of path weights typically grows with time.</p>
+<p>The initial weight is <span class="math-inline" data-tex="u_{0} = \mu (x_{0})g_{0}(y_{0}\mid x_{0})/q_{0}(x_{0}\mid y_{0})">u₀ = μ(x₀)g₀(y₀|x₀)/q₀(x₀|y₀)</span>. This recursion avoids re-evaluating the full trajectory. Without resampling, however, the variance of path weights typically grows with time.</p>
 
 <h2 id="particle-filter">3. Particle filter</h2>
 <p>A particle filter interleaves sequential importance sampling with resampling. At time <code>t</code>:</p>
 <ol>
-<li><strong>Propagate:</strong> sample each new state from <code class="math-inline">q_{t}(x_{t} \mid  x_{0}:_{t-1}, y_{0}:_{t})</code>.</li>
+<li><strong>Propagate:</strong> sample each new state from <span class="math-inline" data-tex="q_{t}(x_{t} \mid  x_{0}:_{t-1}, y_{0}:_{t})">qₜ(xₜ | x₀:ₜ₋₁, y₀:ₜ)</span>.</li>
 <li><strong>Weight:</strong> multiply the previous weight by the transition-likelihood-to-proposal ratio.</li>
 <li><strong>Normalize:</strong> divide weights by their sum, using log weights and log-sum-exp in practice.</li>
-<li><strong>Estimate:</strong> approximate a filtering expectation by <code class="math-inline">\sum _{i} w_{t}^{(i)} h(x_{t}^{(i)})</code>.</li>
+<li><strong>Estimate:</strong> approximate a filtering expectation by <span class="math-inline" data-tex="\sum _{i} w_{t}^{(i)} h(x_{t}^{(i)})">Σᵢ wₜ⁽ⁱ⁾ h(xₜ⁽ⁱ⁾)</span>.</li>
 <li><strong>Resample:</strong> when weight concentration is too high, copy particles according to their weights and reset all weights to <code>1/N</code>.</li>
 </ol>
 <h3 id="particle-filter-pseudocode">Pseudocode</h3>
@@ -64,33 +64,33 @@ for t = 1,...,T:
         set w⁽ⁱ⁾ ← 1/N for every i
 
 return filtering estimates ĥ₀:T and retained particle genealogy</code></pre>
-<p>With the bootstrap proposal <code class="math-inline">q_{t} = f_{t}</code>, transition and proposal cancel, so the incremental weight is simply <code>gₜ(yₜ|xₜ)</code>.</p>
+<p>With the bootstrap proposal <span class="math-inline" data-tex="q_{t} = f_{t}">qₜ = fₜ</span>, transition and proposal cancel, so the incremental weight is simply <code>gₜ(yₜ|xₜ)</code>.</p>
 
 <h2 id="effective-sample-size">4. Effective sample size</h2>
 <p>For normalized weights, the common diagnostic is</p>
-<div class="math-display">ESS = 1 / Σᵢ (w⁽ⁱ⁾)².</div>
-<p>ESS ranges from <code>1</code> when one particle has all the weight to <code class="math-inline">N</code> when weights are uniform. It is a heuristic measure of weight concentration, not a literal count of independent samples and not a guarantee of state-space diversity.</p>
-<p>Adaptive resampling triggers when <code class="math-inline">ESS \lt  \tau N</code>, often with a problem-dependent <code class="math-inline">\tau</code> such as <code>0.5</code>. Resampling too rarely permits weight collapse; resampling too often adds sampling noise and accelerates genealogical collapse.</p>
+<div class="math-display" data-tex="ESS = 1 / \sum _{i} (w^{(i)})^{2}.">ESS = 1 / Σᵢ (w⁽ⁱ⁾)².</div>
+<p>ESS ranges from <code>1</code> when one particle has all the weight to <span class="math-inline" data-tex="N">N</span> when weights are uniform. It is a heuristic measure of weight concentration, not a literal count of independent samples and not a guarantee of state-space diversity.</p>
+<p>Adaptive resampling triggers when <span class="math-inline" data-tex="ESS \lt  \tau N">ESS &lt; τN</span>, often with a problem-dependent <span class="math-inline" data-tex="\tau">τ</span> such as <code>0.5</code>. Resampling too rarely permits weight collapse; resampling too often adds sampling noise and accelerates genealogical collapse.</p>
 <h3 id="ess-worked-calculation">Worked calculation</h3>
 <p>For four normalized weights <code>(0.50, 0.30, 0.15, 0.05)</code>,</p>
-<div class="math-display">Σᵢ (w⁽ⁱ⁾)² = 0.50² + 0.30² + 0.15² + 0.05²
+<div class="math-display" data-tex="\begin{aligned}\sum _{i} (w^{(i)})^{2} &amp;= 0.50^{2} + 0.30^{2} + 0.15^{2} + 0.05^{2}\\&amp;= 0.25 + 0.09 + 0.0225 + 0.0025\\&amp;= 0.365\\ESS &amp;= 1 / 0.365 \approx  2.74.\end{aligned}">Σᵢ (w⁽ⁱ⁾)² = 0.50² + 0.30² + 0.15² + 0.05²
             = 0.25 + 0.09 + 0.0225 + 0.0025
             = 0.365
 
 ESS = 1 / 0.365 ≈ 2.74.</div>
-<p>The weighted sample carries roughly the weight balance of <code>2.74</code> equally weighted particles out of four. A threshold of <code class="math-inline">0.5N = 2</code> would not trigger resampling, whereas <code class="math-inline">0.75N = 3</code> would.</p>
+<p>The weighted sample carries roughly the weight balance of <code>2.74</code> equally weighted particles out of four. A threshold of <span class="math-inline" data-tex="0.5N = 2">0.5N = 2</span> would not trigger resampling, whereas <span class="math-inline" data-tex="0.75N = 3">0.75N = 3</span> would.</p>
 
 <h2 id="resampling-methods">5. Resampling methods</h2>
 <table>
 <thead><tr><th>Method</th><th>Mechanism</th><th>Variance and implementation trade-offs</th></tr></thead>
 <tbody>
-<tr><td>Multinomial</td><td>Draw <code class="math-inline">N</code> independent ancestor indices from the categorical weights.</td><td>Simplest and easy to parallelize, but usually has the highest resampling variance among these choices.</td></tr>
-<tr><td>Stratified</td><td>Draw one uniform point inside each of <code class="math-inline">N</code> equal subintervals of <code>[0,1)</code>, then invert the cumulative weights.</td><td>Lower variance than multinomial; requires a cumulative sum and <code class="math-inline">N</code> random draws.</td></tr>
-<tr><td>Systematic</td><td>Draw one random offset, then use <code class="math-inline">N</code> evenly spaced points through the cumulative weights.</td><td>Fast, low random-number cost, and often low variance, though offspring counts are dependent and its ordering-dependent theory is subtler.</td></tr>
-<tr><td>Residual</td><td>Assign <code class="math-inline">⌊\text{Nw}^{(i)}⌋</code> copies deterministically, then sample the remaining slots from residual weights.</td><td>Reduces randomness for large weights; bookkeeping is slightly more involved and the residual step still needs another scheme.</td></tr>
+<tr><td>Multinomial</td><td>Draw <span class="math-inline" data-tex="N">N</span> independent ancestor indices from the categorical weights.</td><td>Simplest and easy to parallelize, but usually has the highest resampling variance among these choices.</td></tr>
+<tr><td>Stratified</td><td>Draw one uniform point inside each of <span class="math-inline" data-tex="N">N</span> equal subintervals of <code>[0,1)</code>, then invert the cumulative weights.</td><td>Lower variance than multinomial; requires a cumulative sum and <span class="math-inline" data-tex="N">N</span> random draws.</td></tr>
+<tr><td>Systematic</td><td>Draw one random offset, then use <span class="math-inline" data-tex="N">N</span> evenly spaced points through the cumulative weights.</td><td>Fast, low random-number cost, and often low variance, though offspring counts are dependent and its ordering-dependent theory is subtler.</td></tr>
+<tr><td>Residual</td><td>Assign <span class="math-inline" data-tex="⌊\text{Nw}^{(i)}⌋">⌊Nw⁽ⁱ⁾⌋</span> copies deterministically, then sample the remaining slots from residual weights.</td><td>Reduces randomness for large weights; bookkeeping is slightly more involved and the residual step still needs another scheme.</td></tr>
 </tbody>
 </table>
-<p>All are unbiased in the sense that a particle's expected offspring count is <code class="math-inline">\text{Nw}^{(i)}</code>. Stratified, systematic, and residual resampling usually improve on multinomial variance, but no resampler fixes a bad proposal or an uninformative particle cloud.</p>
+<p>All are unbiased in the sense that a particle's expected offspring count is <span class="math-inline" data-tex="\text{Nw}^{(i)}">Nw⁽ⁱ⁾</span>. Stratified, systematic, and residual resampling usually improve on multinomial variance, but no resampler fixes a bad proposal or an uninformative particle cloud.</p>
 
 <h2 id="degeneracy-and-impoverishment">6. Degeneracy and impoverishment</h2>
 <ul>
@@ -104,18 +104,18 @@ ESS = 1 / 0.365 ≈ 2.74.</div>
 
 <h2 id="better-proposals">7. Better proposals</h2>
 <ul>
-<li><strong>Bootstrap proposal:</strong> <code class="math-inline">q_{t}(x_{t}\mid x_{t-1},y_{t})=f_{t}(x_{t}\mid x_{t-1})</code>. It is cheap and general, but ignores <code>yₜ</code> when proposing.</li>
-<li><strong>Locally optimal proposal:</strong> <code class="math-inline">q_{t}(x_{t}\mid x_{t-1},y_{t})=p(x_{t}\mid x_{t-1},y_{t})</code>. It minimizes the conditional variance of the incremental weight; the remaining weight is proportional to <code class="math-inline">p(y_{t}\mid x_{t-1})</code>. It is often unavailable in closed form.</li>
+<li><strong>Bootstrap proposal:</strong> <span class="math-inline" data-tex="q_{t}(x_{t}\mid x_{t-1},y_{t})=f_{t}(x_{t}\mid x_{t-1})">qₜ(xₜ|xₜ₋₁,yₜ)=fₜ(xₜ|xₜ₋₁)</span>. It is cheap and general, but ignores <code>yₜ</code> when proposing.</li>
+<li><strong>Locally optimal proposal:</strong> <span class="math-inline" data-tex="q_{t}(x_{t}\mid x_{t-1},y_{t})=p(x_{t}\mid x_{t-1},y_{t})">qₜ(xₜ|xₜ₋₁,yₜ)=p(xₜ|xₜ₋₁,yₜ)</span>. It minimizes the conditional variance of the incremental weight; the remaining weight is proportional to <span class="math-inline" data-tex="p(y_{t}\mid x_{t-1})">p(yₜ|xₜ₋₁)</span>. It is often unavailable in closed form.</li>
 <li><strong>Auxiliary particle filter:</strong> uses a look-ahead score, commonly predictive likelihood, to select promising ancestors before propagation.</li>
 <li><strong>Learned proposals:</strong> train a network to map observations and particle context to proposal parameters. They can exploit complex observations but must generalize across regimes and still permit valid density evaluation or correction.</li>
 <li><strong>Rao–Blackwellization:</strong> analytically integrate a conditionally tractable part of the state, such as a linear-Gaussian submodel handled by a Kalman filter, and sample only the nonlinear remainder. This reduces Monte Carlo variance at the cost of model-specific derivation.</li>
 </ul>
 
 <h2 id="smoothing">8. Smoothing</h2>
-<p><strong>Filtering</strong> estimates <code class="math-inline">p(x_{t}\mid y_{0}:_{t})</code> using observations available by time <code>t</code>. <strong>Smoothing</strong> estimates <code class="math-inline">p(x_{t}\mid y_{0}:T)</code> for <code class="math-inline">T \gt  t</code>, allowing later observations to revise earlier states.</p>
+<p><strong>Filtering</strong> estimates <span class="math-inline" data-tex="p(x_{t}\mid y_{0}:_{t})">p(xₜ|y₀:ₜ)</span> using observations available by time <code>t</code>. <strong>Smoothing</strong> estimates <span class="math-inline" data-tex="p(x_{t}\mid y_{0}:T)">p(xₜ|y₀:T)</span> for <span class="math-inline" data-tex="T \gt  t">T &gt; t</span>, allowing later observations to revise earlier states.</p>
 <ul>
 <li><strong>Ancestor tracing:</strong> select a terminal particle and follow its stored parent indices backward. It is cheap, but path degeneracy can leave few distinct early trajectories.</li>
-<li><strong>Backward simulation:</strong> after a forward particle filter, sample backward using weights proportional to the forward filtering weight times <code class="math-inline">f_{t+1}(x_{t+1}\mid x_{t})</code>. This can recover more diverse trajectories than tracing only recorded ancestors.</li>
+<li><strong>Backward simulation:</strong> after a forward particle filter, sample backward using weights proportional to the forward filtering weight times <span class="math-inline" data-tex="f_{t+1}(x_{t+1}\mid x_{t})">fₜ₊₁(xₜ₊₁|xₜ)</span>. This can recover more diverse trajectories than tracing only recorded ancestors.</li>
 <li><strong>Fixed-lag smoothing:</strong> estimate <code>xₜ₋ℓ</code> once observations through <code>t</code> arrive, assuming sufficiently distant future observations add little information. It bounds memory and delay but introduces lag-dependent bias.</li>
 </ul>
 
@@ -135,7 +135,7 @@ ESS = 1 / 0.365 ≈ 2.74.</div>
 <tr><td>Log-likelihood estimate</td><td>The particle filter estimate of the marginal likelihood, its bias after taking logs, and its variance across independent runs.</td></tr>
 <tr><td>State RMSE</td><td>Error of filtering and smoothing estimates against known latent states, broken down by state component and horizon.</td></tr>
 <tr><td>Coverage</td><td>Empirical frequency with which nominal credible intervals or regions contain the true state or parameter, together with interval width.</td></tr>
-<tr><td>Number of particles</td><td>Accuracy and stability as <code class="math-inline">N</code> increases; compare methods at equal particle count and equal compute.</td></tr>
+<tr><td>Number of particles</td><td>Accuracy and stability as <span class="math-inline" data-tex="N">N</span> increases; compare methods at equal particle count and equal compute.</td></tr>
 <tr><td>Runtime</td><td>Latency, throughput, memory, hardware, and the cost of proposal, likelihood, resampling, and smoothing operations.</td></tr>
 <tr><td>Repeated-run variance</td><td>Variation across independent random seeds in likelihood estimates, RMSE, coverage, and runtime; include uncertainty bars rather than one favorable run.</td></tr>
 </tbody>

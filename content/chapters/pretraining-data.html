@@ -45,8 +45,7 @@
 </tbody>
 </table>
 <p>For causal language modeling:</p>
-<div class="math-display">L_NLL(θ) = -Σ_t log p_θ(x_t | x_&lt;t)
-</div>
+<div class="math-display" data-tex="L_{\mathrm{NLL}}(\theta ) = -\sum _t \operatorname{log} p_\theta (x_{t} \mid  x_\lt t)">L_NLL(θ) = -Σ_t log p_θ(x_t | x_&lt;t)</div>
 <p>This learns syntax, semantics, corpus knowledge, code and mathematical patterns, and reusable representations. It does not by itself guarantee instruction following, truthfulness, safety, calibration, or stable dialogue.</p>
 <h2 id="pipeline">Pipeline</h2>
 <p>A production pipeline usually performs:</p>
@@ -168,7 +167,7 @@
 </tbody>
 </table>
 <p><strong>Exact deduplication.</strong> Hash raw bytes to catch identical artifacts, then hash normalized text to catch copies that differ only in Unicode form, whitespace, line endings, casing where appropriate, or removable markup. Preserve both hashes and the normalization version: aggressive normalization can collapse distinct source code, tables, or languages. Hash collisions are rare but operational decisions should still retain the candidate IDs and representative text for audit.</p>
-<p><strong>Near deduplication.</strong> Split normalized text into word or character <em>n</em>-gram shingles. For shingle sets <code class="math-inline">A</code> and <code class="math-inline">B</code>, Jaccard similarity is <code class="math-inline">J(A,B) = \mid A \cap  B\mid  / \mid A \cup  B\mid</code>. MinHash provides a compact estimate of this similarity; locality-sensitive hashing (LSH) buckets signatures so that only plausible pairs receive an exact similarity check. LSH is candidate generation, not the final removal rule.</p>
+<p><strong>Near deduplication.</strong> Split normalized text into word or character <em>n</em>-gram shingles. For shingle sets <span class="math-inline" data-tex="A">A</span> and <span class="math-inline" data-tex="B">B</span>, Jaccard similarity is <span class="math-inline" data-tex="J(A,B) = \mid A \cap  B\mid  / \mid A \cup  B\mid">J(A,B) = |A ∩ B| / |A ∪ B|</span>. MinHash provides a compact estimate of this similarity; locality-sensitive hashing (LSH) buckets signatures so that only plausible pairs receive an exact similarity check. LSH is candidate generation, not the final removal rule.</p>
 <p>Document-level deduplication chooses one representative from a duplicate cluster and is cheap to reason about, but it misses copied chapters, functions, or answer spans embedded in otherwise different documents. Span-level deduplication removes or masks matching regions and retains unique context, but boundary errors can damage syntax and make provenance harder. Many systems use document-level removal first, then span-level checks for long or high-risk material.</p>
 <p>Thresholds should be calibrated on labeled pairs stratified by language, source, length, and format. Short documents need special handling because a few common shingles can produce high similarity. Review both false negatives and false positives near the threshold. Whitelist or downweight evidence from license headers, legal clauses, navigation templates, generated API clients, and common code idioms so legitimate repetition is not erased merely because it is conventional.</p>
 <p>Cross-split deduplication is asymmetric: freeze validation and test sets, search training candidates against them, and remove or quarantine the training copy. Run it after every material normalization, filtering, or dataset refresh because transformations can reveal matches that raw hashes missed. Also deduplicate within validation so a repeated example does not make uncertainty estimates look better than they are.</p>
@@ -185,17 +184,16 @@
 </ul>
 <p>Filters change the data distribution. Compare accepted and rejected token counts by source, language, domain, and rule; sample false positives from every high-volume rejection path. Provenance is useful only if it survives normalization, deduplication, sharding, and recovery.</p>
 <h2 id="data-mixture-mathematics">Data-mixture mathematics</h2>
-<p>Let source <code>i</code> contain <code class="math-inline">N_{i}</code> usable tokens and raw proportion <code>p_i = N_i / Σ_j N_j</code>. The sampling probability <code>q_i</code> is a training decision, not a property of the corpus. A common temperature rule is:</p>
-<div class="math-display">q_i(τ) = p_i^(1/τ) / Σ_j p_j^(1/τ)
-</div>
-<p>At <code class="math-inline">\tau  = 1</code>, sampling follows raw proportions. For <code class="math-inline">\tau  \gt  1</code>, the distribution flattens and smaller sources are upsampled; for <code class="math-inline">\tau  \lt  1</code>, it concentrates on large sources. If total training budget is <code class="math-inline">T</code> tokens, expected exposure is <code class="math-inline">E_{i} = \text{Tq}_{i}</code> and effective epochs are <code>e_i = E_i/N_i</code>. These are expected values: finite shards, without-replacement windows, and packing can perturb the realized totals.</p>
+<p>Let source <code>i</code> contain <span class="math-inline" data-tex="N_{i}">N_i</span> usable tokens and raw proportion <code>p_i = N_i / Σ_j N_j</code>. The sampling probability <code>q_i</code> is a training decision, not a property of the corpus. A common temperature rule is:</p>
+<div class="math-display" data-tex="q_{i}(\tau ) = p_{i}^{1/\tau } / \sum _j p_{j}^{1/\tau }">q_i(τ) = p_i^(1/τ) / Σ_j p_j^(1/τ)</div>
+<p>At <span class="math-inline" data-tex="\tau  = 1">τ = 1</span>, sampling follows raw proportions. For <span class="math-inline" data-tex="\tau  \gt  1">τ &gt; 1</span>, the distribution flattens and smaller sources are upsampled; for <span class="math-inline" data-tex="\tau  \lt  1">τ &lt; 1</span>, it concentrates on large sources. If total training budget is <span class="math-inline" data-tex="T">T</span> tokens, expected exposure is <span class="math-inline" data-tex="E_{i} = \text{Tq}_{i}">E_i = Tq_i</span> and effective epochs are <code>e_i = E_i/N_i</code>. These are expected values: finite shards, without-replacement windows, and packing can perturb the realized totals.</p>
 <h3 id="effective-epoch-example">Effective-epoch numerical example</h3>
-<p>Suppose the cleaned pool contains 800B web tokens, 150B code tokens, and 50B book tokens: raw proportions 0.80, 0.15, and 0.05. With <code class="math-inline">\tau  = 2</code>, weights are proportional to their square roots and normalize to approximately 0.594, 0.257, and 0.149. For a 1T-token run:</p>
+<p>Suppose the cleaned pool contains 800B web tokens, 150B code tokens, and 50B book tokens: raw proportions 0.80, 0.15, and 0.05. With <span class="math-inline" data-tex="\tau  = 2">τ = 2</span>, weights are proportional to their square roots and normalize to approximately 0.594, 0.257, and 0.149. For a 1T-token run:</p>
 <table>
 <thead>
 <tr>
 <th>Source</th>
-<th>Usable tokens <code class="math-inline">N_{i}</code></th>
+<th>Usable tokens <span class="math-inline" data-tex="N_{i}">N_i</span></th>
 <th>Sampling weight <code>q_i</code></th>
 <th>Expected tokens <code>Tq_i</code></th>
 <th>Effective epochs <code>Tq_i/N_i</code></th>
@@ -226,7 +224,7 @@
 </tbody>
 </table>
 <p>The books source is only 5% of raw tokens but supplies almost 15% of training tokens and is seen about three times. Upsampling changes both balance and repeated exposure; track unique tokens, effective epochs, and duplicate clusters, not only requested mixture weights. Token budgets should also be checked against the compute-optimal assumptions in <a href="scaling-laws.html">Scaling Laws and Compute-Optimal Training</a>.</p>
-<p>During domain adaptation, a mixture can reserve probability <code class="math-inline">\alpha</code> for domain data and <code class="math-inline">1-\alpha</code> for general replay. General replay reduces forgetting but spends target-domain compute. Select <code class="math-inline">\alpha</code> from target gains, broad-regression limits, and exposure caps rather than from domain loss alone.</p>
+<p>During domain adaptation, a mixture can reserve probability <span class="math-inline" data-tex="\alpha">α</span> for domain data and <span class="math-inline" data-tex="1-\alpha">1-α</span> for general replay. General replay reduces forgetting but spends target-domain compute. Select <span class="math-inline" data-tex="\alpha">α</span> from target gains, broad-regression limits, and exposure caps rather than from domain loss alone.</p>
 <h2 id="adaptive-mixture-methods">Adaptive mixture methods</h2>
 <ul>
 <li><strong>Hand-tuned mixtures:</strong> begin with quality, coverage, legal constraints, and exposure caps; run ablations around a small number of interpretable weights. They are simple to audit but expensive to tune at full scale.</li>
@@ -297,7 +295,7 @@
 <pre><code class="language-text">Parquet shards → ShardManager → row-group assignment by rank
 → lazy tokenization → token-budgeted deque → packed fixed-length batches
 </code></pre>
-<p>Row groups are independently readable and form a natural sharding unit. With world size <code class="math-inline">W</code>, rank <code>r</code> can consume groups <code>r, r+W, r+2W, ...</code>. This avoids duplicate row-group consumption only if world size and shard order remain stable.</p>
+<p>Row groups are independently readable and form a natural sharding unit. With world size <span class="math-inline" data-tex="W">W</span>, rank <code>r</code> can consume groups <code>r, r+W, r+2W, ...</code>. This avoids duplicate row-group consumption only if world size and shard order remain stable.</p>
 <p>Trade-offs:</p>
 <ul>
 <li>small row groups increase metadata and scheduling overhead;</li>
@@ -315,8 +313,7 @@
 <p>It avoids padding and improves useful-token utilization. However, a BOS marker alone does not isolate documents: ordinary causal attention still lets tokens in document B attend to A when they share one sequence row.</p>
 <p>Stronger isolation options include block-diagonal masks, segment-aware masks, position reset, one document per row, or BOS-aligned packing. These trade data efficiency and kernel simplicity against semantic isolation.</p>
 <h2 id="global-token-batch">Global token batch</h2>
-<div class="math-display">tokens/update = microbatch × sequence length × accumulation steps × data-parallel world size
-</div>
+<div class="math-display" data-tex="\text{tokens}/\text{update} = \text{microbatch} \times  \text{sequence} \text{length} \times  \text{accumulation} \text{steps} \times  \text{data}-\text{parallel} \text{world} \text{size}">tokens/update = microbatch × sequence length × accumulation steps × data-parallel world size</div>
 <p>This formula assumes each rank receives distinct examples. If rank sharding is wrong, the nominal global batch overstates data diversity.</p>
 <h2 id="recovery-semantics">Recovery semantics</h2>
 <p>Checkpointing the model and optimizer can be exact, while data replay remains approximate. Exact replay may require:</p>

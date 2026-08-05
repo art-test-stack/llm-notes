@@ -71,9 +71,9 @@
 </ol>
 <p>This example separates task validity, response correctness, quality selection, and downstream evaluation. Passing generated tests is necessary but not sufficient evidence that a repair generalizes.</p>
 <h2 id="rejection-sampling-fine-tuning">Rejection sampling</h2>
-<p>Sample candidates <code>y ~ q(y | x)</code> from an explicit candidate distribution, score them with verifier <code>v(x, y)</code>, and retain candidates above an acceptance threshold <code class="math-inline">\tau</code>. Fine-tuning on the retained set converts inference-time exploration into supervised data, but the retained distribution is conditioned on the verifier.</p>
+<p>Sample candidates <code>y ~ q(y | x)</code> from an explicit candidate distribution, score them with verifier <code>v(x, y)</code>, and retain candidates above an acceptance threshold <span class="math-inline" data-tex="\tau">τ</span>. Fine-tuning on the retained set converts inference-time exploration into supervised data, but the retained distribution is conditioned on the verifier.</p>
 <ul>
-<li><strong>Threshold:</strong> calibrate <code class="math-inline">\tau</code> on labelled data and separately by domain when score meanings differ.</li>
+<li><strong>Threshold:</strong> calibrate <span class="math-inline" data-tex="\tau">τ</span> on labelled data and separately by domain when score meanings differ.</li>
 <li><strong>Top-1 retention:</strong> keeping the highest-scored response is simple but discards valid alternative strategies and is sensitive to score noise.</li>
 <li><strong>Weighted retention:</strong> keep several passing candidates with weights based on correctness, quality, and rarity; cap candidates per task so easy prompts do not dominate.</li>
 <li><strong>Selection bias:</strong> the dataset overrepresents what the current generator can produce and the verifier can recognize, not necessarily what users need.</li>

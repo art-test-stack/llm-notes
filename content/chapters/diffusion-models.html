@@ -3,119 +3,119 @@
 
 <h2 id="generative-modelling-objective">1. Generative-modelling objective</h2>
 <h3 id="data-distribution">Data distribution</h3>
-<p>Given samples <code>x₀ ~ p_data(x)</code>, generative modelling seeks a normalized model <code class="math-inline">p_\theta (x_{0})</code> that assigns high probability to the data distribution and can generate new samples. Maximum likelihood minimizes <code>KL(p_data || p_θ)</code>, but evaluating and differentiating <code class="math-inline">\operatorname{log} p_\theta (x_{0})</code> is generally difficult when generation uses many hidden steps.</p>
+<p>Given samples <code>x₀ ~ p_data(x)</code>, generative modelling seeks a normalized model <span class="math-inline" data-tex="p_\theta (x_{0})">p_θ(x₀)</span> that assigns high probability to the data distribution and can generate new samples. Maximum likelihood minimizes <code>KL(p_data || p_θ)</code>, but evaluating and differentiating <span class="math-inline" data-tex="\operatorname{log} p_\theta (x_{0})">log p_θ(x₀)</span> is generally difficult when generation uses many hidden steps.</p>
 
 <h3 id="latent-variable-formulation">Latent-variable formulation</h3>
-<p>Introduce latent states <code class="math-inline">x_{1}:T = (x_{1}, \ldots , x_{T})</code> and define</p>
-<div class="math-display">p_θ(x₀:T) = p(x_T) ∏_{t=1}^T p_θ(x_{t-1} | x_t),
+<p>Introduce latent states <span class="math-inline" data-tex="x_{1}:T = (x_{1}, \ldots , x_{T})">x₁:T = (x₁, …, x_T)</span> and define</p>
+<div class="math-display" data-tex="\begin{aligned}p_\theta (x_{0}:T) &amp;= p(x_{T}) \prod _{t=1}^T p_\theta (x_{t-1} \mid  x_{t}),\\p_\theta (x_{0})   &amp;= \int  p_\theta (x_{0}:T) d x_{1}:T.\end{aligned}">p_θ(x₀:T) = p(x_T) ∏_{t=1}^T p_θ(x_{t-1} | x_t),
 p_θ(x₀)   = ∫ p_θ(x₀:T) dx₁:T.</div>
-<p>Usually <code class="math-inline">p(x_{T}) = N(0, I)</code>. Direct marginalization still appears intractable, so training uses a fixed variational distribution <code class="math-inline">q(x_{1}:T \mid  x_{0})</code>.</p>
+<p>Usually <span class="math-inline" data-tex="p(x_{T}) = N(0, I)">p(x_T) = N(0, I)</span>. Direct marginalization still appears intractable, so training uses a fixed variational distribution <span class="math-inline" data-tex="q(x_{1}:T \mid  x_{0})">q(x₁:T | x₀)</span>.</p>
 
 <h3 id="tractable-corruption">Why diffusion introduces a tractable corruption process</h3>
 <p>Diffusion chooses <code>q</code> to be a Markov chain of small Gaussian corruptions. Its transition, any marginal <code>q(x_t | x₀)</code>, and the one-step posterior <code>q(x_{t-1} | x_t, x₀)</code> are all Gaussian with closed-form parameters. Consequently, training can draw an arbitrary noise level directly—without simulating all preceding steps—and the variational bound reduces mainly to supervised denoising losses. A long chain also makes each reverse transition locally simple enough to approximate by a Gaussian.</p>
 
 <h2 id="discrete-forward-process">2. Discrete forward process</h2>
-<p>Choose a schedule <code class="math-inline">0 \lt  \beta _t \lt  1</code>, define <code class="math-inline">\alpha _t = 1 - \beta _t</code>, and define the cumulative signal retention</p>
-<div class="math-display">ᾱ_t = ∏_{s=1}^t α_s,       ᾱ₀ = 1.</div>
+<p>Choose a schedule <span class="math-inline" data-tex="0 \lt  \beta _t \lt  1">0 &lt; β_t &lt; 1</span>, define <span class="math-inline" data-tex="\alpha _t = 1 - \beta _t">α_t = 1 − β_t</span>, and define the cumulative signal retention</p>
+<div class="math-display" data-tex="\bar{\alpha}_t = \prod _{s=1}^t \alpha _s,       \bar{\alpha}_{0} = 1.">ᾱ_t = ∏_{s=1}^t α_s,       ᾱ₀ = 1.</div>
 <p>The variance-preserving forward transition is</p>
-<div class="math-display">q(x_t | x_{t-1}) = N(√α_t x_{t-1}, β_t I),
+<div class="math-display" data-tex="\begin{aligned}q(x_t\mid x_{t-1})&amp;=\mathcal{N}\!\left(\sqrt{\alpha_t}x_{t-1},\beta_tI\right),\\x_t&amp;=\sqrt{\alpha_t}x_{t-1}+\sqrt{\beta_t}\varepsilon_t,\qquad\varepsilon_t\sim\mathcal{N}(0,I).\end{aligned}">q(x_t | x_{t-1}) = N(√α_t x_{t-1}, β_t I),
 x_t = √α_t x_{t-1} + √β_t ε_t,       ε_t ~ N(0, I).</div>
-<p>Here <code class="math-inline">\beta _t</code> is the newly injected variance, <code class="math-inline">\alpha _t</code> is the signal fraction retained in one step, and <code class="math-inline">\bar{\alpha}_t</code> is the fraction of the original signal retained after <code>t</code> steps. The signal-to-noise ratio is <code class="math-inline">SNR_{t} = \bar{\alpha}_t/(1 - \bar{\alpha}_t)</code>.</p>
+<p>Here <span class="math-inline" data-tex="\beta _t">β_t</span> is the newly injected variance, <span class="math-inline" data-tex="\alpha _t">α_t</span> is the signal fraction retained in one step, and <span class="math-inline" data-tex="\bar{\alpha}_t">ᾱ_t</span> is the fraction of the original signal retained after <code>t</code> steps. The signal-to-noise ratio is <span class="math-inline" data-tex="SNR_{t} = \bar{\alpha}_t/(1 - \bar{\alpha}_t)">SNR_t = ᾱ_t/(1 − ᾱ_t)</span>.</p>
 
 <h3 id="derive-forward-marginal">Deriving <code>q(x_t | x₀)</code></h3>
 <p>Substitute the recurrence into itself:</p>
-<div class="math-display">x_t = √α_t(√α_{t-1} x_{t-2} + √β_{t-1} ε_{t-1}) + √β_t ε_t
+<div class="math-display" data-tex="\begin{aligned}x_{t} &amp;= \sqrt{\alpha _t}(\sqrt{\alpha _{t}-1} x_{t-2} + \sqrt{\beta _{t}-1} \varepsilon _{t-1}) + \sqrt{\beta _t} \varepsilon _t\\&amp;= \sqrt{\alpha _t \alpha _{t-1}} x_{t-2}\\+ \sqrt{\alpha _t \beta _{t-1}} \varepsilon _{t-1} + \sqrt{\beta _t} \varepsilon _t\\&amp;= \sqrt{\bar{\alpha}_t} x_{0}\\+ \sum _{s=1}^t \sqrt{\beta _s \prod _{j=s+1}^t \alpha _j} \varepsilon _s.\end{aligned}">x_t = √α_t(√α_{t-1} x_{t-2} + √β_{t-1} ε_{t-1}) + √β_t ε_t
     = √(α_t α_{t-1}) x_{t-2}
       + √(α_t β_{t-1}) ε_{t-1} + √β_t ε_t
     = √ᾱ_t x₀
       + Σ_{s=1}^t √(β_s ∏_{j=s+1}^t α_j) ε_s.</div>
 <p>The sum is Gaussian. Its covariance coefficient telescopes:</p>
-<div class="math-display">Σ_{s=1}^t β_s ∏_{j=s+1}^t α_j
+<div class="math-display" data-tex="\begin{aligned}\sum _{s=1}^t \beta _s \prod _{j=s+1}^t \alpha _j\\&amp;= \sum _{s=1}^t (1 - \alpha _s) \prod _{j=s+1}^t \alpha _j\\&amp;= 1 - \prod _{s=1}^t \alpha _s\\&amp;= 1 - \bar{\alpha}_t.\end{aligned}">Σ_{s=1}^t β_s ∏_{j=s+1}^t α_j
 = Σ_{s=1}^t (1 − α_s) ∏_{j=s+1}^t α_j
 = 1 − ∏_{s=1}^t α_s
 = 1 − ᾱ_t.</div>
 <p>Therefore the closed-form marginal and its reparameterized sampler are</p>
-<div class="math-display">q(x_t | x₀) = N(√ᾱ_t x₀, (1 − ᾱ_t)I),
+<div class="math-display" data-tex="\begin{aligned}q(x_t\mid x_0)&amp;=\mathcal{N}\!\left(\sqrt{\bar{\alpha}_t}x_0,(1-\bar{\alpha}_t)I\right),\\x_t&amp;=\sqrt{\bar{\alpha}_t}x_0+\sqrt{1-\bar{\alpha}_t}\,\varepsilon,\qquad\varepsilon\sim\mathcal{N}(0,I).\end{aligned}">q(x_t | x₀) = N(√ᾱ_t x₀, (1 − ᾱ_t)I),
 x_t = √ᾱ_t x₀ + √(1 − ᾱ_t) ε,       ε ~ N(0, I).</div>
-<p>This identity is the key computational shortcut: sample <code>t</code> and one <code class="math-inline">\varepsilon</code>, then construct <code>x_t</code> in one operation.</p>
+<p>This identity is the key computational shortcut: sample <code>t</code> and one <span class="math-inline" data-tex="\varepsilon">ε</span>, then construct <code>x_t</code> in one operation.</p>
 
 <h2 id="reverse-process">3. Reverse process</h2>
 <h3 id="learned-reverse-kernel">Learned reverse kernel</h3>
 <p>The generative chain starts at noise and applies</p>
-<div class="math-display">p_θ(x_{t-1} | x_t) = N(μ_θ(x_t,t), Σ_θ(x_t,t)).</div>
-<p>A model may fix <code class="math-inline">\sum _\theta  = \sigma _t^{2}I</code>, learn it, or interpolate between schedule-derived bounds. Predicting a diagonal variance is more expressive but needs careful parameterization and often a hybrid likelihood objective.</p>
+<div class="math-display" data-tex="p_\theta (x_{t-1} \mid  x_{t}) = N(\mu _\theta (x_{t},t), \sum _\theta (x_{t},t)).">p_θ(x_{t-1} | x_t) = N(μ_θ(x_t,t), Σ_θ(x_t,t)).</div>
+<p>A model may fix <span class="math-inline" data-tex="\sum _\theta  = \sigma _t^{2}I">Σ_θ = σ_t²I</span>, learn it, or interpolate between schedule-derived bounds. Predicting a diagonal variance is more expressive but needs careful parameterization and often a hybrid likelihood objective.</p>
 
 <h3 id="exact-forward-posterior">Exact forward posterior</h3>
 <p>Conditioning the two relevant Gaussians gives</p>
-<div class="math-display">q(x_{t-1} | x_t,x₀) = N(μ̃_t(x_t,x₀), β̃_t I),
+<div class="math-display" data-tex="\begin{aligned}q(x_{t-1} \mid  x_{t},x_{0}) &amp;= N(\widetilde{\mu}_t(x_{t},x_{0}), \widetilde{\beta}_t I),\\\widetilde{\beta}_t &amp;= \beta _t (1 - \bar{\alpha}_{t-1}) / (1 - \bar{\alpha}_t),\\\widetilde{\mu}_t &amp;= [\sqrt{\bar{\alpha}_{t-1}} \beta _t / (1 - \bar{\alpha}_t)] x_{0}\\+ [\sqrt{\alpha _t} (1 - \bar{\alpha}_{t-1}) / (1 - \bar{\alpha}_t)] x_{t}.\end{aligned}">q(x_{t-1} | x_t,x₀) = N(μ̃_t(x_t,x₀), β̃_t I),
 
 β̃_t = β_t (1 − ᾱ_{t-1}) / (1 − ᾱ_t),
 
 μ̃_t = [√ᾱ_{t-1} β_t / (1 − ᾱ_t)] x₀
      + [√α_t (1 − ᾱ_{t-1}) / (1 − ᾱ_t)] x_t.</div>
-<p>After replacing <code class="math-inline">x_{0}</code> by its estimate from a noise predictor, the same mean becomes</p>
-<div class="math-display">μ_θ(x_t,t) = (1/√α_t)
+<p>After replacing <span class="math-inline" data-tex="x_{0}">x₀</span> by its estimate from a noise predictor, the same mean becomes</p>
+<div class="math-display" data-tex="\begin{aligned}\mu _\theta (x_{t},t) &amp;= (1/\sqrt{\alpha _t})\\{}[x_{t} - \beta _t/\sqrt{1 - \bar{\alpha}_t} \cdot  \varepsilon _\theta (x_{t},t)].\end{aligned}">μ_θ(x_t,t) = (1/√α_t)
              [x_t − β_t/√(1 − ᾱ_t) · ε_θ(x_t,t)].</div>
-<p>Thus the network can learn the mean directly or predict <code class="math-inline">\varepsilon</code>, <code class="math-inline">x_{0}</code>, the score, or <code>v</code> and convert that output to a mean.</p>
+<p>Thus the network can learn the mean directly or predict <span class="math-inline" data-tex="\varepsilon">ε</span>, <span class="math-inline" data-tex="x_{0}">x₀</span>, the score, or <code>v</code> and convert that output to a mean.</p>
 
 <h3 id="elbo-decomposition">ELBO decomposition</h3>
-<p>Jensen's inequality gives <code class="math-inline">\operatorname{log} p_\theta (x_{0}) \ge  E_{q}[\operatorname{log} p_\theta (x_{0}:T) - \operatorname{log} q(x_{1}:T\mid x_{0})] = -L_{VLB}</code>. Grouping terms yields</p>
-<div class="math-display">L_VLB = KL(q(x_T|x₀) || p(x_T))
+<p>Jensen's inequality gives <span class="math-inline" data-tex="\operatorname{log} p_\theta (x_{0}) \ge  E_{q}[\operatorname{log} p_\theta (x_{0}:T) - \operatorname{log} q(x_{1}:T\mid x_{0})] = -L_{VLB}">log p_θ(x₀) ≥ E_q[log p_θ(x₀:T) − log q(x₁:T|x₀)] = −L_VLB</span>. Grouping terms yields</p>
+<div class="math-display" data-tex="\begin{aligned}L_{VLB} &amp;= KL(q(x_{T}\mid x_{0}) \mathbin{\Vert} p(x_{T}))\\+ \sum _{t=2}^T E_{q} KL(q(x_{t-1}\mid x_{t},x_{0}) \mathbin{\Vert} p_\theta (x_{t-1}\mid x_{t}))\\+ E_{q}[-\operatorname{log} p_\theta (x_{0}\mid x_{1})].\end{aligned}">L_VLB = KL(q(x_T|x₀) || p(x_T))
       + Σ_{t=2}^T E_q KL(q(x_{t-1}|x_t,x₀) || p_θ(x_{t-1}|x_t))
       + E_q[-log p_θ(x₀|x₁)].</div>
-<p>The first term has no learned parameters for a fixed schedule. The middle terms match learned reverse kernels to tractable posteriors; the last is a reconstruction or decoder likelihood term. With fixed variance and an <code class="math-inline">\varepsilon</code>-parameterized mean, each middle KL is a weighted noise-prediction MSE. The common “simple loss” samples <code>t</code> uniformly and drops the ELBO-derived timestep weight; it is easier to optimize but is no longer the literal likelihood bound.</p>
+<p>The first term has no learned parameters for a fixed schedule. The middle terms match learned reverse kernels to tractable posteriors; the last is a reconstruction or decoder likelihood term. With fixed variance and an <span class="math-inline" data-tex="\varepsilon">ε</span>-parameterized mean, each middle KL is a weighted noise-prediction MSE. The common “simple loss” samples <code>t</code> uniformly and drops the ELBO-derived timestep weight; it is easier to optimize but is no longer the literal likelihood bound.</p>
 
 <h2 id="prediction-parameterizations">4. Prediction parameterizations</h2>
-<p>Write <code class="math-inline">a = \sqrt{\bar{\alpha}_t}</code>, <code class="math-inline">b = \sqrt{1 - \bar{\alpha}_t}</code>, so that <code>x_t = a x₀ + b ε</code>. These outputs are algebraically convertible only where the formulas' divisors are nonzero: recovering <code class="math-inline">x_{0}</code> from <code class="math-inline">\varepsilon</code> requires <code>a≠0</code>, recovering <code class="math-inline">\varepsilon</code> from <code class="math-inline">x_{0}</code> or a score requires <code>b≠0</code>, and either conversion can be ill-conditioned near a schedule endpoint. The <code>v</code> rotation remains algebraically invertible when <code class="math-inline">a^{2}+b^{2}=1</code>, but finite precision and prediction error still matter. Information equivalence is not optimization equivalence: target scale, numerical conditioning, and loss weighting differ.</p>
+<p>Write <span class="math-inline" data-tex="a = \sqrt{\bar{\alpha}_t}">a = √ᾱ_t</span>, <span class="math-inline" data-tex="b = \sqrt{1 - \bar{\alpha}_t}">b = √(1 − ᾱ_t)</span>, so that <code>x_t = a x₀ + b ε</code>. These outputs are algebraically convertible only where the formulas' divisors are nonzero: recovering <span class="math-inline" data-tex="x_{0}">x₀</span> from <span class="math-inline" data-tex="\varepsilon">ε</span> requires <code>a≠0</code>, recovering <span class="math-inline" data-tex="\varepsilon">ε</span> from <span class="math-inline" data-tex="x_{0}">x₀</span> or a score requires <code>b≠0</code>, and either conversion can be ill-conditioned near a schedule endpoint. The <code>v</code> rotation remains algebraically invertible when <span class="math-inline" data-tex="a^{2}+b^{2}=1">a²+b²=1</span>, but finite precision and prediction error still matter. Information equivalence is not optimization equivalence: target scale, numerical conditioning, and loss weighting differ.</p>
 <table>
 <thead><tr><th>Prediction</th><th>Target / interpretation</th><th>Useful conversion</th></tr></thead>
 <tbody>
-<tr><td><code class="math-inline">\varepsilon</code></td><td>The standard Gaussian noise added to <code class="math-inline">x_{0}</code>.</td><td><code>x̂₀ = (x_t − b ε̂)/a</code></td></tr>
-<tr><td><code class="math-inline">x_{0}</code></td><td>The clean sample itself.</td><td><code>ε̂ = (x_t − a x̂₀)/b</code></td></tr>
-<tr><td>score <code>s</code></td><td><code>∇_{x_t} log p_t(x_t)</code>; during supervised corruption the conditional target is <code>∇ log q(x_t|x₀)</code>.</td><td><code class="math-inline">\widehat{s} = -\widehat{\varepsilon}/b</code>, hence <code class="math-inline">\widehat{\varepsilon} = -b \widehat{s}</code></td></tr>
-<tr><td><code>v</code></td><td>A signal/noise rotation: <code class="math-inline">v = a \varepsilon  - b x_{0}</code>.</td><td><code>x̂₀ = a x_t − b v̂</code>; <code>ε̂ = b x_t + a v̂</code></td></tr>
+<tr><td><span class="math-inline" data-tex="\varepsilon">ε</span></td><td>The standard Gaussian noise added to <span class="math-inline" data-tex="x_{0}">x₀</span>.</td><td><code>x̂₀ = (x_t − b ε̂)/a</code></td></tr>
+<tr><td><span class="math-inline" data-tex="x_{0}">x₀</span></td><td>The clean sample itself.</td><td><code>ε̂ = (x_t − a x̂₀)/b</code></td></tr>
+<tr><td>score <code>s</code></td><td><code>∇_{x_t} log p_t(x_t)</code>; during supervised corruption the conditional target is <code>∇ log q(x_t|x₀)</code>.</td><td><span class="math-inline" data-tex="\widehat{s} = -\widehat{\varepsilon}/b">ŝ = −ε̂/b</span>, hence <span class="math-inline" data-tex="\widehat{\varepsilon} = -b \widehat{s}">ε̂ = −b ŝ</span></td></tr>
+<tr><td><code>v</code></td><td>A signal/noise rotation: <span class="math-inline" data-tex="v = a \varepsilon  - b x_{0}">v = a ε − b x₀</span>.</td><td><code>x̂₀ = a x_t − b v̂</code>; <code>ε̂ = b x_t + a v̂</code></td></tr>
 </tbody>
 </table>
-<p>The <code>v</code> equations follow because <code>[x_t,v]ᵀ = [[a,b],[-b,a]][x₀,ε]ᵀ</code>, an orthogonal rotation since <code class="math-inline">a^{2}+b^{2}=1</code>.</p>
+<p>The <code>v</code> equations follow because <code>[x_t,v]ᵀ = [[a,b],[-b,a]][x₀,ε]ᵀ</code>, an orthogonal rotation since <span class="math-inline" data-tex="a^{2}+b^{2}=1">a²+b²=1</span>.</p>
 
 <h3 id="weighting-consequences">Weighting consequences</h3>
 <ul>
-<li>For fixed reverse variance <code class="math-inline">\sigma _t^{2}I</code>, the exact ELBO weight on noise MSE is proportional to <code class="math-inline">\beta _t^{2}/[2\sigma _t^{2} \alpha _t(1-\bar{\alpha}_t)]</code>. The simple <code class="math-inline">\varepsilon</code> loss instead gives each sampled timestep equal explicit weight.</li>
-<li>Because <code class="math-inline">\lVert \widehat{\varepsilon}-\varepsilon \rVert^{2} = SNR_{t} \lVert \widehat{x}_{0}-x_{0}\rVert^{2}</code>, an unweighted <code class="math-inline">\varepsilon</code> loss is an SNR-weighted <code class="math-inline">x_{0}</code> loss. Conversely, unweighted <code class="math-inline">x_{0}</code> MSE emphasizes low-SNR/noisy times relative to unweighted <code class="math-inline">\varepsilon</code> MSE.</li>
-<li>Because <code class="math-inline">\varepsilon  = -b s</code>, <code class="math-inline">\lVert \widehat{\varepsilon}-\varepsilon \rVert^{2} = (1-\bar{\alpha}_t)\lVert \widehat{s}-s\rVert^{2}</code>. Changing between noise and score prediction without changing the loss changes the noise-level weighting.</li>
+<li>For fixed reverse variance <span class="math-inline" data-tex="\sigma _t^{2}I">σ_t²I</span>, the exact ELBO weight on noise MSE is proportional to <span class="math-inline" data-tex="\beta _t^{2}/[2\sigma _t^{2} \alpha _t(1-\bar{\alpha}_t)]">β_t²/[2σ_t² α_t(1−ᾱ_t)]</span>. The simple <span class="math-inline" data-tex="\varepsilon">ε</span> loss instead gives each sampled timestep equal explicit weight.</li>
+<li>Because <span class="math-inline" data-tex="\lVert \widehat{\varepsilon}-\varepsilon \rVert^{2} = SNR_{t} \lVert \widehat{x}_{0}-x_{0}\rVert^{2}">||ε̂−ε||² = SNR_t ||x̂₀−x₀||²</span>, an unweighted <span class="math-inline" data-tex="\varepsilon">ε</span> loss is an SNR-weighted <span class="math-inline" data-tex="x_{0}">x₀</span> loss. Conversely, unweighted <span class="math-inline" data-tex="x_{0}">x₀</span> MSE emphasizes low-SNR/noisy times relative to unweighted <span class="math-inline" data-tex="\varepsilon">ε</span> MSE.</li>
+<li>Because <span class="math-inline" data-tex="\varepsilon  = -b s">ε = −b s</span>, <span class="math-inline" data-tex="\lVert \widehat{\varepsilon}-\varepsilon \rVert^{2} = (1-\bar{\alpha}_t)\lVert \widehat{s}-s\rVert^{2}">||ε̂−ε||² = (1−ᾱ_t)||ŝ−s||²</span>. Changing between noise and score prediction without changing the loss changes the noise-level weighting.</li>
 <li><code>v</code> targets interpolate between noise at high SNR and negative data at low SNR. Combined with SNR clipping or min-SNR weights, this can balance optimization across noise levels.</li>
 </ul>
 <p>Parameterization does not by itself change the ideal reverse dynamics; finite capacity, target conditioning, clipping, loss weighting, and numerical error make the practical models differ.</p>
 
 <h2 id="denoising-score-matching">5. Denoising score matching</h2>
 <p>The score of the noisy marginal is</p>
-<div class="math-display">s*(x,t) = ∇_x log p_t(x).</div>
+<div class="math-display" data-tex="s^{\ast}(x,t) = \nabla _x \operatorname{log} p_{t}(x).">s*(x,t) = ∇_x log p_t(x).</div>
 <p>The marginal density <code>p_t</code> is unknown, but the corruption kernel has a known conditional score:</p>
-<div class="math-display">∇_{x_t} log q(x_t|x₀)
+<div class="math-display" data-tex="\begin{aligned}\nabla _{x_{t}} \operatorname{log} q(x_{t}\mid x_{0})\\&amp;= -(x_{t} - \sqrt{\bar{\alpha}_t} x_{0})/(1 - \bar{\alpha}_t)\\&amp;= -\varepsilon /\sqrt{1 - \bar{\alpha}_t}.\end{aligned}">∇_{x_t} log q(x_t|x₀)
 = −(x_t − √ᾱ_t x₀)/(1 − ᾱ_t)
 = −ε/√(1 − ᾱ_t).</div>
 <p>Denoising score matching trains</p>
-<div class="math-display">E_{t,x₀,ε} [λ(t) ||s_θ(x_t,t) − ∇_{x_t}log q(x_t|x₀)||²].</div>
-<p>Although the target is conditional on <code class="math-inline">x_{0}</code>, the MSE-optimal predictor given only <code>x_t</code> is its conditional expectation, which equals <code>∇ log p_t(x_t)</code> (Fisher's identity). Therefore <code class="math-inline">\varepsilon _\theta</code> and a score network are related by <code>s_θ(x_t,t) = −ε_θ(x_t,t)/√(1−ᾱ_t)</code>. Noise prediction is denoising score matching with a particular noise-level weighting.</p>
+<div class="math-display" data-tex="E_{t,x_{0},\varepsilon } [\lambda (t) \lVert s_\theta (x_{t},t) - \nabla _{x_{t}}\operatorname{log} q(x_{t}\mid x_{0})\rVert^{2}].">E_{t,x₀,ε} [λ(t) ||s_θ(x_t,t) − ∇_{x_t}log q(x_t|x₀)||²].</div>
+<p>Although the target is conditional on <span class="math-inline" data-tex="x_{0}">x₀</span>, the MSE-optimal predictor given only <code>x_t</code> is its conditional expectation, which equals <code>∇ log p_t(x_t)</code> (Fisher's identity). Therefore <span class="math-inline" data-tex="\varepsilon _\theta">ε_θ</span> and a score network are related by <code>s_θ(x_t,t) = −ε_θ(x_t,t)/√(1−ᾱ_t)</code>. Noise prediction is denoising score matching with a particular noise-level weighting.</p>
 
 <h2 id="continuous-time-formulation">6. Continuous-time formulation</h2>
-<p>Let an Itô SDE gradually transform data at time <code>0</code> into a simple prior at time <code class="math-inline">T</code>:</p>
-<div class="math-display">forward SDE:       dx = f(x,t) dt + g(t) dW_t.</div>
+<p>Let an Itô SDE gradually transform data at time <code>0</code> into a simple prior at time <span class="math-inline" data-tex="T">T</span>:</p>
+<div class="math-display" data-tex="\text{forward} SDE:       d x = f(x,t) d t + g(t) d W_{t}.">forward SDE:       dx = f(x,t) dt + g(t) dW_t.</div>
 <p>If <code>s*(x,t)=∇_x log p_t(x)</code>, the reverse-time SDE is</p>
-<div class="math-display">reverse-time SDE:  dx = [f(x,t) − g(t)² s*(x,t)] dt + g(t) dW̄_t,
+<div class="math-display" data-tex="\begin{aligned}\text{reverse}-\text{time} SDE:  d x &amp;= [f(x,t) - g(t)^{2} s^{\ast}(x,t)] d t + g(t) d\bar{W}_t,\\\text{integrated} \text{from} t=T \text{down} \text{to} t=0.\end{aligned}">reverse-time SDE:  dx = [f(x,t) − g(t)² s*(x,t)] dt + g(t) dW̄_t,
                    integrated from t=T down to t=0.</div>
 <p>Here <code>dt</code> is negative along the numerical trajectory and <code>W̄</code> is reverse-time Brownian motion. Intuitively, the original drift remains, while the score term points probability mass back toward high-density regions strongly enough to undo diffusion; Brownian noise preserves the stochastic path law.</p>
 
 <h3 id="probability-flow-ode">Probability-flow ODE</h3>
-<div class="math-display">probability-flow ODE:  dx = [f(x,t) − ½g(t)² s*(x,t)] dt.</div>
+<div class="math-display" data-tex="\text{probability}-\text{flow} ODE:  d x = [f(x,t) - \tfrac{1}{2}g(t)^{2} s^{\ast}(x,t)] d t.">probability-flow ODE:  dx = [f(x,t) − ½g(t)² s*(x,t)] dt.</div>
 <p>Removing Brownian noise requires halving the score correction. The resulting deterministic ODE has the same one-time marginal densities <code>p_t</code> as the SDE, though not the same trajectories or transition law. It enables deterministic sampling, standard ODE solvers, latent interpolation, and likelihood calculation via the divergence of its vector field.</p>
 
 <h3 id="vp-and-ve-processes">Variance-preserving and variance-exploding processes</h3>
 <table>
 <thead><tr><th>Process</th><th>SDE</th><th>Behavior</th></tr></thead>
 <tbody>
-<tr><td>VP</td><td><code class="math-inline">d x = -\tfrac{1}{2}\beta (t)x d t + \sqrt{\beta (t)}d W</code></td><td>Continuous limit of DDPM: signal decays while total variance stays bounded for standardized data. Its conditional mean coefficient is <code class="math-inline">\operatorname{exp}(-\tfrac{1}{2}\int \beta  d t)</code>.</td></tr>
-<tr><td>VE</td><td><code class="math-inline">d x = \sqrt{d[\sigma ^{2}(t)]/d t}d W</code></td><td>No drift; progressively adds Gaussian noise so variance grows with <code class="math-inline">\sigma ^{2}(t)</code>. The signal is not attenuated, and the terminal scale must dominate the data scale.</td></tr>
+<tr><td>VP</td><td><span class="math-inline" data-tex="d x = -\tfrac{1}{2}\beta (t)x d t + \sqrt{\beta (t)}d W">dx = −½β(t)x dt + √β(t)dW</span></td><td>Continuous limit of DDPM: signal decays while total variance stays bounded for standardized data. Its conditional mean coefficient is <span class="math-inline" data-tex="\operatorname{exp}(-\tfrac{1}{2}\int \beta  d t)">exp(−½∫β dt)</span>.</td></tr>
+<tr><td>VE</td><td><span class="math-inline" data-tex="d x = \sqrt{d[\sigma ^{2}(t)]/d t}d W">dx = √(d[σ²(t)]/dt)dW</span></td><td>No drift; progressively adds Gaussian noise so variance grows with <span class="math-inline" data-tex="\sigma ^{2}(t)">σ²(t)</span>. The signal is not attenuated, and the terminal scale must dominate the data scale.</td></tr>
 </tbody>
 </table>
 <p>The score network, time sampling, loss weights, terminal prior, and solver must all use the same SDE/noise convention. See <a href="stochastic-processes-sdes.html">Stochastic Processes and SDEs</a> for Itô and reverse-time foundations.</p>
@@ -125,7 +125,7 @@ x_t = √ᾱ_t x₀ + √(1 − ᾱ_t) ε,       ε ~ N(0, I).</div>
 <thead><tr><th>Sampler</th><th>Update style</th><th>Stochastic?</th><th>Strengths and limitations</th></tr></thead>
 <tbody>
 <tr><td>DDPM ancestral</td><td>One learned Gaussian reverse transition per scheduled step.</td><td>Yes</td><td>Matches the training-defined chain only for the full trained timestep schedule and its specified reverse mean/variance parameterization. Clipping, skipped steps, changed variance, or solver modifications define a different sampler.</td></tr>
-<tr><td>DDIM</td><td>Non-Markovian update using predicted <code class="math-inline">x_{0}</code> and a chosen noise parameter <code class="math-inline">\eta</code>.</td><td><code class="math-inline">\eta =0</code> is deterministic</td><td>Can skip many training steps and invert approximately; quality degrades as the step grid becomes too coarse.</td></tr>
+<tr><td>DDIM</td><td>Non-Markovian update using predicted <span class="math-inline" data-tex="x_{0}">x₀</span> and a chosen noise parameter <span class="math-inline" data-tex="\eta">η</span>.</td><td><span class="math-inline" data-tex="\eta =0">η=0</span> is deterministic</td><td>Can skip many training steps and invert approximately; quality degrades as the step grid becomes too coarse.</td></tr>
 <tr><td>Predictor–corrector</td><td>Numerical reverse-SDE predictor plus score-based Langevin correction at each noise level.</td><td>Yes</td><td>Correction moves samples toward the current marginal, improving fidelity at the cost of extra evaluations and step-size/SNR tuning.</td></tr>
 <tr><td>Probability-flow ODE</td><td>Generic Euler, Heun, Runge–Kutta, or adaptive ODE integration.</td><td>No</td><td>Deterministic and can trade tolerance for work; adaptive solvers may batch poorly and score error limits the value of very tight tolerance.</td></tr>
 <tr><td>Higher-order diffusion solver</td><td>Methods such as DPM-Solver exploit the semi-linear diffusion ODE and integrate model outputs to second or third order.</td><td>Usually no</td><td>Often strong in roughly 10–30 evaluations, but sensitive to parameterization conversion, time grid, guidance strength, and model smoothness.</td></tr>
@@ -134,11 +134,11 @@ x_t = √ᾱ_t x₀ + √(1 − ᾱ_t) ε,       ε ~ N(0, I).</div>
 
 <h3 id="ddim-update">DDIM update</h3>
 <p>For a jump from <code>t</code> to an earlier index <code>s</code>, first compute <code>x̂₀=(x_t−√(1−ᾱ_t)ε̂)/√ᾱ_t</code>, then</p>
-<div class="math-display">σ_{t→s} = η √[(1−ᾱ_s)/(1−ᾱ_t)] √[1−ᾱ_t/ᾱ_s],
+<div class="math-display" data-tex="\begin{aligned}\sigma _{t\to s} &amp;= \eta  \sqrt{(1-\bar{\alpha}_s)/(1-\bar{\alpha}_t)} \sqrt{1-\bar{\alpha}_t/\bar{\alpha}_s},\\x_{s} &amp;= \sqrt{\bar{\alpha}_s} \widehat{x}_{0}\\+ \sqrt{1-\bar{\alpha}_s-\sigma _{t\to s}^{2}} \widehat{\varepsilon}\\+ \sigma _{t\to s} z,       z ~ N(0,I).\end{aligned}">σ_{t→s} = η √[(1−ᾱ_s)/(1−ᾱ_t)] √[1−ᾱ_t/ᾱ_s],
 x_s = √ᾱ_s x̂₀
     + √(1−ᾱ_s−σ_{t→s}²) ε̂
     + σ_{t→s} z,       z ~ N(0,I).</div>
-<p><code class="math-inline">\eta =0</code> gives the deterministic DDIM path; nonzero <code class="math-inline">\eta</code> restores controlled stochasticity.</p>
+<p><span class="math-inline" data-tex="\eta =0">η=0</span> gives the deterministic DDIM path; nonzero <span class="math-inline" data-tex="\eta">η</span> restores controlled stochasticity.</p>
 
 <h3 id="nfe-tradeoffs">Number-of-function-evaluation trade-offs</h3>
 <p>An NFE is normally one network call, the dominant cost. Fewer NFEs reduce latency and energy but increase discretization error. Higher order helps only while the learned vector field is sufficiently smooth; strong classifier-free guidance can increase curvature and make aggressive step reduction unstable. Compare samplers at equal NFE, wall-clock time, resolution, guidance, and randomness—not merely equal step count. Corrector steps, classifier calls, and multistage solvers can require multiple evaluations per nominal step.</p>
@@ -149,20 +149,20 @@ x_s = √ᾱ_s x̂₀
 
 <h3 id="classifier-guidance">Classifier guidance</h3>
 <p>Bayes' rule gives</p>
-<div class="math-display">∇_x log p_t(x|y) = ∇_x log p_t(x) + ∇_x log p_t(y|x).</div>
+<div class="math-display" data-tex="\nabla _x \operatorname{log} p_{t}(x\mid y) = \nabla _x \operatorname{log} p_{t}(x) + \nabla _x \operatorname{log} p_{t}(y\mid x).">∇_x log p_t(x|y) = ∇_x log p_t(x) + ∇_x log p_t(y|x).</div>
 <p>A noise-aware classifier supplies the second gradient. Scaling it sharpens class alignment, but requires a separate classifier trained on noisy inputs and can exploit classifier artifacts.</p>
 
 <h3 id="classifier-free-guidance">Classifier-free guidance</h3>
 <p>Train one model on conditional and unconditional examples by replacing the condition with a null token with probability <code>p_drop</code>. At sampling time combine predictions:</p>
-<div class="math-display">ε_CFG = ε_uncond + w(ε_cond − ε_uncond).</div>
-<p>Under this convention <code class="math-inline">w=0</code> is unconditional and <code class="math-inline">w=1</code> is the ordinary conditional model. Some libraries call <code class="math-inline">s=w-1</code> the guidance scale and write <code class="math-inline">(1+s)\varepsilon _\text{cond}-s\varepsilon _\text{uncond}</code>; always check the convention.</p>
+<div class="math-display" data-tex="\varepsilon _CFG = \varepsilon _\text{uncond} + w(\varepsilon _\text{cond} - \varepsilon _\text{uncond}).">ε_CFG = ε_uncond + w(ε_cond − ε_uncond).</div>
+<p>Under this convention <span class="math-inline" data-tex="w=0">w=0</span> is unconditional and <span class="math-inline" data-tex="w=1">w=1</span> is the ordinary conditional model. Some libraries call <span class="math-inline" data-tex="s=w-1">s=w−1</span> the guidance scale and write <span class="math-inline" data-tex="(1+s)\varepsilon _\text{cond}-s\varepsilon _\text{uncond}">(1+s)ε_cond−sε_uncond</span>; always check the convention.</p>
 <p>Increasing guidance generally improves condition adherence and perceived fidelity while reducing diversity, exaggerating features, and risking saturation or off-manifold samples. Conditional dropout must be large enough to learn a useful unconditional branch but not so large that conditional capacity is starved. Guidance scale, dropout rate, sampler, and NFE interact and should be evaluated together.</p>
 
 <h2 id="latent-diffusion">9. Latent diffusion</h2>
-<p>Train an autoencoder with encoder <code class="math-inline">E</code> and decoder <code class="math-inline">D</code>, then diffuse <code class="math-inline">z_{0}=E(x_{0})</code> rather than pixels. A typical image latent is spatially downsampled and has only a few channels, so the denoiser's convolutions or attention operate on far fewer values. Sampling produces <code class="math-inline">\widehat{z}_{0}</code>, then <code class="math-inline">D(\widehat{z}_{0})</code> returns pixels.</p>
+<p>Train an autoencoder with encoder <span class="math-inline" data-tex="E">E</span> and decoder <span class="math-inline" data-tex="D">D</span>, then diffuse <span class="math-inline" data-tex="z_{0}=E(x_{0})">z₀=E(x₀)</span> rather than pixels. A typical image latent is spatially downsampled and has only a few channels, so the denoiser's convolutions or attention operate on far fewer values. Sampling produces <span class="math-inline" data-tex="\widehat{z}_{0}">ẑ₀</span>, then <span class="math-inline" data-tex="D(\widehat{z}_{0})">D(ẑ₀)</span> returns pixels.</p>
 <ul>
 <li><strong>Compute benefit:</strong> lower spatial resolution reduces denoising FLOPs and memory, making larger networks, cross-attention, and higher-resolution generation practical.</li>
-<li><strong>Reconstruction bottleneck:</strong> details discarded by <code class="math-inline">E</code> cannot be recovered by perfect latent denoising; decoder artifacts bound sample quality.</li>
+<li><strong>Reconstruction bottleneck:</strong> details discarded by <span class="math-inline" data-tex="E">E</span> cannot be recovered by perfect latent denoising; decoder artifacts bound sample quality.</li>
 <li><strong>Latent geometry:</strong> the encoded distribution may not be exactly Gaussian or isotropic, and its scale must match the noise schedule.</li>
 <li><strong>Limitations:</strong> small text, faces, exact geometry, and high-frequency texture can be damaged; a separately trained autoencoder adds data, objective, and deployment complexity.</li>
 </ul>
@@ -179,7 +179,7 @@ x_s = √ᾱ_s x̂₀
 <p><a href="flow-matching.html">Rectified flow and flow matching</a> learn a velocity field that transports a simple prior to data, commonly along straight conditional interpolation paths. Diffusion probability-flow ODEs also define deterministic transport, but their vector field is obtained from a score under a chosen diffusion path. Reflow or rectification can straighten trajectories, reducing curvature and making few Euler-like steps more accurate. The connection is deterministic transport; the training paths and objectives need not be identical.</p>
 
 <h2 id="end-to-end-example">End-to-end training and sampling pseudocode</h2>
-<p>This minimal example trains with uniform-timestep <code class="math-inline">\varepsilon</code> prediction and samples with DDPM ancestral updates. Arrays <code>alpha_bar</code> include <code>alpha_bar[0] = 1</code>.</p>
+<p>This minimal example trains with uniform-timestep <span class="math-inline" data-tex="\varepsilon">ε</span> prediction and samples with DDPM ancestral updates. Arrays <code>alpha_bar</code> include <code>alpha_bar[0] = 1</code>.</p>
 <pre><code class="language-python"># Precompute a discrete VP schedule.
 beta = schedule(T)                       # entries 1..T
 alpha = 1 - beta
@@ -236,9 +236,9 @@ return x</code></pre>
 
 <h2 id="review-checklist">Review checklist</h2>
 <ol>
-<li>Derive <code>q(x_t|x₀)</code> and explain why its variance is <code class="math-inline">1-\bar{\alpha}_t</code>.</li>
-<li>Write the exact posterior and obtain the reverse mean from an <code class="math-inline">\varepsilon</code> prediction.</li>
-<li>Convert among <code class="math-inline">\varepsilon</code>, <code class="math-inline">x_{0}</code>, score, and <code>v</code>, including their loss-weight consequences.</li>
+<li>Derive <code>q(x_t|x₀)</code> and explain why its variance is <span class="math-inline" data-tex="1-\bar{\alpha}_t">1−ᾱ_t</span>.</li>
+<li>Write the exact posterior and obtain the reverse mean from an <span class="math-inline" data-tex="\varepsilon">ε</span> prediction.</li>
+<li>Convert among <span class="math-inline" data-tex="\varepsilon">ε</span>, <span class="math-inline" data-tex="x_{0}">x₀</span>, score, and <code>v</code>, including their loss-weight consequences.</li>
 <li>Explain why reverse SDE drift uses the full score correction while the probability-flow ODE uses one half.</li>
 <li>Compare DDPM, DDIM, predictor–corrector, generic ODE, and higher-order solvers at equal NFE.</li>
 <li>Explain classifier-free guidance, its scale conventions, and the diversity–fidelity trade-off.</li>

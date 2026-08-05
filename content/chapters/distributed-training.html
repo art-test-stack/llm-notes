@@ -52,14 +52,13 @@
 </table>
 <p>All participating ranks must call compatible collectives in the same order. Rank-divergent control flow, dtype/shape mismatch, or one rank performing fewer iterations can hang the job.</p>
 <h2 id="collective-cost-model">Collective cost model</h2>
-<p>Use the simple <code class="math-inline">\alpha -\beta</code> model: <code class="math-inline">\alpha</code> is the fixed startup latency of one communication step, <code class="math-inline">\beta</code> is seconds per byte (inverse effective bandwidth), <code>p</code> is the number of ranks, and <code class="math-inline">N</code> is the tensor size in bytes. These formulas describe idealized per-rank critical-path cost; protocol overhead, contention, topology, and imperfect chunking make real measurements worse.</p>
+<p>Use the simple <span class="math-inline" data-tex="\alpha -\beta">α–β</span> model: <span class="math-inline" data-tex="\alpha">α</span> is the fixed startup latency of one communication step, <span class="math-inline" data-tex="\beta">β</span> is seconds per byte (inverse effective bandwidth), <code>p</code> is the number of ranks, and <span class="math-inline" data-tex="N">N</span> is the tensor size in bytes. These formulas describe idealized per-rank critical-path cost; protocol overhead, contention, topology, and imperfect chunking make real measurements worse.</p>
 <p>A ring all-reduce decomposes into a reduce-scatter followed by an all-gather. Split the tensor into <code>p</code> chunks of <code>N/p</code> bytes. In each phase, every rank performs <code>p−1</code> neighbor exchanges:</p>
-<div class="math-display">T_reduce-scatter ≈ (p−1)α + ((p−1)/p)Nβ
+<div class="math-display" data-tex="\begin{aligned}T_{\text{reduce}}-\text{scatter} \approx  (p-1)\alpha  + ((p-1)/p)N\beta\\T_{\text{all}}-\text{gather}     \approx  (p-1)\alpha  + ((p-1)/p)N\beta\\T_{\text{ring}}-\text{allreduce} \approx  2(p-1)\alpha  + 2((p-1)/p)N\beta\end{aligned}">T_reduce-scatter ≈ (p−1)α + ((p−1)/p)Nβ
 T_all-gather     ≈ (p−1)α + ((p−1)/p)Nβ
-T_ring-allreduce ≈ 2(p−1)α + 2((p−1)/p)Nβ
-</div>
-<p>Therefore each rank sends and receives <code>2(p−1)N/p</code> bytes for ring all-reduce, approaching <code>2N</code> in each direction as <code>p</code> grows. Network-wide sent volume is <code>2(p−1)N</code>. For example, with four ranks and a 1 GiB gradient, each rank sends <code class="math-inline">2 \times  3/4 \times  1 = 1.5 \text{GiB}</code>: 0.75 GiB in reduce-scatter and 0.75 GiB in all-gather.</p>
-<p>Rings are bandwidth-efficient for large tensors because every link can stream chunks, but their <code class="math-inline">O(p)</code> startup steps hurt small messages. Tree or recursive-doubling collectives use roughly <code class="math-inline">O(\operatorname{log} p)</code> rounds and usually win when latency dominates; depending on the algorithm they may move larger messages on some links or use bandwidth less evenly. Libraries select hierarchical algorithms by message size and topology—for example, reduce within a node over NVLink/NVSwitch, then across nodes over the fabric, then broadcast locally.</p>
+T_ring-allreduce ≈ 2(p−1)α + 2((p−1)/p)Nβ</div>
+<p>Therefore each rank sends and receives <code>2(p−1)N/p</code> bytes for ring all-reduce, approaching <code>2N</code> in each direction as <code>p</code> grows. Network-wide sent volume is <code>2(p−1)N</code>. For example, with four ranks and a 1 GiB gradient, each rank sends <span class="math-inline" data-tex="2 \times  3/4 \times  1 = 1.5 \text{GiB}">2 × 3/4 × 1 = 1.5 GiB</span>: 0.75 GiB in reduce-scatter and 0.75 GiB in all-gather.</p>
+<p>Rings are bandwidth-efficient for large tensors because every link can stream chunks, but their <span class="math-inline" data-tex="O(p)">O(p)</span> startup steps hurt small messages. Tree or recursive-doubling collectives use roughly <span class="math-inline" data-tex="O(\operatorname{log} p)">O(log p)</span> rounds and usually win when latency dominates; depending on the algorithm they may move larger messages on some links or use bandwidth less evenly. Libraries select hierarchical algorithms by message size and topology—for example, reduce within a node over NVLink/NVSwitch, then across nodes over the fabric, then broadcast locally.</p>
 <h2 id="memory-accounting">Memory accounting</h2>
 <table>
 <thead><tr><th>Class</th><th>Examples</th><th>Reasoning rule</th></tr></thead>
@@ -81,7 +80,7 @@ bucket A all-reduce:                            [launch======]
 bucket B all-reduce:                                    [launch======]
 optimizer step:                                                    [step]
 </code></pre>
-<p>Autograd discovers gradients in reverse execution order. DDP marks each parameter ready; when every gradient assigned to a bucket is ready, it launches that bucket's all-reduce while earlier layers are still backpropagating. The optimizer must wait for all buckets. A larger bucket amortizes <code class="math-inline">\alpha</code> and uses bandwidth well but becomes ready later and reduces overlap; a smaller bucket launches sooner but pays more latency and scheduling overhead.</p>
+<p>Autograd discovers gradients in reverse execution order. DDP marks each parameter ready; when every gradient assigned to a bucket is ready, it launches that bucket's all-reduce while earlier layers are still backpropagating. The optimizer must wait for all buckets. A larger bucket amortizes <span class="math-inline" data-tex="\alpha">α</span> and uses bandwidth well but becomes ready later and reduces overlap; a smaller bucket launches sooner but pays more latency and scheduling overhead.</p>
 <ul>
 <li><code>no_sync()</code> accumulates local gradients without collectives on early microsteps; leave the final microstep synchronized. It saves communication launches, not gradient or optimizer memory.</li>
 <li>A static graph lets DDP reuse the same readiness/order assumptions and avoid repeated graph discovery, but requires stable parameter usage and control flow.</li>
@@ -110,11 +109,10 @@ AG = parameter all-gather; RS = gradient reduce-scatter
 </code></pre>
 <p>With reshard-after-forward enabled, full parameters are freed after each forward block and gathered again for backward: lower temporary residency, more communication. Disabling it retains materialized parameters through backward: fewer gathers, higher peak memory. Forward prefetch can gather the next block while the current block computes; backward prefetch does the analogous overlap around reverse-order execution. Prefetch too aggressively and several all-gathers coexist, turning an optimization into an OOM.</p>
 <p>Wrap granularity defines the unit of gathering, freeing, and prefetch. Tiny wraps cause many latency-bound collectives; huge wraps materialize large parameter sets and reduce overlap opportunities. Transformer blocks are a common starting point, then measured traces decide. The critical FSDP fit calculation is:</p>
-<div class="math-display">peak ≈ persistent local shards
+<div class="math-display" data-tex="\begin{aligned}\text{peak} \approx  \text{persistent} \text{local} \text{shards}\\+ \text{current} \text{full} \text{wrapped} \text{unit}\\+ \text{any} \text{prefetched} \text{next} \text{unit}\\+ \text{activations}, \text{gradients}, \text{buckets}, \text{and} \text{kernel} \text{workspaces}\end{aligned}">peak ≈ persistent local shards
      + current full wrapped unit
      + any prefetched next unit
-     + activations, gradients, buckets, and kernel workspaces
-</div>
+     + activations, gradients, buckets, and kernel workspaces</div>
 <p>Thus a model with small persistent shards can still OOM during a transient all-gather. Treat parameter dtype, reduction dtype, and buffer dtype as independent policies: low-precision parameters save gather bandwidth and compute memory; an FP32 reduction may improve robustness at more traffic; buffers such as normalization statistics need an explicit policy rather than inheriting by accident.</p>
 <h2 id="zero-and-offload">ZeRO and offload</h2>
 <table>
@@ -141,7 +139,7 @@ AG = parameter all-gather; RS = gradient reduce-scatter
 <tr><td>Partitioned activations</td><td>only a shard per parallel rank</td><td>reduces replicated activation memory but adds gather/scatter or topology constraints</td></tr>
 </tbody>
 </table>
-<p>If the original forward costs <code class="math-inline">F</code> and checkpointed regions add recomputation <code class="math-inline">R</code>, the forward-work factor is <code>(F+R)/F</code>; checkpointing every block often makes <code class="math-inline">R</code> approach <code class="math-inline">F</code>, while total step FLOPs rise by less because backward already dominates. RNG state for dropout and other stochastic operations must be preserved or deterministically regenerated so recomputation uses the same masks; otherwise the backward pass differentiates a different function.</p>
+<p>If the original forward costs <span class="math-inline" data-tex="F">F</span> and checkpointed regions add recomputation <span class="math-inline" data-tex="R">R</span>, the forward-work factor is <code>(F+R)/F</code>; checkpointing every block often makes <span class="math-inline" data-tex="R">R</span> approach <span class="math-inline" data-tex="F">F</span>, while total step FLOPs rise by less because backward already dominates. RNG state for dropout and other stochastic operations must be preserved or deterministically regenerated so recomputation uses the same masks; otherwise the backward pass differentiates a different function.</p>
 <p>With pipeline parallelism, activation lifetime also depends on the number of in-flight microbatches. Checkpointing can make more microbatches fit and shrink the bubble, but recomputation lengthens stage service time and may shift the bottleneck. Align checkpoint regions with stage boundaries so recomputation does not require remote activations that were already discarded. See <a href="parallelism.html">parallelism strategies</a> for pipeline schedules.</p>
 <h2 id="data-path">Data path</h2>
 <p>The model can be distributed correctly while the data path is wrong or slow. Requirements include:</p>
@@ -155,8 +153,7 @@ AG = parameter all-gather; RS = gradient reduce-scatter
 </ul>
 <p>GPT-Lab assigns Parquet row groups by rank. This is simple and deterministic for fixed world size, but row-group counts do not guarantee token balance. Changing world size changes ownership and therefore replay semantics.</p>
 <p>For equal fixed-length local batches, the token-slot count is:</p>
-<div class="math-display">token slots/update = device_batch × sequence length × world size × accumulation steps
-</div>
+<div class="math-display" data-tex="\text{token} \text{slots}/\text{update} = \text{device}_{\text{batch}} \times  \text{sequence} \text{length} \times  \text{world} \text{size} \times  \text{accumulation} \text{steps}">token slots/update = device_batch × sequence length × world size × accumulation steps</div>
 <p>This special case assumes equal batches and unique data across ranks. The general effective supervised-token count is the sum of loss-contributing mask entries across every rank and accumulation microstep. Input-token count, non-padding-token count, and supervised target-token count can differ. For example, two ranks with one length-8 slot each have 16 slots; if their non-padding lengths are 8 and 5 and response-only masks supervise 3 and 2 targets, the update contains 13 non-padding input tokens but only 5 supervised tokens.</p>
 <p>Loading, tokenization, packing, and replay semantics are developed further in <a href="pretraining-data.html">Pretraining Data Systems</a>. The chosen global token batch also changes the optimization regime and compute allocation discussed in <a href="scaling-laws.html">Scaling Laws and Compute-Optimal Training</a>.</p>
 <h2 id="topology-and-failures">Topology and failures</h2>

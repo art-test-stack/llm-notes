@@ -11,34 +11,29 @@
 
 <h2 id="exact-speculative-sampling">Exact speculative sampling</h2>
 <p>Fix the current accepted prefix <var>x</var>. Let <code>q(t | x)</code> be the draft distribution and <code>p(t | x)</code> the target distribution over the next token after applying the intended sampling transforms. The draft samples a proposal <code>y ~ q</code>. Draw <code>u ~ Uniform(0,1)</code> and accept <code>y</code> when:</p>
-<div class="math-display">u ≤ a(y), where a(y) = min(1, p(y | x) / q(y | x)).
-</div>
-<p>The ratio is needed only for a sampled token, so <code class="math-inline">q(y \mid  x) \gt  0</code>. If the proposal is rejected, do not emit it. Instead sample a correction token from the residual distribution:</p>
-<div class="math-display">r(t | x) = max(0, p(t | x) - q(t | x)) / Z
-Z        = Σ_v max(0, p(v | x) - q(v | x)).
-</div>
-<p>If <code class="math-inline">Z = 0</code>, then <code class="math-inline">p = q</code> and rejection has probability zero, so the correction branch is unreachable. Target mass on tokens where <code class="math-inline">q=0</code> is included in the residual.</p>
+<div class="math-display" data-tex="u \le  a(y), \text{where} a(y) = \operatorname{min}(1, p(y \mid  x) / q(y \mid  x)).">u ≤ a(y), where a(y) = min(1, p(y | x) / q(y | x)).</div>
+<p>The ratio is needed only for a sampled token, so <span class="math-inline" data-tex="q(y \mid  x) \gt  0">q(y | x) &gt; 0</span>. If the proposal is rejected, do not emit it. Instead sample a correction token from the residual distribution:</p>
+<div class="math-display" data-tex="\begin{aligned}r(t \mid  x) &amp;= \operatorname{max}(0, p(t \mid  x) - q(t \mid  x)) / Z\\Z        &amp;= \sum _v \operatorname{max}(0, p(v \mid  x) - q(v \mid  x)).\end{aligned}">r(t | x) = max(0, p(t | x) - q(t | x)) / Z
+Z        = Σ_v max(0, p(v | x) - q(v | x)).</div>
+<p>If <span class="math-inline" data-tex="Z = 0">Z = 0</span>, then <span class="math-inline" data-tex="p = q">p = q</span> and rejection has probability zero, so the correction branch is unreachable. Target mass on tokens where <span class="math-inline" data-tex="q=0">q=0</span> is included in the residual.</p>
 
 <h3 id="why-the-output-distribution-is-p">Why the output distribution is <var>p</var></h3>
 <p>The probability that token <var>t</var> is proposed and accepted is</p>
-<div class="math-display">q(t) min(1, p(t)/q(t)) = min(q(t), p(t)).
-</div>
+<div class="math-display" data-tex="q(t) \operatorname{min}(1, p(t)/q(t)) = \operatorname{min}(q(t), p(t)).">q(t) min(1, p(t)/q(t)) = min(q(t), p(t)).</div>
 <p>The total rejection probability is</p>
-<div class="math-display">β = 1 - Σ_v min(p(v), q(v))
-  = Σ_v max(0, p(v) - q(v)) = Z.
-</div>
+<div class="math-display" data-tex="\begin{aligned}\beta  &amp;= 1 - \sum _v \operatorname{min}(p(v), q(v))\\&amp;= \sum _v \operatorname{max}(0, p(v) - q(v)) = Z.\end{aligned}">β = 1 - Σ_v min(p(v), q(v))
+  = Σ_v max(0, p(v) - q(v)) = Z.</div>
 <p>Therefore the probability that the algorithm emits <var>t</var>, either by acceptance or correction, is</p>
-<div class="math-display">P(output=t) = min(p(t), q(t)) + β r(t)
+<div class="math-display" data-tex="\begin{aligned}P(\text{output}=t) &amp;= \operatorname{min}(p(t), q(t)) + \beta  r(t)\\&amp;= \operatorname{min}(p(t), q(t)) + \operatorname{max}(0, p(t)-q(t))\\&amp;= p(t).\end{aligned}">P(output=t) = min(p(t), q(t)) + β r(t)
             = min(p(t), q(t)) + max(0, p(t)-q(t))
-            = p(t).
-</div>
+            = p(t).</div>
 <p>This proves the one-step result. Reapplying it at every realized prefix gives the same conditional distribution as ordinary target sampling at every position, hence the same joint sequence distribution. The proof assumes probabilities and random draws are implemented consistently; finite-precision and non-deterministic kernels can still cause small empirical differences.</p>
 
 <h2 id="block-verification">Block verification</h2>
 <ol>
 <li><strong>Draft:</strong> sample <code>y₁…y_k</code> serially, recording each conditional proposal distribution <code>q_i(· | x,y₁…y_{i-1})</code>.</li>
 <li><strong>Score in parallel:</strong> run the target once over the proposed block. Causal masking produces all target distributions <code>p_i(· | x,y₁…y_{i-1})</code> in one wider pass.</li>
-<li><strong>Verify in order:</strong> apply <code>min(1,p_i(y_i)/q_i(y_i))</code> from left to right. If <code>j</code> is the first rejected position, the accepted prefix length is <code class="math-inline">a=j-1</code>.</li>
+<li><strong>Verify in order:</strong> apply <code>min(1,p_i(y_i)/q_i(y_i))</code> from left to right. If <code>j</code> is the first rejected position, the accepted prefix length is <span class="math-inline" data-tex="a=j-1">a=j-1</span>.</li>
 <li><strong>On rejection:</strong> keep <code>y₁…y_a</code>, discard <code>y_j…y_k</code>, and sample one token from <code>r_j ∝ max(0,p_j-q_j)</code>. Later proposals cannot be reused because their distributions were conditioned on the rejected token.</li>
 <li><strong>On full acceptance:</strong> keep all <var>k</var> proposals and sample a bonus token from the target's next-position distribution produced by the verification pass. A successful block can therefore advance by <code>k+1</code> output tokens.</li>
 </ol>
@@ -52,25 +47,23 @@ Z        = Σ_v max(0, p(v | x) - q(v | x)).
 <p>Define <var>p</var> as the target distribution the user actually requested: after temperature, penalties, top-k/top-p or min-p filters, bad-word masks, grammar constraints, and other logit processors in their specified order. Define <var>q</var> from the distribution the draft actually sampled, not from unprocessed draft logits. The draft and target need not have equal logits, but both sides must use the same accepted prefix and synchronized stateful processors. Applying different user sampling policies accidentally, or computing the ratio from probabilities produced before filtering, breaks the claimed algorithm. A narrower draft support is mathematically allowed because the residual restores missing target mass, but it may lower acceptance.</p>
 
 <h2 id="expected-performance">Expected performance</h2>
-<p>Let <var>k</var> be proposal length, <code>C_d(k)</code> the cost of producing the draft block, <code>C_v(k)</code> the target verification cost, <code class="math-inline">C_{o}</code> bookkeeping/communication cost, and <code>C_t(1)</code> the baseline cost of one target decode step. Under the simplifying assumption that every proposal is accepted independently with probability <var>α</var>, the expected number of accepted draft tokens per verification is:</p>
+<p>Let <var>k</var> be proposal length, <code>C_d(k)</code> the cost of producing the draft block, <code>C_v(k)</code> the target verification cost, <span class="math-inline" data-tex="C_{o}">C_o</span> bookkeeping/communication cost, and <code>C_t(1)</code> the baseline cost of one target decode step. Under the simplifying assumption that every proposal is accepted independently with probability <var>α</var>, the expected number of accepted draft tokens per verification is:</p>
 <pre><code class="language-text">E[A] = Σ(i=1…k) P(first i proposals are accepted)
      = Σ(i=1…k) α^i
      = α(1-α^k)/(1-α),  for α ≠ 1; and E[A]=k for α=1.
 </code></pre>
-<p>Every cycle also emits one correction after a rejection or one bonus target token after full acceptance, so <code class="math-inline">E[N] = E[A] + 1</code> output tokens. The approximate latency speedup and break-even condition are:</p>
-<div class="math-display">speedup ≈ (E[A] + 1) C_t(1) / (C_d(k) + C_v(k) + C_o)
+<p>Every cycle also emits one correction after a rejection or one bonus target token after full acceptance, so <span class="math-inline" data-tex="E[N] = E[A] + 1">E[N] = E[A] + 1</span> output tokens. The approximate latency speedup and break-even condition are:</p>
+<div class="math-display" data-tex="\begin{aligned}\text{speedup} \approx  (E[A] + 1) C_{t}(1) / (C_{d}(k) + C_{v}(k) + C_{o})\\\text{break} \text{even} \text{when} C_{d}(k) + C_{v}(k) + C_{o} \lt  (E[A] + 1) C_{t}(1).\end{aligned}">speedup ≈ (E[A] + 1) C_t(1) / (C_d(k) + C_v(k) + C_o)
 
-break even when C_d(k) + C_v(k) + C_o &lt; (E[A] + 1) C_t(1).
-</div>
+break even when C_d(k) + C_v(k) + C_o &lt; (E[A] + 1) C_t(1).</div>
 <p>This is a first-order model, not a promise: acceptance events are prefix- and position-dependent, verification cost is shape-dependent, and batching, cache traffic, synchronization, and draft placement affect the measured terms.</p>
 
 <h3 id="worked-speedup-example">Worked numerical example</h3>
-<p>Take <code class="math-inline">k=4</code>, per-position acceptance <code class="math-inline">\alpha =0.8</code>, draft cost <code class="math-inline">C_{d}=0.4 C_{t}(1)</code>, four-token target verification cost <code class="math-inline">C_{v}=1.2 C_{t}(1)</code>, and overhead <code class="math-inline">C_{o}=0.1 C_{t}(1)</code>.</p>
-<div class="math-display">E[A] = 0.8 + 0.8² + 0.8³ + 0.8⁴ = 2.3616
+<p>Take <span class="math-inline" data-tex="k=4">k=4</span>, per-position acceptance <span class="math-inline" data-tex="\alpha =0.8">α=0.8</span>, draft cost <span class="math-inline" data-tex="C_{d}=0.4 C_{t}(1)">C_d=0.4 C_t(1)</span>, four-token target verification cost <span class="math-inline" data-tex="C_{v}=1.2 C_{t}(1)">C_v=1.2 C_t(1)</span>, and overhead <span class="math-inline" data-tex="C_{o}=0.1 C_{t}(1)">C_o=0.1 C_t(1)</span>.</p>
+<div class="math-display" data-tex="\begin{aligned}E[A] &amp;= 0.8 + 0.8^{2} + 0.8^{3} + 0.8^{4} = 2.3616\\E[N] &amp;= 3.3616 \text{output} \text{tokens}\\\text{cycle} \text{cost} &amp;= 0.4 + 1.2 + 0.1 = 1.7 \text{baseline} \text{target} \text{steps}\\\text{speedup} \approx  3.3616 / 1.7 &amp;= 1.98\times\end{aligned}">E[A] = 0.8 + 0.8² + 0.8³ + 0.8⁴ = 2.3616
 E[N] = 3.3616 output tokens
 cycle cost = 0.4 + 1.2 + 0.1 = 1.7 baseline target steps
-speedup ≈ 3.3616 / 1.7 = 1.98×
-</div>
+speedup ≈ 3.3616 / 1.7 = 1.98×</div>
 <p>The cycle beats the <code>3.3616 C_t(1)</code> baseline cost. If placement or batching raised the cycle cost above that value, the same acceptance rate would no longer break even. This is why draft accuracy alone is not a speed metric.</p>
 
 <h2 id="where-speedup-comes-from">Where speedup comes from</h2>
@@ -118,7 +111,7 @@ speedup ≈ 3.3616 / 1.7 = 1.98×
 <li><strong>Vocabulary mapping:</strong> different tokenizers require mapping draft continuations into target-token sequences and defining a valid proposal probability over those sequences. A text-level retokenization alone does not provide the per-target-token <var>q</var> needed by the acceptance ratio, and boundaries may change with surrounding text.</li>
 <li><strong>Sampling filters:</strong> temperature, top-k, top-p, min-p, and truncation must be reflected in the normalized <var>p</var> and <var>q</var> used by verification. Compute probabilities after masking and renormalization.</li>
 <li><strong>Logit processors:</strong> repetition/frequency penalties, forced tokens, bad-word lists, minimum length, and stop rules are prefix-stateful. Advance their state only for committed tokens and roll it back with rejected proposals.</li>
-<li><strong>Constrained decoding:</strong> grammar or schema state is part of the prefix. Apply the allowed-token mask before forming both distributions. A draft proposal forbidden by the target has <code class="math-inline">p(y)=0</code> and is rejected; branch or n-gram proposals must not move the committed automaton state until accepted.</li>
+<li><strong>Constrained decoding:</strong> grammar or schema state is part of the prefix. Apply the allowed-token mask before forming both distributions. A draft proposal forbidden by the target has <span class="math-inline" data-tex="p(y)=0">p(y)=0</span> and is rejected; branch or n-gram proposals must not move the committed automaton state until accepted.</li>
 </ul>
 <p>Without a sound vocabulary-level probability mapping, a mismatched-tokenizer draft can still be used as a heuristic candidate generator for a separately designed verifier, but the simple <code>p(y)/q(y)</code> proof above does not apply automatically.</p>
 
@@ -128,7 +121,7 @@ speedup ≈ 3.3616 / 1.7 = 1.98×
 
 <h3 id="distribution-equivalence-test-design">Distribution-equivalence test design</h3>
 <ol>
-<li>Use a tiny known <var>p</var> and <var>q</var> to exhaustively check that acceptance plus residual correction produces <var>p</var>, including <code class="math-inline">q(t)=0</code> and <code class="math-inline">p(t)=0</code> cases.</li>
+<li>Use a tiny known <var>p</var> and <var>q</var> to exhaustively check that acceptance plus residual correction produces <var>p</var>, including <span class="math-inline" data-tex="q(t)=0">q(t)=0</span> and <span class="math-inline" data-tex="p(t)=0">p(t)=0</span> cases.</li>
 <li>Compare speculative and ordinary target sampling over many trials at the first token and over short sequences. Test greedy separately; it is not evidence for sampling correctness.</li>
 <li>Repeat with temperature, truncation, penalties, EOS, constrained decoding, partial rejection, full acceptance, and paged-cache block boundaries.</li>
 <li>After every rejection, compare subsequent target logits and logical cache lengths with a clean non-speculative replay of the committed tokens.</li>

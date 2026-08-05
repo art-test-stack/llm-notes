@@ -9,7 +9,7 @@
 </ul>
 <p>The architectural distinction is the allowed information flow, not merely model size.</p>
 <h2 id="notation">Notation and tensor layout</h2>
-<p>Let <code class="math-inline">B</code> be batch size, <code class="math-inline">S = T_{\text{source}}</code> the padded source length, <code class="math-inline">T = T_{\text{target}}</code> the padded target length, <code class="math-inline">D</code> model width, <code class="math-inline">F</code> feed-forward width, <code class="math-inline">H_{q}</code> query heads, <code class="math-inline">H_{\text{kv}}</code> key/value heads, and <code class="math-inline">D_{h} = D/H_{q}</code>. Examples use the head-major layout <code>[B, heads, time, D_h]</code>.</p>
+<p>Let <span class="math-inline" data-tex="B">B</span> be batch size, <span class="math-inline" data-tex="S = T_{\text{source}}">S = T_source</span> the padded source length, <span class="math-inline" data-tex="T = T_{\text{target}}">T = T_target</span> the padded target length, <span class="math-inline" data-tex="D">D</span> model width, <span class="math-inline" data-tex="F">F</span> feed-forward width, <span class="math-inline" data-tex="H_{q}">H_q</span> query heads, <span class="math-inline" data-tex="H_{\text{kv}}">H_kv</span> key/value heads, and <span class="math-inline" data-tex="D_{h} = D/H_{q}">D_h = D/H_q</span>. Examples use the head-major layout <code>[B, heads, time, D_h]</code>.</p>
 
 <h2 id="full-encoder-decoder-computation">Full encoder-decoder computation</h2>
 <p>The encoder consumes every valid source token at once. Each encoder layer applies <strong>bidirectional self-attention</strong> over valid source positions, then a position-wise feed-forward network (FFN). “Bidirectional” means there is no triangular mask; source padding is still masked.</p>
@@ -30,21 +30,20 @@ for decoder layer ℓ:
 logits = LN(D) W_vocab
 loss   = cross_entropy(logits, labels, ignore_index=PAD)
 </code></pre>
-<p>This is a <strong>pre-norm</strong> stack: normalization is inside each residual branch, which usually improves optimization in deep networks. In a <strong>post-norm</strong> stack each sublayer instead computes <code class="math-inline">x = LN(x + \operatorname{Sublayer}(x))</code>. Do not silently mix the two: checkpoint parameters, final normalization, and gradient behavior differ. FFNs are independently applied to each time position, commonly as <code class="math-inline">W_{2} \text{activation}(W_{1}x)</code> or a gated variant such as SwiGLU.</p>
+<p>This is a <strong>pre-norm</strong> stack: normalization is inside each residual branch, which usually improves optimization in deep networks. In a <strong>post-norm</strong> stack each sublayer instead computes <span class="math-inline" data-tex="x = LN(x + \operatorname{Sublayer}(x))">x = LN(x + Sublayer(x))</span>. Do not silently mix the two: checkpoint parameters, final normalization, and gradient behavior differ. FFNs are independently applied to each time position, commonly as <span class="math-inline" data-tex="W_{2} \text{activation}(W_{1}x)">W₂ activation(W₁x)</span> or a gated variant such as SwiGLU.</p>
 <p>During <strong>teacher-forced training</strong>, the complete shifted target is known, so all target positions run in parallel. The causal mask prevents position <code>t</code> from seeing later target tokens even though they are present in the same tensor. Cross-attention may use the complete encoded source at every target position.</p>
 
 <h2 id="cross-attention-equations">Cross-attention equations and shapes</h2>
 <p>For decoder states <code>X_d ∈ R[B,T,D]</code> and encoder states <code>X_e ∈ R[B,S,D]</code>, a decoder cross-attention sublayer computes:</p>
-<div class="math-display">Q = split_heads(X_d W_Q)  ∈ R[B, H_q,  T, D_h]
+<div class="math-display" data-tex="\begin{aligned}Q &amp;= \text{split}_{\text{heads}}(X_{d} W_{Q})  \in  \mathbb{R}^{B, H_{q},  T, D_{h}}\\K &amp;= \text{split}_{\text{heads}}(X_{e} W_{K})  \in  \mathbb{R}^{B, H_{\text{kv}}, S, D_{h}}\\V &amp;= \text{split}_{\text{heads}}(X_{e} W_{V})  \in  \mathbb{R}^{B, H_{\text{kv}}, S, D_{h}}\\A_{i} &amp;= \operatorname{softmax}((Q_{i} K_{g}(i)^{\top}) / \sqrt{D_{h}} + M_{\text{source}})  \in  \mathbb{R}^{B, T, S}\\O_{i} &amp;= A_{i} V_{g}(i)                                      \in  \mathbb{R}^{B, T, D_{h}}\\Y   &amp;= \text{concat}(O_{0}, \ldots , O_(H_{q}-1)) W_{O}                  \in  \mathbb{R}^{B, T, D}\end{aligned}">Q = split_heads(X_d W_Q)  ∈ R[B, H_q,  T, D_h]
 K = split_heads(X_e W_K)  ∈ R[B, H_kv, S, D_h]
 V = split_heads(X_e W_V)  ∈ R[B, H_kv, S, D_h]
 
 A_i = softmax((Q_i K_g(i)ᵀ) / √D_h + M_source)  ∈ R[B, T, S]
 O_i = A_i V_g(i)                                      ∈ R[B, T, D_h]
-Y   = concat(O_0, …, O_(H_q-1)) W_O                  ∈ R[B, T, D]
-</div>
-<p>In standard multi-head attention (MHA), <code class="math-inline">H_{\text{kv}} = H_{q}</code> and <code class="math-inline">g(i)=i</code>. In grouped-query attention (GQA), <code class="math-inline">H_{q}</code> must be divisible by <code class="math-inline">H_{\text{kv}}</code> and several query heads share one KV head; a common mapping is <code class="math-inline">g(i)=\text{floor}(i H_{\text{kv}}/H_{q})</code>. Multi-query attention (MQA) is the special case <code class="math-inline">H_{\text{kv}}=1</code>. GQA/MQA reduce projection and cache memory for K/V; they do not change the logical score shape <code>[B,H_q,T,S]</code>.</p>
-<p>If <code>source_keep</code> is Boolean with shape <code>[B,S]</code>, broadcast it as <code>[B,1,1,S]</code> across query heads and target positions. An additive mask contains <code>0</code> for valid source keys and <code class="math-inline">-\infty</code> for padding. A Boolean mask API may define either <em>keep</em> or <em>block</em> semantics, so check the specific primitive before passing it.</p>
+Y   = concat(O_0, …, O_(H_q-1)) W_O                  ∈ R[B, T, D]</div>
+<p>In standard multi-head attention (MHA), <span class="math-inline" data-tex="H_{\text{kv}} = H_{q}">H_kv = H_q</span> and <span class="math-inline" data-tex="g(i)=i">g(i)=i</span>. In grouped-query attention (GQA), <span class="math-inline" data-tex="H_{q}">H_q</span> must be divisible by <span class="math-inline" data-tex="H_{\text{kv}}">H_kv</span> and several query heads share one KV head; a common mapping is <span class="math-inline" data-tex="g(i)=\text{floor}(i H_{\text{kv}}/H_{q})">g(i)=floor(i H_kv/H_q)</span>. Multi-query attention (MQA) is the special case <span class="math-inline" data-tex="H_{\text{kv}}=1">H_kv=1</span>. GQA/MQA reduce projection and cache memory for K/V; they do not change the logical score shape <code>[B,H_q,T,S]</code>.</p>
+<p>If <code>source_keep</code> is Boolean with shape <code>[B,S]</code>, broadcast it as <code>[B,1,1,S]</code> across query heads and target positions. An additive mask contains <code>0</code> for valid source keys and <span class="math-inline" data-tex="-\infty">-∞</span> for padding. A Boolean mask API may define either <em>keep</em> or <em>block</em> semantics, so check the specific primitive before passing it.</p>
 <pre><code class="language-text">source_keep: [B, S]
 cross_keep:  [B, 1, 1, S]       # broadcast to [B, H_q, T, S]
 causal_keep: [1, 1, T, T]       # lower triangular; decoder self-attention only
@@ -56,7 +55,7 @@ causal_keep: [1, 1, T, T]       # lower triangular; decoder self-attention only
 <thead><tr><th>Concern</th><th>Teacher-forced training</th><th>Autoregressive inference</th></tr></thead>
 <tbody>
 <tr><td>Target input</td><td>Entire right-shifted target</td><td>One newly selected token at a time after optional prompt prefill</td></tr>
-<tr><td>Parallelism</td><td>All <code class="math-inline">T</code> target positions</td><td>Sequential across generated positions; batched across requests or beams</td></tr>
+<tr><td>Parallelism</td><td>All <span class="math-inline" data-tex="T">T</span> target positions</td><td>Sequential across generated positions; batched across requests or beams</td></tr>
 <tr><td>Decoder self-attention</td><td>Triangular causal mask over <code>[T,T]</code></td><td>New query attends to all cached prefix K/V; no future cache entry exists</td></tr>
 <tr><td>Cross-attention</td><td>All target queries attend to the fixed encoded source</td><td>One new query attends to the same fixed encoded source</td></tr>
 <tr><td>Stored K/V</td><td>Usually temporary activations for backpropagation</td><td>Growing decoder self K/V plus fixed encoder-side cross K/V per decoder layer</td></tr>
@@ -65,9 +64,9 @@ causal_keep: [1, 1, T, T]       # lower triangular; decoder self-attention only
 <h3 id="two-different-caches">Two different caches</h3>
 <ol>
 <li><strong>Decoder self-attention cache:</strong> each decoder layer appends the new token's K/V. At step <code>t</code>, its shape is approximately <code>[B,H_kv,t,D_h]</code> for K and again for V. It grows with generated length and differs between sequences and beams.</li>
-<li><strong>Encoder-side cross-attention cache:</strong> after encoding, each decoder layer applies its own cross-attention <code class="math-inline">W_{K}</code> and <code class="math-inline">W_{V}</code> once and stores <code>[B,H_kv,S,D_h]</code>. These projections are immutable throughout decoding. “Cache the encoder output” alone is not equivalent: repeatedly projecting that output still wastes work.</li>
+<li><strong>Encoder-side cross-attention cache:</strong> after encoding, each decoder layer applies its own cross-attention <span class="math-inline" data-tex="W_{K}">W_K</span> and <span class="math-inline" data-tex="W_{V}">W_V</span> once and stores <code>[B,H_kv,S,D_h]</code>. These projections are immutable throughout decoding. “Cache the encoder output” alone is not equivalent: repeatedly projecting that output still wastes work.</li>
 </ol>
-<p>With beam width <code class="math-inline">W</code>, encode each source and compute its per-layer cross K/V once. Keep a <code>beam_to_source</code> mapping so all beams can reference the same immutable source storage instead of copying it <code class="math-inline">W</code> times. After top-k parent selection, reorder the <em>decoder self-attention cache</em>, token histories, lengths, and scores by the parent indices. The shared source cache normally needs only its logical mapping reordered. Paged or reference-counted storage can make both source sharing and common-prefix sharing copy-on-write operations. See <a href="inference.html">inference, decoding, and KV caches</a> for the serving details.</p>
+<p>With beam width <span class="math-inline" data-tex="W">W</span>, encode each source and compute its per-layer cross K/V once. Keep a <code>beam_to_source</code> mapping so all beams can reference the same immutable source storage instead of copying it <span class="math-inline" data-tex="W">W</span> times. After top-k parent selection, reorder the <em>decoder self-attention cache</em>, token histories, lengths, and scores by the parent indices. The shared source cache normally needs only its logical mapping reordered. Paged or reference-counted storage can make both source sharing and common-prefix sharing copy-on-write operations. See <a href="inference.html">inference, decoding, and KV caches</a> for the serving details.</p>
 
 <h2 id="architectural-variants">Architectural variants</h2>
 <table>
@@ -75,7 +74,7 @@ causal_keep: [1, 1, T, T]       # lower triangular; decoder self-attention only
 <tbody>
 <tr><td>Cross-attention in every decoder layer</td><td>Each layer directly queries encoder states</td><td>Strong conditioning and highest repeated <code>T×S</code> cost/cache</td></tr>
 <tr><td>Sparse cross-attention layers</td><td>Only selected decoder layers cross-attend</td><td>Lower cost, but source information must propagate through self-attention and residuals</td></tr>
-<tr><td>Gated cross-attention</td><td><code class="math-inline">x \leftarrow  x + \alpha \cdot \operatorname{CrossAttention}(...)</code>, with learned scalar/vector gate</td><td>Controls conditioning strength and can safely initialize inserted modules; a closed gate can also cause source neglect</td></tr>
+<tr><td>Gated cross-attention</td><td><span class="math-inline" data-tex="x \leftarrow  x + \alpha \cdot \operatorname{CrossAttention}(...)">x ← x + α·CrossAttention(...)</span>, with learned scalar/vector gate</td><td>Controls conditioning strength and can safely initialize inserted modules; a closed gate can also cause source neglect</td></tr>
 <tr><td>Multi-source cross-attention</td><td>Attend separately to text, image, audio, tools, or retrieved sets, then combine; or concatenate typed source tokens</td><td>Separate modules preserve source identity but cost more; concatenation needs type/position signals and careful masks</td></tr>
 <tr><td>Latent bottleneck</td><td>A small learned latent set first cross-attends to a large input; later computation uses the latents</td><td>Decouples later cost from raw source length but may discard fine detail</td></tr>
 <tr><td>Flamingo-style insertion</td><td>Gated cross-attention blocks are inserted into a pretrained language-model stack to read visual/media features</td><td>Reuses a strong decoder while limiting newly trained parameters; placement and gating determine conditioning strength</td></tr>
@@ -85,16 +84,16 @@ causal_keep: [1, 1, T, T]       # lower triangular; decoder self-attention only
 <p>These patterns also cover translation, summarization, speech-to-text, text-to-image conditioning, and scientific encoders. See <a href="multimodal.html">multimodal Transformers</a> and <a href="rag.html">retrieval-augmented generation</a>.</p>
 
 <h2 id="complexity">Complexity and memory</h2>
-<p>Let <code class="math-inline">L_{e}</code> be encoder layers and <code class="math-inline">L_{d}</code> decoder layers; let <code class="math-inline">L_{x} \le  L_{d}</code> contain cross-attention. Ignoring constants and projection/FFN terms, dense attention costs are:</p>
+<p>Let <span class="math-inline" data-tex="L_{e}">L_e</span> be encoder layers and <span class="math-inline" data-tex="L_{d}">L_d</span> decoder layers; let <span class="math-inline" data-tex="L_{x} \le  L_{d}">L_x ≤ L_d</span> contain cross-attention. Ignoring constants and projection/FFN terms, dense attention costs are:</p>
 <table>
 <thead><tr><th>Component</th><th>Training compute</th><th>Attention-score memory</th></tr></thead>
 <tbody>
-<tr><td>Encoder bidirectional self-attention</td><td><code class="math-inline">O(B L_{e} S^{2} D)</code></td><td><code class="math-inline">O(B L_{e} H_{q} S^{2})</code> without memory-efficient kernels/checkpointing</td></tr>
-<tr><td>Decoder causal self-attention</td><td><code class="math-inline">O(B L_{d} T^{2} D)</code></td><td><code class="math-inline">O(B L_{d} H_{q} T^{2})</code></td></tr>
-<tr><td>Decoder cross-attention</td><td><code class="math-inline">O(B L_{x} T S D)</code></td><td><code class="math-inline">O(B L_{x} H_{q} T S)</code></td></tr>
+<tr><td>Encoder bidirectional self-attention</td><td><span class="math-inline" data-tex="O(B L_{e} S^{2} D)">O(B L_e S² D)</span></td><td><span class="math-inline" data-tex="O(B L_{e} H_{q} S^{2})">O(B L_e H_q S²)</span> without memory-efficient kernels/checkpointing</td></tr>
+<tr><td>Decoder causal self-attention</td><td><span class="math-inline" data-tex="O(B L_{d} T^{2} D)">O(B L_d T² D)</span></td><td><span class="math-inline" data-tex="O(B L_{d} H_{q} T^{2})">O(B L_d H_q T²)</span></td></tr>
+<tr><td>Decoder cross-attention</td><td><span class="math-inline" data-tex="O(B L_{x} T S D)">O(B L_x T S D)</span></td><td><span class="math-inline" data-tex="O(B L_{x} H_{q} T S)">O(B L_x H_q T S)</span></td></tr>
 </tbody>
 </table>
-<p>Linear projections add roughly <code class="math-inline">O(BS D^{2})</code> or <code class="math-inline">O(BT D^{2})</code> per layer, and FFNs add <code class="math-inline">O(B(S+T)DF)</code>. At one-token decoding, self-attention reads a growing prefix and cross-attention reads the fixed source, so the attention work per decoder layer is <code class="math-inline">O(\text{tD} + SD)</code>. Summed over generated tokens, cross-attention remains <code class="math-inline">O(TSD)</code>.</p>
+<p>Linear projections add roughly <span class="math-inline" data-tex="O(BS D^{2})">O(BS D²)</span> or <span class="math-inline" data-tex="O(BT D^{2})">O(BT D²)</span> per layer, and FFNs add <span class="math-inline" data-tex="O(B(S+T)DF)">O(B(S+T)DF)</span>. At one-token decoding, self-attention reads a growing prefix and cross-attention reads the fixed source, so the attention work per decoder layer is <span class="math-inline" data-tex="O(\text{tD} + SD)">O(tD + SD)</span>. Summed over generated tokens, cross-attention remains <span class="math-inline" data-tex="O(TSD)">O(TSD)</span>.</p>
 <p>The mutable decoder cache uses <code>2 B L_d H_kv t D_h</code> elements. Fixed source projection caches use <code>2 B L_x H_kv S D_h</code> elements and can dominate when the source is long or cross-attention appears in every layer. GQA/MQA, lower-precision K/V, and beam-wise source sharing reduce cache bytes, but only source compression or sparse selection reduces the number of source positions read.</p>
 <p>Long-source mitigations include chunking or hierarchical encoders, retrieval of only relevant passages, local/sparse encoder attention, selecting or pooling source tokens, latent bottlenecks, and cross-attention in fewer layers. Flash-style kernels reduce materialized score memory but not the <code>T×S</code> arithmetic. Each mitigation trades exact global access for selection or compression; measure evidence recall, not only accepted length. See <a href="long-context.html">long-context modelling</a>.</p>
 
@@ -195,7 +194,7 @@ def decode_step(token, position, source, self_cache):
 self_cache = [c.index_select_batch(parent_beam) for c in self_cache]
 beam_to_source = beam_to_source.index_select(0, parent_beam)
 </code></pre>
-<p>Real implementations preallocate or page the growing self cache instead of concatenating every step. They should also reject all-masked source rows or provide a defined null source, because softmax over only <code class="math-inline">-\infty</code> values yields undefined/NaN probabilities.</p>
+<p>Real implementations preallocate or page the growing self cache instead of concatenating every step. They should also reject all-masked source rows or provide a defined null source, because softmax over only <span class="math-inline" data-tex="-\infty">-∞</span> values yields undefined/NaN probabilities.</p>
 
 <h2 id="correctness-tests">Mask and cache correctness tests</h2>
 <pre><code class="language-python">def test_mask_shapes_and_meanings():
@@ -230,7 +229,7 @@ def test_cached_decode_matches_full_prefix(model):
     full_logits = model.decode_full_causal(prefix, source)
     assert_close(cached_logits, full_logits, atol=1e-5, rtol=1e-5)
 </code></pre>
-<p>Also test batches with unequal source/target lengths, <code class="math-inline">H_{q} \gt  H_{\text{kv}}</code>, a single valid source token, beam parent indices containing duplicates, and both Boolean and additive mask adapters. The key invariant is that changing future targets cannot affect past logits, while changing any valid source position is permitted to affect every target position.</p>
+<p>Also test batches with unequal source/target lengths, <span class="math-inline" data-tex="H_{q} \gt  H_{\text{kv}}">H_q &gt; H_kv</span>, a single valid source token, beam parent indices containing duplicates, and both Boolean and additive mask adapters. The key invariant is that changing future targets cannot affect past logits, while changing any valid source position is permitted to affect every target position.</p>
 
 <h2 id="failure-modes">Failure modes</h2>
 <ul>
@@ -248,7 +247,7 @@ def test_cached_decode_matches_full_prefix(model):
 <h2 id="review-questions">Review questions</h2>
 <ol>
 <li>Draw the training graph and label which paths are bidirectional, causal, and unmasked except for padding.</li>
-<li>Derive MHA and GQA cross-attention shapes for <code class="math-inline">B=2</code>, <code class="math-inline">H_{q}=16</code>, <code class="math-inline">H_{\text{kv}}=4</code>, <code class="math-inline">T=128</code>, and <code class="math-inline">S=512</code>.</li>
+<li>Derive MHA and GQA cross-attention shapes for <span class="math-inline" data-tex="B=2">B=2</span>, <span class="math-inline" data-tex="H_{q}=16">H_q=16</span>, <span class="math-inline" data-tex="H_{\text{kv}}=4">H_kv=4</span>, <span class="math-inline" data-tex="T=128">T=128</span>, and <span class="math-inline" data-tex="S=512">S=512</span>.</li>
 <li>Write the decoder input/label shift and explain why training remains parallel.</li>
 <li>Compare the growing decoder self K/V cache with fixed per-layer source K/V, including beam search.</li>
 <li>Calculate encoder, decoder, and cross-attention costs, then propose a long-source mitigation and name what information it can lose.</li>

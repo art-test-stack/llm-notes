@@ -2,7 +2,7 @@
 <p class="lede">A path signature turns an ordered, possibly irregular stream into a hierarchy of geometric features. Level one records displacement, level two records ordered pairwise effects and area, and higher levels record increasingly detailed order interactions.</p>
 
       <div class="callout">
-        <strong>Core idea.</strong> For a path <code class="math-inline">X</code>, its signature is the collection of all iterated integrals of its coordinate differentials. A truncated signature is a finite feature vector; a log-signature is a less redundant coordinate system for the same group-like object; a Neural CDE is a learned dynamical model driven by the path, not another name for either feature vector.
+        <strong>Core idea.</strong> For a path <span class="math-inline" data-tex="X">X</span>, its signature is the collection of all iterated integrals of its coordinate differentials. A truncated signature is a finite feature vector; a log-signature is a less redundant coordinate system for the same group-like object; a Neural CDE is a learned dynamical model driven by the path, not another name for either feature vector.
       </div>
 
       <h2 id="paths-and-streams">1. Paths and streams</h2>
@@ -11,33 +11,33 @@
       <p>A <em>path</em> is a map <code>X : [0,T] → ℝ<sup>d</sup></code>. The parameter is often time, but it may be any variable that orders observations. A path is continuous if nearby parameter values produce nearby points. For ordinary Riemann–Stieltjes integration, bounded variation is a convenient regularity assumption; rough-path theory extends the construction to much more irregular signals.</p>
 
       <h3>Piecewise-linear interpolation</h3>
-      <p>A discrete sequence <code>(t<sub>n</sub>, x<sub>n</sub>)</code> does not specify a continuous path until an interpolation rule is chosen. Piecewise-linear interpolation joins consecutive observations by straight segments and gives an exact finite computation of a truncated signature. It is causal offline or once a segment endpoint has arrived, but not for continuous strict-online queries inside that segment: with observations <code class="math-inline">(t_{0},x_{0})</code> and <code class="math-inline">(t_{1},x_{1})</code>, the interpolated value at <code class="math-inline">t_{0}\lt t\lt t_{1}</code> uses the future endpoint <code class="math-inline">x_{1}</code> before it is observed. Previous-value, rectilinear/time-joined, delayed, or explicitly online schemes avoid that look-ahead.</p>
+      <p>A discrete sequence <code>(t<sub>n</sub>, x<sub>n</sub>)</code> does not specify a continuous path until an interpolation rule is chosen. Piecewise-linear interpolation joins consecutive observations by straight segments and gives an exact finite computation of a truncated signature. It is causal offline or once a segment endpoint has arrived, but not for continuous strict-online queries inside that segment: with observations <span class="math-inline" data-tex="(t_{0},x_{0})">(t₀,x₀)</span> and <span class="math-inline" data-tex="(t_{1},x_{1})">(t₁,x₁)</span>, the interpolated value at <span class="math-inline" data-tex="t_{0}\lt t\lt t_{1}">t₀&lt;t&lt;t₁</span> uses the future endpoint <span class="math-inline" data-tex="x_{1}">x₁</span> before it is observed. Previous-value, rectilinear/time-joined, delayed, or explicitly online schemes avoid that look-ahead.</p>
 
       <h3>Irregularly sampled time series</h3>
       <p>Signatures naturally accept irregular observations because they operate on a path rather than a fixed grid. However, if only values are supplied, a reparameterization-invariant signature cannot distinguish slow from fast traversal. Add the actual observation time as a channel when gaps or sampling density carry information.</p>
 
       <h3>Multichannel paths</h3>
-      <p>For <code>d</code> channels, <code class="math-inline">X_t=(X_t^1,\ldots,X_t^d)</code>. Cross-channel iterated integrals encode ordering: “channel <code>i</code> moved, then channel <code>j</code> moved” differs from the reverse. This is why signatures capture more than per-channel summary statistics.</p>
+      <p>For <code>d</code> channels, <span class="math-inline" data-tex="X_t=(X_t^1,\ldots,X_t^d)">Xt = (Xt1, …, Xtd)</span>. Cross-channel iterated integrals encode ordering: “channel <code>i</code> moved, then channel <code>j</code> moved” differs from the reverse. This is why signatures capture more than per-channel summary statistics.</p>
 
       <h3>Time augmentation</h3>
-      <p>Replace <code>X<sub>t</sub></code> by <code class="math-inline">\widetilde X_t=(t,X_t)</code> to retain duration, speed relative to the clock, and irregular sampling gaps. Normalize time only if absolute duration should not matter. Other common augmentations include observation-count, missingness masks, and lead–lag channels.</p>
+      <p>Replace <code>X<sub>t</sub></code> by <span class="math-inline" data-tex="\widetilde X_t=(t,X_t)">X̃t = (t, Xt)</span> to retain duration, speed relative to the clock, and irregular sampling gaps. Normalize time only if absolute duration should not matter. Other common augmentations include observation-count, missingness masks, and lead–lag channels.</p>
 
       <h2 id="iterated-integrals">2. Iterated integrals</h2>
 
-      <p>Assume first that <code class="math-inline">X</code> has bounded variation. For a multi-index <code class="math-inline">I=(i_1,\ldots,i_k)</code>, define</p>
-      <div class="formula"><code class="math-inline">S^I(X)_{0,T}=\int_{0&lt;t_1&lt;\cdots&lt;t_k&lt;T}dX_{t_1}^{i_1}\cdots dX_{t_k}^{i_k}.</code></div>
-      <p>The ordered simplex <code class="math-inline">t_{1} \lt  \cdots  \lt  t_{k}</code> is essential: it makes the feature sensitive to the order in which coordinates move.</p>
+      <p>Assume first that <span class="math-inline" data-tex="X">X</span> has bounded variation. For a multi-index <span class="math-inline" data-tex="I=(i_1,\ldots,i_k)">I = (i1, …, ik)</span>, define</p>
+      <div class="formula"><span class="math-inline" data-tex="S^I(X)_{0,T}=\int_{0&lt;t_1&lt;\cdots&lt;t_k&lt;T}dX_{t_1}^{i_1}\cdots dX_{t_k}^{i_k}.">SI(X)0,T = ∫0&lt;t₁&lt;⋯&lt;tₖ&lt;T dXt₁i₁ ⋯ dXtₖiₖ.</span></div>
+      <p>The ordered simplex <span class="math-inline" data-tex="t_{1} \lt  \cdots  \lt  t_{k}">t₁ &lt; ⋯ &lt; tₖ</span> is essential: it makes the feature sensitive to the order in which coordinates move.</p>
 
       <h3>First-level increments</h3>
-      <div class="formula"><code class="math-inline">S^i(X)_{0,T}=\int_0^T dX_t^i=X_T^i-X_0^i.</code></div>
+      <div class="formula"><span class="math-inline" data-tex="S^i(X)_{0,T}=\int_0^T dX_t^i=X_T^i-X_0^i.">Si(X)0,T = ∫0T dXti = XTi − X0i.</span></div>
       <p>Geometrically, level one is the displacement vector. It knows the endpoints’ difference but not the route between them.</p>
 
       <h3>Second-level signed areas</h3>
-      <div class="formula"><code class="math-inline">S^{ij}(X)=\int_{0&lt;s&lt;t&lt;T}dX_s^i\,dX_t^j.</code></div>
+      <div class="formula"><span class="math-inline" data-tex="S^{ij}(X)=\int_{0&lt;s&lt;t&lt;T}dX_s^i\,dX_t^j.">Sij(X) = ∫0&lt;s&lt;t&lt;T dXsi dXtj.</span></div>
       <p>The full second level records ordered pairs of movements. Its symmetric part is fixed by level one through the shuffle identity:</p>
-      <div class="formula"><code class="math-inline">S^{ij}+S^{ji}=S^iS^j.</code></div>
+      <div class="formula"><span class="math-inline" data-tex="S^{ij}+S^{ji}=S^iS^j.">Sij + Sji = SiSj.</span></div>
       <p>The antisymmetric part</p>
-      <div class="formula"><code class="math-inline">A^{ij}=\tfrac12\bigl(S^{ij}-S^{ji}\bigr)</code></div>
+      <div class="formula"><span class="math-inline" data-tex="A^{ij}=\tfrac12\bigl(S^{ij}-S^{ji}\bigr)">Aij = ½(Sij − Sji)</span></div>
       <p>is the signed Lévy area in the <code>(i,j)</code> plane, relative to the chord closing the path. Its sign reverses when the order of the two channel movements reverses. Thus level two distinguishes “<code>i</code> then <code>j</code>” from “<code>j</code> then <code>i</code>” even when both paths have the same increment.</p>
 
       <h3>Higher levels</h3>
@@ -60,50 +60,52 @@
       <h2 id="signature-definition">3. Signature definition</h2>
 
       <h3>Tensor-series representation</h3>
-      <p>Let <code class="math-inline">V=\mathbb{R}^d</code>. The signature is the formal tensor series</p>
-      <div class="formula"><code class="math-inline">\begin{aligned}\operatorname{Sig}(X)_{0,T}&amp;=\bigl(1,S^1(X),S^2(X),\ldots\bigr)\in T((V)),\\S^k(X)&amp;=\int_{0&lt;t_1&lt;\cdots&lt;t_k&lt;T}dX_{t_1}\otimes\cdots\otimes dX_{t_k}\in V^{\otimes k}.\end{aligned}</code></div>
+      <p>Let <span class="math-inline" data-tex="V=\mathbb{R}^d">V = ℝd</span>. The signature is the formal tensor series</p>
+      <div class="formula"><span class="math-inline" data-tex="\begin{aligned}\operatorname{Sig}(X)_{0,T}&amp;=\bigl(1,S^1(X),S^2(X),\ldots\bigr)\in T((V)),\\S^k(X)&amp;=\int_{0&lt;t_1&lt;\cdots&lt;t_k&lt;T}dX_{t_1}\otimes\cdots\otimes dX_{t_k}\in V^{\otimes k}.\end{aligned}">Sig(X)0,T = (1, S1(X), S2(X), …) ∈ T((V)),
+
+Sk(X) = ∫0&lt;t₁&lt;⋯&lt;tₖ&lt;T dXt₁ ⊗ ⋯ ⊗ dXtₖ ∈ V⊗k.</span></div>
       <p>The scalar level zero makes tensor multiplication and Chen’s identity work cleanly.</p>
 
       <h3>Truncated signatures</h3>
       <p>In computation, retain only levels <code>0,…,m</code>:</p>
-      <div class="formula"><code class="math-inline">\operatorname{Sig}^{\le m}(X)=\bigl(1,S^1(X),\ldots,S^m(X)\bigr).</code></div>
+      <div class="formula"><span class="math-inline" data-tex="\operatorname{Sig}^{\le m}(X)=\bigl(1,S^1(X),\ldots,S^m(X)\bigr).">Sig≤m(X) = (1, S1(X), …, Sm(X)).</span></div>
 
       <h3>Factorial decay</h3>
-      <p>For a bounded-variation path with total variation <code class="math-inline">L</code>, a standard bound is</p>
-      <div class="formula"><code class="math-inline">\lVert S^k(X)\rVert\le\frac{L^k}{k!}.</code></div>
+      <p>For a bounded-variation path with total variation <span class="math-inline" data-tex="L">L</span>, a standard bound is</p>
+      <div class="formula"><span class="math-inline" data-tex="\lVert S^k(X)\rVert\le\frac{L^k}{k!}.">‖Sk(X)‖ ≤ Lk / k!.</span></div>
       <p>The factorial denominator arises from integrating over the ordered simplex, whose volume is <code>1/k!</code> of the full cube. The bound depends on the chosen tensor norm and does not mean high levels are always numerically negligible after arbitrary scaling.</p>
 
       <h3>Why truncation is practical</h3>
       <p>Factorial decay and task-dependent finite resolution often make low levels useful. The raw feature dimension through depth <code>m</code>, excluding level zero, is</p>
-      <div class="formula"><code class="math-inline">D(d,m)=\sum_{k=1}^m d^k=\frac{d^{m+1}-d}{d-1},\qquad d\ne1.</code></div>
+      <div class="formula"><span class="math-inline" data-tex="D(d,m)=\sum_{k=1}^m d^k=\frac{d^{m+1}-d}{d-1},\qquad d\ne1.">D(d,m) = ∑k=1m dk = (dm+1 − d)/(d − 1),   d ≠ 1.</span></div>
       <div class="callout">
-        <strong>Dimension calculation.</strong> With <code class="math-inline">d = 4</code> channels and depth <code class="math-inline">m = 3</code>, the levels contain <code>4</code>, <code>16</code>, and <code>64</code> coordinates: <code class="math-inline">4 + 16 + 64 = 84</code> features, or <code>85</code> if the constant level zero is stored. At depth 5 this becomes <code class="math-inline">4 + 16 + 64 + 256 + 1024 = 1364</code>, illustrating why depth and channel count must be chosen together.
+        <strong>Dimension calculation.</strong> With <span class="math-inline" data-tex="d = 4">d = 4</span> channels and depth <span class="math-inline" data-tex="m = 3">m = 3</span>, the levels contain <code>4</code>, <code>16</code>, and <code>64</code> coordinates: <span class="math-inline" data-tex="4 + 16 + 64 = 84">4 + 16 + 64 = 84</span> features, or <code>85</code> if the constant level zero is stored. At depth 5 this becomes <span class="math-inline" data-tex="4 + 16 + 64 + 256 + 1024 = 1364">4 + 16 + 64 + 256 + 1024 = 1364</span>, illustrating why depth and channel count must be chosen together.
       </div>
 
       <h2 id="chens-identity">4. Chen’s identity</h2>
 
       <h3>Signature of concatenated paths</h3>
-      <p>If <code>X * Y</code> follows path <code class="math-inline">X</code> and then path <code class="math-inline">Y</code>, with the endpoint of <code class="math-inline">X</code> joined to the start of a translated copy of <code class="math-inline">Y</code>, then</p>
-      <div class="formula"><code class="math-inline">\operatorname{Sig}(X*Y)=\operatorname{Sig}(X)\otimes\operatorname{Sig}(Y).</code></div>
+      <p>If <code>X * Y</code> follows path <span class="math-inline" data-tex="X">X</span> and then path <span class="math-inline" data-tex="Y">Y</span>, with the endpoint of <span class="math-inline" data-tex="X">X</span> joined to the start of a translated copy of <span class="math-inline" data-tex="Y">Y</span>, then</p>
+      <div class="formula"><span class="math-inline" data-tex="\operatorname{Sig}(X*Y)=\operatorname{Sig}(X)\otimes\operatorname{Sig}(Y).">Sig(X * Y) = Sig(X) ⊗ Sig(Y).</span></div>
 
       <h3>Algebraic product</h3>
       <p>The product is tensor-series multiplication, not elementwise multiplication. At level <code>k</code>,</p>
-      <div class="formula"><code class="math-inline">\bigl(S(X)\otimes S(Y)\bigr)^k=\sum_{r=0}^k S^r(X)\otimes S^{k-r}(Y).</code></div>
-      <p>In particular, <code class="math-inline">S^1(X*Y)=S^1(X)+S^1(Y)</code> and</p>
-      <div class="formula"><code class="math-inline">S^2(X*Y)=S^2(X)+S^1(X)\otimes S^1(Y)+S^2(Y).</code></div>
-      <p>The cross term records that every movement in <code class="math-inline">X</code> occurs before every movement in <code class="math-inline">Y</code>.</p>
+      <div class="formula"><span class="math-inline" data-tex="\bigl(S(X)\otimes S(Y)\bigr)^k=\sum_{r=0}^k S^r(X)\otimes S^{k-r}(Y).">(S(X) ⊗ S(Y))k = ∑r=0k Sr(X) ⊗ Sk−r(Y).</span></div>
+      <p>In particular, <span class="math-inline" data-tex="S^1(X*Y)=S^1(X)+S^1(Y)">S1(X*Y) = S1(X) + S1(Y)</span> and</p>
+      <div class="formula"><span class="math-inline" data-tex="S^2(X*Y)=S^2(X)+S^1(X)\otimes S^1(Y)+S^2(Y).">S2(X*Y) = S2(X) + S1(X) ⊗ S1(Y) + S2(Y).</span></div>
+      <p>The cross term records that every movement in <span class="math-inline" data-tex="X">X</span> occurs before every movement in <span class="math-inline" data-tex="Y">Y</span>.</p>
 
       <h3>Worked small example</h3>
-      <p>Let <code class="math-inline">X</code> move one unit along the first coordinate, so its increment is <code class="math-inline">a = (1,0)</code>. Let <code class="math-inline">Y</code> then move two units along the second coordinate, with increment <code class="math-inline">b = (0,2)</code>. A straight segment with increment <code>v</code> has second level <code>v⊗v/2</code>. Chen’s identity gives</p>
-      <div class="math-display">Level 1: a + b = (1, 2)
+      <p>Let <span class="math-inline" data-tex="X">X</span> move one unit along the first coordinate, so its increment is <span class="math-inline" data-tex="a = (1,0)">a = (1,0)</span>. Let <span class="math-inline" data-tex="Y">Y</span> then move two units along the second coordinate, with increment <span class="math-inline" data-tex="b = (0,2)">b = (0,2)</span>. A straight segment with increment <code>v</code> has second level <code>v⊗v/2</code>. Chen’s identity gives</p>
+      <div class="math-display" data-tex="\begin{aligned}\text{Level} 1: a + b &amp;= (1, 2)\\\text{Level} 2: \tfrac{1}{2}a\otimes a + a\otimes b + \tfrac{1}{2}b\otimes b\\&amp;= [[1/2, 2],\\{}[  0, 2]]\end{aligned}">Level 1: a + b = (1, 2)
 
 Level 2: ½a⊗a + a⊗b + ½b⊗b
          = [[1/2, 2],
             [  0, 2]]</div>
-      <p>Therefore <code class="math-inline">S12 = 2</code> while <code class="math-inline">S21 = 0</code>: the horizontal movement happened before the vertical movement. The antisymmetric area is <code class="math-inline">\tfrac{1}{2}(2-0) = 1</code>, the signed area of the right triangle closed by the chord. Reversing the two segments swaps the off-diagonal entries and changes the area’s sign.</p>
+      <p>Therefore <span class="math-inline" data-tex="S12 = 2">S12 = 2</span> while <span class="math-inline" data-tex="S21 = 0">S21 = 0</span>: the horizontal movement happened before the vertical movement. The antisymmetric area is <span class="math-inline" data-tex="\tfrac{1}{2}(2-0) = 1">½(2−0) = 1</span>, the signed area of the right triangle closed by the chord. Reversing the two segments swaps the off-diagonal entries and changes the area’s sign.</p>
 
       <h3>Streaming and windowed computation</h3>
-      <p>Maintain a running truncated signature <code class="math-inline">G</code>. When a new path piece arrives, compute its signature <code class="math-inline">H</code> and update <code>G ← G⊗H</code>. This supports online processing without replaying the full history. Windowed systems can combine signatures of blocks in a tree. Removing an old prefix requires the group inverse, or more simply recomputing from cached blocks; it is not ordinary coordinate-wise subtraction.</p>
+      <p>Maintain a running truncated signature <span class="math-inline" data-tex="G">G</span>. When a new path piece arrives, compute its signature <span class="math-inline" data-tex="H">H</span> and update <code>G ← G⊗H</code>. This supports online processing without replaying the full history. Windowed systems can combine signatures of blocks in a tree. Removing an old prefix requires the group inverse, or more simply recomputing from cached blocks; it is not ordinary coordinate-wise subtraction.</p>
 
       <h2 id="invariances-and-information">5. Invariances and information</h2>
 
@@ -131,15 +133,15 @@ Level 2: ½a⊗a + a⊗b + ½b⊗b
       <h2 id="log-signatures">6. Log-signatures</h2>
 
       <h3>Redundancy in raw signatures</h3>
-      <p>Signature coordinates obey shuffle identities; for example, <code class="math-inline">S^iS^j=S^{ij}+S^{ji}</code>. Raw tensor coordinates are therefore not algebraically independent.</p>
+      <p>Signature coordinates obey shuffle identities; for example, <span class="math-inline" data-tex="S^iS^j=S^{ij}+S^{ji}">SiSj = Sij + Sji</span>. Raw tensor coordinates are therefore not algebraically independent.</p>
 
       <h3>Free Lie algebra intuition</h3>
       <p>The tensor logarithm <code>log Sig(X)</code> lies in the free Lie algebra generated by the path channels. Informally, it keeps primitive directions and their nested noncommutative interactions: channels <code>e<sub>i</sub></code>, brackets <code>[e<sub>i</sub>,e<sub>j</sub>]</code>, then nested brackets such as <code>[e<sub>i</sub>,[e<sub>j</sub>,e<sub>k</sub>]]</code>. The bracket captures order effects that vanish in a commutative summary.</p>
 
       <h3>Dimensionality reduction</h3>
       <p>A basis such as a Lyndon or Hall basis stores only independent Lie coordinates. By Witt’s formula, the number at homogeneous level <code>k</code> is</p>
-      <div class="formula"><code class="math-inline">\ell k(d) = (1/k) \sum r\mid k \mu (r)d k/r.</code></div>
-      <p>For <code class="math-inline">d=4</code>, levels 1–3 contain <code>4</code>, <code>6</code>, and <code>20</code> log-signature coordinates, for <code>30</code> total rather than <code>84</code> raw signature coordinates.</p>
+      <div class="formula"><span class="math-inline" data-tex="\ell k(d) = (1/k) \sum r\mid k \mu (r)d k/r.">ℓk(d) = (1/k) ∑r|k μ(r)dk/r.</span></div>
+      <p>For <span class="math-inline" data-tex="d=4">d=4</span>, levels 1–3 contain <code>4</code>, <code>6</code>, and <code>20</code> log-signature coordinates, for <code>30</code> total rather than <code>84</code> raw signature coordinates.</p>
 
       <h3>Computational trade-offs</h3>
       <p>Log-signatures reduce feature dimension and remove shuffle redundancy, but computing the tensor logarithm and converting to a Lie basis add cost and implementation complexity. The log-signature of a concatenation is not simple addition when increments do not commute; it is combined through the Baker–Campbell–Hausdorff series. Raw signatures are often simpler for Chen updates and kernels.</p>
@@ -159,13 +161,13 @@ Level 2: ½a⊗a + a⊗b + ½b⊗b
       <p>For smooth or bounded-variation controls, integrals against <code>dX</code> are classical. For signals as irregular as Brownian motion, first-level increments alone do not determine limits of nonlinear differential equations driven by smooth approximations. One must also specify consistent higher-order iterated integrals—most notably area. A rough path is this enhanced path.</p>
 
       <h3><em>p</em>-variation</h3>
-      <p>The <code>p</code>-variation of <code class="math-inline">X</code> measures accumulated roughness:</p>
-      <div class="formula"><code class="math-inline">\lVert X\rVert_{p\text{-var};[0,T]}=\left(\sup_{\Pi}\sum_{[u,v]\in\Pi}\lVert X_v-X_u\rVert^p\right)^{1/p}.</code></div>
-      <p>Smaller admissible <code>p</code> means greater regularity. A finite <code>p</code>-variation driver is enhanced through at least level <code>⌊p⌋</code> in the basic rough-path construction. Brownian sample paths have finite <code>p</code>-variation for every <code class="math-inline">p\gt 2</code>, so level-two area is essential.</p>
+      <p>The <code>p</code>-variation of <span class="math-inline" data-tex="X">X</span> measures accumulated roughness:</p>
+      <div class="formula"><span class="math-inline" data-tex="\lVert X\rVert_{p\text{-var};[0,T]}=\left(\sup_{\Pi}\sum_{[u,v]\in\Pi}\lVert X_v-X_u\rVert^p\right)^{1/p}.">‖X‖p-var;[0,T] = (suppartitions Π ∑[u,v]∈Π ‖Xv−Xu‖p)1/p.</span></div>
+      <p>Smaller admissible <code>p</code> means greater regularity. A finite <code>p</code>-variation driver is enhanced through at least level <code>⌊p⌋</code> in the basic rough-path construction. Brownian sample paths have finite <code>p</code>-variation for every <span class="math-inline" data-tex="p\gt 2">p&gt;2</span>, so level-two area is essential.</p>
 
       <h3>Controlled differential equations</h3>
       <p>A controlled differential equation (CDE) has the form</p>
-      <div class="formula"><code class="math-inline">dz_t=f(z_t)\,dX_t,\qquad z_0\ \text{given}.</code></div>
+      <div class="formula"><span class="math-inline" data-tex="dz_t=f(z_t)\,dX_t,\qquad z_0\ \text{given}.">dzt = f(zt) dXt,    z0 given.</span></div>
       <p>The solution responds to the ordered geometry of the control path. Rough-path theory makes the solution map continuous in a suitable rough-path metric: close enhanced drivers yield close solutions. This stability is the pathwise foundation behind learning from irregular controls.</p>
 
       <h3>Signature as a universal feature set at an appropriate level</h3>
@@ -174,11 +176,11 @@ Level 2: ½a⊗a + a⊗b + ½b⊗b
       <h2 id="machine-learning-use">8. Machine-learning use</h2>
 
       <h3>Linear models on signatures</h3>
-      <p>Compute <code class="math-inline">\operatorname{Sig}^{\le m}(X)</code> or <code class="math-inline">\log\operatorname{Sig}^{\le m}(X)</code>, then fit linear or generalized-linear models. The feature map contains nonlinear path interactions while the predictor remains convex, data-efficient, and inspectable. Regularization is important because feature counts grow rapidly.</p>
+      <p>Compute <span class="math-inline" data-tex="\operatorname{Sig}^{\le m}(X)">Sig≤m(X)</span> or <span class="math-inline" data-tex="\log\operatorname{Sig}^{\le m}(X)">log Sig≤m(X)</span>, then fit linear or generalized-linear models. The feature map contains nonlinear path interactions while the predictor remains convex, data-efficient, and inspectable. Regularization is important because feature counts grow rapidly.</p>
 
       <h3>Neural CDEs</h3>
       <p>A Neural CDE parameterizes the vector field with a neural network:</p>
-      <div class="formula"><code class="math-inline">dz_t=f_\theta(z_t)\,dX_t,\qquad \widehat y=g_\theta(z_T).</code></div>
+      <div class="formula"><span class="math-inline" data-tex="dz_t=f_\theta(z_t)\,dX_t,\qquad \widehat y=g_\theta(z_T).">dzt = fθ(zt) dXt,    ŷ = gθ(zT).</span></div>
       <p>It consumes a continuously interpolated control and learns a nonlinear state update. Unlike a precomputed signature, its representation is task-trained and solver-dependent. The relationship is structural: CDE solutions can be expanded in iterated integrals, but a Neural CDE is a model, not a log-signature.</p>
 
       <h3>Signature kernels</h3>
@@ -212,7 +214,7 @@ Level 2: ½a⊗a + a⊗b + ½b⊗b
         <dd>Choose windows according to the prediction horizon and causal information set. Overlapping windows increase sample dependence; split by entity and time before constructing them when leakage is possible.</dd>
 
         <dt>Computational growth</dt>
-        <dd>A raw depth-<code>m</code> signature has <code class="math-inline">\sum d k</code> nonconstant coordinates. Runtime and memory also depend on path length, batching, algorithm, and whether log-signatures or kernels are used. Measure end-to-end cost rather than relying only on feature-count formulas.</dd>
+        <dd>A raw depth-<code>m</code> signature has <span class="math-inline" data-tex="\sum d k">∑dk</span> nonconstant coordinates. Runtime and memory also depend on path length, batching, algorithm, and whether log-signatures or kernels are used. Measure end-to-end cost rather than relying only on feature-count formulas.</dd>
       </dl>
 
       <h2 id="evaluation-and-failure-modes">10. Evaluation and failure modes</h2>

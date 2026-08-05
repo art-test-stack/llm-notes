@@ -14,13 +14,13 @@
 <tr><td><code>X, Y, Z</code></td><td>Random variables; lowercase <code>x, y, z</code> denote realized values</td></tr>
 <tr><td><code>p(x)</code></td><td>PMF for a discrete variable, or generic probability notation when the base measure is clear</td></tr>
 <tr><td><code>f(x)</code></td><td>PDF for a continuous variable</td></tr>
-<tr><td><code>F(x)</code></td><td>CDF, <code class="math-inline">P(X \le  x)</code></td></tr>
-<tr><td><code>p(x,y)</code></td><td>Joint distribution of <code class="math-inline">X</code> and <code class="math-inline">Y</code></td></tr>
-<tr><td><code>p(x | y)</code></td><td>Conditional distribution of <code class="math-inline">X</code> given <code class="math-inline">Y=y</code></td></tr>
-<tr><td><code class="math-inline">\mathbb{E}[X]</code></td><td>Expectation of <code class="math-inline">X</code></td></tr>
-<tr><td><code class="math-inline">\operatorname{Var}(X)</code>, <code class="math-inline">\operatorname{Cov}(X,Y)</code></td><td>Variance and covariance</td></tr>
-<tr><td><code class="math-inline">\theta</code></td><td>Model parameter; Bayesian analysis treats it as uncertain</td></tr>
-<tr><td><code class="math-inline">\mathcal{D}</code></td><td>Observed dataset</td></tr>
+<tr><td><code>F(x)</code></td><td>CDF, <span class="math-inline" data-tex="P(X \le  x)">P(X ≤ x)</span></td></tr>
+<tr><td><code>p(x,y)</code></td><td>Joint distribution of <span class="math-inline" data-tex="X">X</span> and <span class="math-inline" data-tex="Y">Y</span></td></tr>
+<tr><td><code>p(x | y)</code></td><td>Conditional distribution of <span class="math-inline" data-tex="X">X</span> given <span class="math-inline" data-tex="Y=y">Y=y</span></td></tr>
+<tr><td><span class="math-inline" data-tex="\mathbb{E}[X]">𝔼[X]</span></td><td>Expectation of <span class="math-inline" data-tex="X">X</span></td></tr>
+<tr><td><span class="math-inline" data-tex="\operatorname{Var}(X)">Var(X)</span>, <span class="math-inline" data-tex="\operatorname{Cov}(X,Y)">Cov(X,Y)</span></td><td>Variance and covariance</td></tr>
+<tr><td><span class="math-inline" data-tex="\theta">θ</span></td><td>Model parameter; Bayesian analysis treats it as uncertain</td></tr>
+<tr><td><span class="math-inline" data-tex="\mathcal{D}">𝒟</span></td><td>Observed dataset</td></tr>
 <tr><td><code>z</code></td><td>Latent or unobserved variable</td></tr>
 <tr><td><code>H(p)</code></td><td>Entropy of distribution <code>p</code></td></tr>
 <tr><td><code>D<sub>KL</sub>(p || q)</code></td><td>Expected log-density ratio under <code>p</code>, with <code>q</code> as the reference distribution</td></tr>
@@ -34,87 +34,74 @@
 
 <h3 id="discrete-and-continuous-variables">Discrete and continuous variables</h3>
 <p>For a discrete variable, the probability mass function (PMF) assigns probability directly:</p>
-<div class="math-display">p_X(x) = P(X = x),       p_X(x) ≥ 0,       Σ_x p_X(x) = 1.
-</div>
+<div class="math-display" data-tex="p_X(x)=\mathbb{P}(X=x),\qquad p_X(x)\geq0,\qquad\sum_xp_X(x)=1.">p_X(x) = P(X = x),       p_X(x) ≥ 0,       Σ_x p_X(x) = 1.</div>
 <p>For a continuous variable, the probability density function (PDF) describes probability per unit of the variable:</p>
-<div class="math-display">f_X(x) ≥ 0,       ∫ f_X(x) dx = 1,
-P(a ≤ X ≤ b) = ∫_a^b f_X(x) dx.
-</div>
-<p>A density value can exceed one; only its integral over a set is a probability. For an absolutely continuous distribution, <code class="math-inline">P(X=x)=0</code> at every single point.</p>
+<div class="math-display" data-tex="\begin{aligned}f_{X}(x) \ge  0,       \int  f_{X}(x) d x &amp;= 1,\\P(a \le  X \le  b) &amp;= \int _a^b f_{X}(x) d x.\end{aligned}">f_X(x) ≥ 0,       ∫ f_X(x) dx = 1,
+P(a ≤ X ≤ b) = ∫_a^b f_X(x) dx.</div>
+<p>A density value can exceed one; only its integral over a set is a probability. For an absolutely continuous distribution, <span class="math-inline" data-tex="P(X=x)=0">P(X=x)=0</span> at every single point.</p>
 <p>The cumulative distribution function (CDF) works for discrete, continuous, and mixed distributions:</p>
-<div class="math-display">F_X(x) = P(X ≤ x).
-</div>
-<p>Every CDF is non-decreasing, right-continuous, and approaches zero and one at the two tails. A distribution has a density with respect to Lebesgue measure when its CDF is <strong>absolutely continuous</strong>; then <code class="math-inline">F(x)=\int _{-\infty }^x f(t)d t</code> and <code class="math-inline">F'=f</code> almost everywhere. Continuity alone is insufficient: the Cantor distribution has a continuous singular CDF but no Lebesgue density.</p>
+<div class="math-display" data-tex="F_{X}(x) = P(X \le  x).">F_X(x) = P(X ≤ x).</div>
+<p>Every CDF is non-decreasing, right-continuous, and approaches zero and one at the two tails. A distribution has a density with respect to Lebesgue measure when its CDF is <strong>absolutely continuous</strong>; then <span class="math-inline" data-tex="F(x)=\int _{-\infty }^x f(t)d t">F(x)=∫_{-∞}^x f(t)dt</span> and <span class="math-inline" data-tex="F&#x27;=f">F′=f</span> almost everywhere. Continuity alone is insufficient: the Cantor distribution has a continuous singular CDF but no Lebesgue density.</p>
 
 <h3 id="expectations-variance-covariance-and-moments">Expectations, variance, covariance, and moments</h3>
-<div class="math-display">𝔼[g(X)] = Σ_x g(x)p(x)                 discrete
+<div class="math-display" data-tex="\begin{aligned}\mathbb{E}[g(X)] &amp;= \sum _x g(x)p(x)                 \text{discrete}\\\mathbb{E}[g(X)] &amp;= \int  g(x)f(x) d x                \text{continuous}\\\operatorname{Var}(X) &amp;= \mathbb{E}[(X-\mathbb{E}[X])^{2}] = \mathbb{E}[X^{2}] - \mathbb{E}[X]^{2}\\\operatorname{Cov}(X,Y) &amp;= \mathbb{E}[(X-\mathbb{E}[X])(Y-\mathbb{E}[Y])]\\&amp;= \mathbb{E}[XY] - \mathbb{E}[X]\mathbb{E}[Y].\end{aligned}">𝔼[g(X)] = Σ_x g(x)p(x)                 discrete
 𝔼[g(X)] = ∫ g(x)f(x) dx                continuous
 
 Var(X) = 𝔼[(X-𝔼[X])²] = 𝔼[X²] - 𝔼[X]²
 Cov(X,Y) = 𝔼[(X-𝔼[X])(Y-𝔼[Y])]
-         = 𝔼[XY] - 𝔼[X]𝔼[Y].
-</div>
-<p>The <code>k</code>-th raw moment is <code class="math-inline">\mathbb{E}[X^{k}]</code>; the <code>k</code>-th central moment is <code class="math-inline">\mathbb{E}[(X-\mathbb{E}[X])^k]</code>. Mean and variance need not exist for heavy-tailed distributions. Independence implies zero covariance when the expectations exist, but zero covariance does not generally imply independence.</p>
+         = 𝔼[XY] - 𝔼[X]𝔼[Y].</div>
+<p>The <code>k</code>-th raw moment is <span class="math-inline" data-tex="\mathbb{E}[X^{k}]">𝔼[X^k]</span>; the <code>k</code>-th central moment is <span class="math-inline" data-tex="\mathbb{E}[(X-\mathbb{E}[X])^k]">𝔼[(X-𝔼[X])^k]</span>. Mean and variance need not exist for heavy-tailed distributions. Independence implies zero covariance when the expectations exist, but zero covariance does not generally imply independence.</p>
 
 <h3 id="worked-calculation-discrete-moments">Worked calculation 1: discrete moments</h3>
-<p>Let <code class="math-inline">X</code> take values <code>0, 1, 2</code> with probabilities <code>0.2, 0.5, 0.3</code>. Then:</p>
-<div class="math-display">𝔼[X]  = 0(0.2) + 1(0.5) + 2(0.3) = 1.1
+<p>Let <span class="math-inline" data-tex="X">X</span> take values <code>0, 1, 2</code> with probabilities <code>0.2, 0.5, 0.3</code>. Then:</p>
+<div class="math-display" data-tex="\begin{aligned}\mathbb{E}[X]  &amp;= 0(0.2) + 1(0.5) + 2(0.3) = 1.1\\\mathbb{E}[X^{2}] &amp;= 0^{2}(0.2) + 1^{2}(0.5) + 2^{2}(0.3) = 1.7\\\operatorname{Var}(X) &amp;= 1.7 - 1.1^{2} = 0.49\\F_{X}(1) &amp;= P(X \le  1) = 0.2 + 0.5 = 0.7.\end{aligned}">𝔼[X]  = 0(0.2) + 1(0.5) + 2(0.3) = 1.1
 𝔼[X²] = 0²(0.2) + 1²(0.5) + 2²(0.3) = 1.7
 Var(X) = 1.7 - 1.1² = 0.49
-F_X(1) = P(X ≤ 1) = 0.2 + 0.5 = 0.7.
-</div>
+F_X(1) = P(X ≤ 1) = 0.2 + 0.5 = 0.7.</div>
 
 <h3 id="joint-marginal-and-conditional-distributions">Joint, marginal, and conditional distributions</h3>
 <p>A joint distribution assigns probability to combinations of variables. Marginalization removes variables by summing or integrating them out:</p>
-<div class="math-display">p_X(x) = Σ_y p(x,y)                     discrete
-f_X(x) = ∫ f(x,y) dy                    continuous.
-</div>
-<p>For <code class="math-inline">p(y)\gt 0</code>, conditioning restricts and renormalizes the joint:</p>
-<div class="math-display">p(x | y) = p(x,y) / p(y),
-p(x,y) = p(x | y)p(y) = p(y | x)p(x).
-</div>
+<div class="math-display" data-tex="\begin{aligned}p_{X}(x) &amp;= \sum _y p(x,y)                     \text{discrete}\\f_{X}(x) &amp;= \int  f(x,y) d y                    \text{continuous}.\end{aligned}">p_X(x) = Σ_y p(x,y)                     discrete
+f_X(x) = ∫ f(x,y) dy                    continuous.</div>
+<p>For <span class="math-inline" data-tex="p(y)\gt 0">p(y)&gt;0</span>, conditioning restricts and renormalizes the joint:</p>
+<div class="math-display" data-tex="\begin{aligned}p(x \mid  y) &amp;= p(x,y) / p(y),\\p(x,y) &amp;= p(x \mid  y)p(y) = p(y \mid  x)p(x).\end{aligned}">p(x | y) = p(x,y) / p(y),
+p(x,y) = p(x | y)p(y) = p(y | x)p(x).</div>
 <p>The chain rule extends to any number of variables:</p>
-<div class="math-display">p(x₁,…,xₙ) = p(x₁) ∏_{i=2}^n p(xᵢ | x₁,…,xᵢ₋₁).
-</div>
+<div class="math-display" data-tex="p(x_{1},\ldots ,x_{n}) = p(x_{1}) \prod _{i=2}^n p(x_{i} \mid  x_{1},\ldots ,x_{i-1}).">p(x₁,…,xₙ) = p(x₁) ∏_{i=2}^n p(xᵢ | x₁,…,xᵢ₋₁).</div>
 <p>The laws of total expectation and total variance are especially useful:</p>
-<div class="math-display">𝔼[X] = 𝔼_Y[𝔼[X | Y]]
-Var(X) = 𝔼_Y[Var(X | Y)] + Var_Y(𝔼[X | Y]).
-</div>
+<div class="math-display" data-tex="\begin{aligned}\mathbb{E}[X] &amp;= \mathbb{E}_Y[\mathbb{E}[X \mid  Y]]\\\operatorname{Var}(X) &amp;= \mathbb{E}_Y[\operatorname{Var}(X \mid  Y)] + \operatorname{Var}_{Y}(\mathbb{E}[X \mid  Y]).\end{aligned}">𝔼[X] = 𝔼_Y[𝔼[X | Y]]
+Var(X) = 𝔼_Y[Var(X | Y)] + Var_Y(𝔼[X | Y]).</div>
 
 <h2 id="bayes-rule">2. Bayes’ rule</h2>
 <p>The same joint probability can be factored in two directions:</p>
-<div class="math-display">p(θ,y) = p(y | θ)p(θ) = p(θ | y)p(y).
-</div>
+<div class="math-display" data-tex="p(\theta ,y) = p(y \mid  \theta )p(\theta ) = p(\theta  \mid  y)p(y).">p(θ,y) = p(y | θ)p(θ) = p(θ | y)p(y).</div>
 <p>Equating the two and dividing by <code>p(y)</code> gives Bayes’ rule:</p>
-<div class="math-display">             p(y | θ) p(θ)
+<div class="math-display" data-tex="\begin{aligned}p(\theta\mid y)&amp;=\frac{p(y\mid\theta)p(\theta)}{p(y)},\\p(y)&amp;=\sum_\theta p(y\mid\theta)p(\theta)&amp;&amp;\text{(discrete)},\\p(y)&amp;=\int p(y\mid\theta)p(\theta)\,d\theta&amp;&amp;\text{(continuous)}.\end{aligned}">p(y | θ) p(θ)
 p(θ | y) = ─────────────────
                   p(y)
 
 p(y) = Σ_θ p(y | θ)p(θ)                 discrete θ
-p(y) = ∫ p(y | θ)p(θ) dθ                continuous θ.
-</div>
+p(y) = ∫ p(y | θ)p(θ) dθ                continuous θ.</div>
 <ul>
-<li><strong>Prior <code class="math-inline">p(\theta )</code>:</strong> beliefs or regularization assumptions before observing the current data.</li>
-<li><strong>Likelihood <code class="math-inline">p(y \mid  \theta )</code>:</strong> the sampling model viewed as a function of <code class="math-inline">\theta</code> for fixed observed <code>y</code>; it is not a probability distribution over <code class="math-inline">\theta</code>.</li>
+<li><strong>Prior <span class="math-inline" data-tex="p(\theta )">p(θ)</span>:</strong> beliefs or regularization assumptions before observing the current data.</li>
+<li><strong>Likelihood <span class="math-inline" data-tex="p(y \mid  \theta )">p(y | θ)</span>:</strong> the sampling model viewed as a function of <span class="math-inline" data-tex="\theta">θ</span> for fixed observed <code>y</code>; it is not a probability distribution over <span class="math-inline" data-tex="\theta">θ</span>.</li>
 <li><strong>Evidence <code>p(y)</code>:</strong> the marginal probability of the data. It normalizes the posterior and is useful for model comparison.</li>
-<li><strong>Posterior <code class="math-inline">p(\theta  \mid  y)</code>:</strong> uncertainty about <code class="math-inline">\theta</code> after conditioning on data.</li>
+<li><strong>Posterior <span class="math-inline" data-tex="p(\theta  \mid  y)">p(θ | y)</span>:</strong> uncertainty about <span class="math-inline" data-tex="\theta">θ</span> after conditioning on data.</li>
 </ul>
-<p>For IID data <code class="math-inline">\mathcal{D}={y_{1},\ldots ,y_{n}}</code>, <code class="math-inline">p(\mathcal{D} \mid  \theta )=\prod _{i}p(y_{i} \mid  \theta )</code>, so <code class="math-inline">p(\theta  \mid  \mathcal{D}) \propto  p(\theta )\prod _{i}p(y_{i} \mid  \theta )</code>.</p>
+<p>For IID data <span class="math-inline" data-tex="\mathcal{D}={y_{1},\ldots ,y_{n}}">𝒟={y₁,…,yₙ}</span>, <span class="math-inline" data-tex="p(\mathcal{D} \mid  \theta )=\prod _{i}p(y_{i} \mid  \theta )">p(𝒟 | θ)=∏ᵢp(yᵢ | θ)</span>, so <span class="math-inline" data-tex="p(\theta  \mid  \mathcal{D}) \propto  p(\theta )\prod _{i}p(y_{i} \mid  \theta )">p(θ | 𝒟) ∝ p(θ)∏ᵢp(yᵢ | θ)</span>.</p>
 
 <h3 id="posterior-predictive">Posterior predictive</h3>
 <p>Prediction averages the sampling model over posterior parameter uncertainty:</p>
-<div class="math-display">p(y* | 𝒟) = ∫ p(y* | θ,𝒟)p(θ | 𝒟) dθ.
-</div>
-<p>If future data are conditionally independent of the observed data given <code class="math-inline">\theta</code>, this becomes <code class="math-inline">\int p(y^{\ast} \mid  \theta )p(\theta  \mid  \mathcal{D})d\theta</code>. Plugging in one fitted parameter discards parameter uncertainty.</p>
+<div class="math-display" data-tex="p(y^{\ast} \mid  \mathcal{D}) = \int  p(y^{\ast} \mid  \theta ,\mathcal{D})p(\theta  \mid  \mathcal{D}) d\theta .">p(y* | 𝒟) = ∫ p(y* | θ,𝒟)p(θ | 𝒟) dθ.</div>
+<p>If future data are conditionally independent of the observed data given <span class="math-inline" data-tex="\theta">θ</span>, this becomes <span class="math-inline" data-tex="\int p(y^{\ast} \mid  \theta )p(\theta  \mid  \mathcal{D})d\theta">∫p(y* | θ)p(θ | 𝒟)dθ</span>. Plugging in one fitted parameter discards parameter uncertainty.</p>
 
 <h3 id="worked-calculation-bayes-rule">Worked calculation 2: a diagnostic test</h3>
-<p>Suppose disease prevalence is <code class="math-inline">P(D)=0.01</code>, sensitivity is <code class="math-inline">P(+ \mid  D)=0.90</code>, and specificity is <code class="math-inline">P(- \mid  \neg D)=0.95</code>. The false-positive rate is <code class="math-inline">P(+ \mid  \neg D)=0.05</code>. First compute the evidence:</p>
-<div class="math-display">P(+) = P(+ | D)P(D) + P(+ | ¬D)P(¬D)
+<p>Suppose disease prevalence is <span class="math-inline" data-tex="P(D)=0.01">P(D)=0.01</span>, sensitivity is <span class="math-inline" data-tex="P(+ \mid  D)=0.90">P(+ | D)=0.90</span>, and specificity is <span class="math-inline" data-tex="P(- \mid  \neg D)=0.95">P(- | ¬D)=0.95</span>. The false-positive rate is <span class="math-inline" data-tex="P(+ \mid  \neg D)=0.05">P(+ | ¬D)=0.05</span>. First compute the evidence:</p>
+<div class="math-display" data-tex="\begin{aligned}P(+) &amp;= P(+ \mid  D)P(D) + P(+ \mid  \neg D)P(\neg D)\\&amp;= 0.90(0.01) + 0.05(0.99)\\&amp;= 0.009 + 0.0495 = 0.0585.\\P(D \mid  +) &amp;= 0.90(0.01) / 0.0585 \approx  0.1538.\end{aligned}">P(+) = P(+ | D)P(D) + P(+ | ¬D)P(¬D)
      = 0.90(0.01) + 0.05(0.99)
      = 0.009 + 0.0495 = 0.0585.
 
-P(D | +) = 0.90(0.01) / 0.0585 ≈ 0.1538.
-</div>
+P(D | +) = 0.90(0.01) / 0.0585 ≈ 0.1538.</div>
 <p>Despite a positive test, the posterior probability is about <code>15.4%</code> because the low base rate makes false positives numerous. In a population of 10,000, the expected counts are 90 true positives and 495 false positives, giving the same ratio <code>90/(90+495)</code>.</p>
 
 <h2 id="independence-concepts">3. Independence concepts</h2>
@@ -125,13 +112,12 @@ X ⊥ Y | Z         iff p(x,y | z) = p(x | z)p(y | z) for every relevant z.
 <p>Neither statement implies the other. Two symptoms can be marginally dependent because both are caused by a disease, yet conditionally independent given disease status. Conversely, two independent causes become dependent after conditioning on their shared effect: knowing one cause is absent makes the other more plausible. This is collider or “explaining away” behavior.</p>
 
 <h3 id="exchangeability-and-iid">Exchangeability and IID assumptions</h3>
-<p>A finite sequence <code class="math-inline">X_{1},\ldots ,X_{n}</code> is exchangeable if permuting its order does not change its joint distribution:</p>
-<div class="math-display">p(x₁,…,xₙ) = p(x_{π(1)},…,x_{π(n)})
-</div>
-<p>for every permutation <code class="math-inline">\pi</code>. IID observations are exchangeable, but exchangeability does not imply marginal independence. For example, repeated coin flips with an unknown shared coin bias are dependent after the bias is marginalized out. Under suitable conditions, de Finetti’s theorem represents an infinitely exchangeable sequence as conditionally IID given a latent parameter.</p>
+<p>A finite sequence <span class="math-inline" data-tex="X_{1},\ldots ,X_{n}">X₁,…,Xₙ</span> is exchangeable if permuting its order does not change its joint distribution:</p>
+<div class="math-display" data-tex="p(x_{1},\ldots ,x_{n}) = p(x_{\pi (1)},\ldots ,x_{\pi (n)})">p(x₁,…,xₙ) = p(x_{π(1)},…,x_{π(n)})</div>
+<p>for every permutation <span class="math-inline" data-tex="\pi">π</span>. IID observations are exchangeable, but exchangeability does not imply marginal independence. For example, repeated coin flips with an unknown shared coin bias are dependent after the bias is marginalized out. Under suitable conditions, de Finetti’s theorem represents an infinitely exchangeable sequence as conditionally IID given a latent parameter.</p>
 <p>IID means both:</p>
 <ol>
-<li><strong>independent:</strong> <code class="math-inline">p(x_{1},\ldots ,x_{n})=\prod _{i}p(x_{i})</code>;</li>
+<li><strong>independent:</strong> <span class="math-inline" data-tex="p(x_{1},\ldots ,x_{n})=\prod _{i}p(x_{i})">p(x₁,…,xₙ)=∏ᵢp(xᵢ)</span>;</li>
 <li><strong>identically distributed:</strong> every <code>Xᵢ</code> has the same marginal law.</li>
 </ol>
 <p>Time series, grouped observations, augmentations of one example, and samples sharing a user or environment often violate independence. Distribution shift violates the identical-distribution assumption.</p>
@@ -143,50 +129,45 @@ X ⊥ Y | Z         iff p(x,y | z) = p(x | z)p(y | z) for every relevant z.
 <p>Assume natural logarithms, so information is measured in nats. Using base-two logarithms gives bits.</p>
 
 <h3 id="entropy-cross-entropy-and-kl">Entropy, cross-entropy, and KL divergence</h3>
-<div class="math-display">H(p)    = -𝔼_p[log p(X)]             entropy
+<div class="math-display" data-tex="\begin{aligned}H(p)    &amp;= -\mathbb{E}_p[\operatorname{log} p(X)]             \text{entropy}\\H(p,q)  &amp;= -\mathbb{E}_p[\operatorname{log} q(X)]             \text{cross}-\text{entropy}\\D_{KL}(p \mathbin{\Vert} q) &amp;= \mathbb{E}_p[\operatorname{log} p(X)/q(X)]   KL \text{divergence}.\end{aligned}">H(p)    = -𝔼_p[log p(X)]             entropy
 H(p,q)  = -𝔼_p[log q(X)]             cross-entropy
-D_KL(p || q) = 𝔼_p[log p(X)/q(X)]   KL divergence.
-</div>
+D_KL(p || q) = 𝔼_p[log p(X)/q(X)]   KL divergence.</div>
 <p>Expanding the logarithm gives the central identity:</p>
-<div class="math-display">D_KL(p || q)
+<div class="math-display" data-tex="\begin{aligned}D_{KL}(p \mathbin{\Vert} q)\\&amp;= \mathbb{E}_p[\operatorname{log} p(X)] - \mathbb{E}_p[\operatorname{log} q(X)]\\&amp;= H(p,q) - H(p).\\\text{Therefore}: H(p,q) &amp;= H(p) + D_{KL}(p \mathbin{\Vert} q).\end{aligned}">D_KL(p || q)
 = 𝔼_p[log p(X)] - 𝔼_p[log q(X)]
 = H(p,q) - H(p).
 
-Therefore: H(p,q) = H(p) + D_KL(p || q).
-</div>
+Therefore: H(p,q) = H(p) + D_KL(p || q).</div>
 <p>When the data distribution <code>p</code> is fixed, minimizing expected cross-entropy in <code>q</code> is equivalent to minimizing <code>D_KL(p || q)</code>. On a finite dataset, minimizing empirical negative log-likelihood is empirical cross-entropy minimization.</p>
 
 <h3 id="jensens-inequality-and-kl-nonnegativity">Jensen’s inequality and KL non-negativity</h3>
-<p>For convex <code class="math-inline">\phi</code>, Jensen’s inequality states <code class="math-inline">\phi (\mathbb{E}[X]) \le  \mathbb{E}[\phi (X)]</code>; the direction reverses for concave functions. Because <code>-log</code> is convex, and assuming <code>q</code> covers the support of <code>p</code>:</p>
-<div class="math-display">D_KL(p || q) = 𝔼_p[-log(q(X)/p(X))]
+<p>For convex <span class="math-inline" data-tex="\phi">φ</span>, Jensen’s inequality states <span class="math-inline" data-tex="\phi (\mathbb{E}[X]) \le  \mathbb{E}[\phi (X)]">φ(𝔼[X]) ≤ 𝔼[φ(X)]</span>; the direction reverses for concave functions. Because <code>-log</code> is convex, and assuming <code>q</code> covers the support of <code>p</code>:</p>
+<div class="math-display" data-tex="\begin{aligned}D_{KL}(p \mathbin{\Vert} q) &amp;= \mathbb{E}_p[-\operatorname{log}(q(X)/p(X))]\\\ge  -\operatorname{log} \mathbb{E}_p[q(X)/p(X)]\\&amp;= -\operatorname{log} \sum _{x:p(x)\gt 0} q(x)\\\ge  0.\end{aligned}">D_KL(p || q) = 𝔼_p[-log(q(X)/p(X))]
              ≥ -log 𝔼_p[q(X)/p(X)]
              = -log Σ_{x:p(x)&gt;0} q(x)
-             ≥ 0.
-</div>
-<p>The sum is at most one; it equals one when <code>q</code> puts no mass outside the support of <code>p</code>. The continuous proof replaces the sum with an integral. Equality in the full argument holds exactly when <code class="math-inline">p=q</code> almost everywhere. If <code class="math-inline">q(x)=0</code> where <code class="math-inline">p(x)\gt 0</code>, then <code class="math-inline">D_{KL}(p \mathbin{\Vert} q)=\infty</code>.</p>
+             ≥ 0.</div>
+<p>The sum is at most one; it equals one when <code>q</code> puts no mass outside the support of <code>p</code>. The continuous proof replaces the sum with an integral. Equality in the full argument holds exactly when <span class="math-inline" data-tex="p=q">p=q</span> almost everywhere. If <span class="math-inline" data-tex="q(x)=0">q(x)=0</span> where <span class="math-inline" data-tex="p(x)\gt 0">p(x)&gt;0</span>, then <span class="math-inline" data-tex="D_{KL}(p \mathbin{\Vert} q)=\infty">D_KL(p || q)=∞</span>.</p>
 
 <h3 id="asymmetry-of-kl">Why KL is asymmetric</h3>
 <p>KL is an expectation under its first argument. Swapping the arguments changes both the weighting distribution and the penalty ratio, so generally <code>D_KL(p || q) ≠ D_KL(q || p)</code>. It is not a distance: it is asymmetric and does not satisfy the triangle inequality.</p>
 
 <h3 id="worked-calculation-kl-asymmetry">Worked calculation 3: KL asymmetry</h3>
-<p>Let <code class="math-inline">p=\text{Bernoulli}(0.8)</code> and <code class="math-inline">q=\text{Bernoulli}(0.5)</code>. Then:</p>
-<div class="math-display">D_KL(p || q)
+<p>Let <span class="math-inline" data-tex="p=\text{Bernoulli}(0.8)">p=Bernoulli(0.8)</span> and <span class="math-inline" data-tex="q=\text{Bernoulli}(0.5)">q=Bernoulli(0.5)</span>. Then:</p>
+<div class="math-display" data-tex="\begin{aligned}D_{KL}(p \mathbin{\Vert} q)\\&amp;= 0.8 \operatorname{log}(0.8/0.5) + 0.2 \operatorname{log}(0.2/0.5)\\\approx  0.193 \text{nats}.\\D_{KL}(q \mathbin{\Vert} p)\\&amp;= 0.5 \operatorname{log}(0.5/0.8) + 0.5 \operatorname{log}(0.5/0.2)\\\approx  0.223 \text{nats}.\end{aligned}">D_KL(p || q)
 = 0.8 log(0.8/0.5) + 0.2 log(0.2/0.5)
 ≈ 0.193 nats.
 
 D_KL(q || p)
 = 0.5 log(0.5/0.8) + 0.5 log(0.5/0.2)
-≈ 0.223 nats.
-</div>
+≈ 0.223 nats.</div>
 <p>The numbers differ even though the same two distributions are compared.</p>
 
 <h3 id="mutual-information">Mutual information</h3>
-<div class="math-display">I(X;Y) = D_KL(p(x,y) || p(x)p(y))
+<div class="math-display" data-tex="\begin{aligned}I(X;Y) &amp;= D_{KL}(p(x,y) \mathbin{\Vert} p(x)p(y))\\&amp;= \mathbb{E}_{p(x,y)}[\operatorname{log} p(x,y)/(p(x)p(y))]\\&amp;= H(X) - H(X \mid  Y)\\&amp;= H(Y) - H(Y \mid  X).\end{aligned}">I(X;Y) = D_KL(p(x,y) || p(x)p(y))
        = 𝔼_{p(x,y)}[log p(x,y)/(p(x)p(y))]
        = H(X) - H(X | Y)
-       = H(Y) - H(Y | X).
-</div>
-<p>Mutual information is symmetric, non-negative, and zero exactly when <code class="math-inline">X</code> and <code class="math-inline">Y</code> are independent. Conditional mutual information <code>I(X;Y | Z)</code> measures dependence remaining after conditioning on <code class="math-inline">Z</code>.</p>
+       = H(Y) - H(Y | X).</div>
+<p>Mutual information is symmetric, non-negative, and zero exactly when <span class="math-inline" data-tex="X">X</span> and <span class="math-inline" data-tex="Y">Y</span> are independent. Conditional mutual information <code>I(X;Y | Z)</code> measures dependence remaining after conditioning on <span class="math-inline" data-tex="Z">Z</span>.</p>
 
 <h2 id="estimation">5. Estimation</h2>
 <h3 id="mle-map-and-bayesian-inference">MLE, MAP, and Bayesian posterior inference</h3>
@@ -195,142 +176,127 @@ D_KL(q || p)
 <tr><th>Method</th><th>Object computed</th><th>Objective</th><th>Uncertainty retained?</th></tr>
 </thead>
 <tbody>
-<tr><td>MLE</td><td>Point <code class="math-inline">\widehat{\theta}_MLE</code></td><td><code class="math-inline">\operatorname{argmax}_\theta  p(\mathcal{D} \mid  \theta )</code></td><td>No</td></tr>
-<tr><td>MAP</td><td>Point <code class="math-inline">\widehat{\theta}_MAP</code></td><td><code class="math-inline">\operatorname{argmax}_\theta  p(\mathcal{D} \mid  \theta )p(\theta )</code></td><td>No</td></tr>
-<tr><td>Bayesian inference</td><td>Distribution <code class="math-inline">p(\theta  \mid  \mathcal{D})</code></td><td>Normalize <code class="math-inline">p(\mathcal{D} \mid  \theta )p(\theta )</code></td><td>Yes</td></tr>
+<tr><td>MLE</td><td>Point <span class="math-inline" data-tex="\widehat{\theta}_MLE">θ̂_MLE</span></td><td><span class="math-inline" data-tex="\operatorname{argmax}_\theta  p(\mathcal{D} \mid  \theta )">argmax_θ p(𝒟 | θ)</span></td><td>No</td></tr>
+<tr><td>MAP</td><td>Point <span class="math-inline" data-tex="\widehat{\theta}_MAP">θ̂_MAP</span></td><td><span class="math-inline" data-tex="\operatorname{argmax}_\theta  p(\mathcal{D} \mid  \theta )p(\theta )">argmax_θ p(𝒟 | θ)p(θ)</span></td><td>No</td></tr>
+<tr><td>Bayesian inference</td><td>Distribution <span class="math-inline" data-tex="p(\theta  \mid  \mathcal{D})">p(θ | 𝒟)</span></td><td>Normalize <span class="math-inline" data-tex="p(\mathcal{D} \mid  \theta )p(\theta )">p(𝒟 | θ)p(θ)</span></td><td>Yes</td></tr>
 </tbody>
 </table>
 <p>Products are optimized in log space:</p>
-<div class="math-display">θ̂_MLE = argmax_θ Σ_i log p(yᵢ | θ)
-θ̂_MAP = argmax_θ [Σ_i log p(yᵢ | θ) + log p(θ)].
-</div>
-<p>MAP resembles regularized likelihood when <code class="math-inline">-\operatorname{log} p(\theta )</code> is a penalty, but MAP depends on parameterization and still gives only one point. Full Bayesian inference propagates the entire posterior through posterior expectations or predictions. In large models, exact integration is often replaced by sampling or variational approximation.</p>
+<div class="math-display" data-tex="\begin{aligned}\widehat{\theta}_MLE &amp;= \operatorname{argmax}_\theta  \sum _i \operatorname{log} p(y_{i} \mid  \theta )\\\widehat{\theta}_MAP &amp;= \operatorname{argmax}_\theta  [\sum _i \operatorname{log} p(y_{i} \mid  \theta ) + \operatorname{log} p(\theta )].\end{aligned}">θ̂_MLE = argmax_θ Σ_i log p(yᵢ | θ)
+θ̂_MAP = argmax_θ [Σ_i log p(yᵢ | θ) + log p(θ)].</div>
+<p>MAP resembles regularized likelihood when <span class="math-inline" data-tex="-\operatorname{log} p(\theta )">-log p(θ)</span> is a penalty, but MAP depends on parameterization and still gives only one point. Full Bayesian inference propagates the entire posterior through posterior expectations or predictions. In large models, exact integration is often replaced by sampling or variational approximation.</p>
 
 <h3 id="worked-calculation-mle-map-bayes">Worked calculation 4: Bernoulli MLE, MAP, and posterior predictive</h3>
-<p>Observe <code class="math-inline">k=7</code> successes in <code class="math-inline">n=10</code> Bernoulli trials with success probability <code class="math-inline">\theta</code>. Use a <code>Beta(2,2)</code> prior.</p>
-<div class="math-display">Likelihood:          p(𝒟 | θ) ∝ θ⁷(1-θ)³
+<p>Observe <span class="math-inline" data-tex="k=7">k=7</span> successes in <span class="math-inline" data-tex="n=10">n=10</span> Bernoulli trials with success probability <span class="math-inline" data-tex="\theta">θ</span>. Use a <code>Beta(2,2)</code> prior.</p>
+<div class="math-display" data-tex="\begin{aligned}\text{Likelihood}:          p(\mathcal{D} \mid  \theta ) \propto  \theta ^{7}(1-\theta )^{3}\\MLE:                 \widehat{\theta}_MLE &amp;= k/n = 0.7\\\text{Posterior}:           \theta  \mid  \mathcal{D} ~ \operatorname{Beta}(2+7, 2+3) &amp;= \operatorname{Beta}(9,5)\\MAP:                 \widehat{\theta}_MAP &amp;= (9-1)/(9+5-2) = 8/12 \approx  0.667\\\text{Posterior} \operatorname{mean}:      \mathbb{E}[\theta  \mid  \mathcal{D}] &amp;= 9/14 \approx  0.643\\\text{Predictive} \text{success}:  P(Y^{\ast}=1 \mid  \mathcal{D}) &amp;= \mathbb{E}[\theta  \mid  \mathcal{D}] = 9/14.\end{aligned}">Likelihood:          p(𝒟 | θ) ∝ θ⁷(1-θ)³
 MLE:                 θ̂_MLE = k/n = 0.7
 
 Posterior:           θ | 𝒟 ~ Beta(2+7, 2+3) = Beta(9,5)
 MAP:                 θ̂_MAP = (9-1)/(9+5-2) = 8/12 ≈ 0.667
 Posterior mean:      𝔼[θ | 𝒟] = 9/14 ≈ 0.643
-Predictive success:  P(Y*=1 | 𝒟) = 𝔼[θ | 𝒟] = 9/14.
-</div>
+Predictive success:  P(Y*=1 | 𝒟) = 𝔼[θ | 𝒟] = 9/14.</div>
 <p>The three point summaries differ. More importantly, the Bayesian answer is the full <code>Beta(9,5)</code> posterior; <code>9/14</code> is only one posterior expectation.</p>
 
 <h3 id="bias-variance-consistency-identifiability">Bias–variance, consistency, and identifiability</h3>
-<p>For an estimator <code class="math-inline">\widehat{\theta}</code>, <code class="math-inline">\text{Bias}(\widehat{\theta})=\mathbb{E}[\widehat{\theta}]-\theta</code>. For squared-error prediction at an input <code>x</code>, with data-dependent predictor <code>f̂</code> and noise variance <code class="math-inline">\sigma ^{2}</code>:</p>
-<div class="math-display">𝔼[(Y-f̂(x))²]
+<p>For an estimator <span class="math-inline" data-tex="\widehat{\theta}">θ̂</span>, <span class="math-inline" data-tex="\text{Bias}(\widehat{\theta})=\mathbb{E}[\widehat{\theta}]-\theta">Bias(θ̂)=𝔼[θ̂]-θ</span>. For squared-error prediction at an input <code>x</code>, with data-dependent predictor <code>f̂</code> and noise variance <span class="math-inline" data-tex="\sigma ^{2}">σ²</span>:</p>
+<div class="math-display" data-tex="\begin{aligned}\mathbb{E}[(Y-\widehat{f}(x))^{2}]\\&amp;= \sigma ^{2} + (\mathbb{E}[\widehat{f}(x)]-f(x))^{2} + \operatorname{Var}(\widehat{f}(x))\\&amp;= \text{irreducible} \text{noise} + \text{squared} \text{bias} + \operatorname{variance}.\end{aligned}">𝔼[(Y-f̂(x))²]
 = σ² + (𝔼[f̂(x)]-f(x))² + Var(f̂(x))
-= irreducible noise + squared bias + variance.
-</div>
+= irreducible noise + squared bias + variance.</div>
 <p>This is an expectation over hypothetical training datasets and test noise, not a guarantee for one fitted model. Regularization often increases bias while reducing variance.</p>
-<p>An estimator is <strong>consistent</strong> if <code class="math-inline">\widehat{\theta}_{n} \to  \theta _{0}</code> in probability as <code class="math-inline">n\to \infty</code>. Consistency is asymptotic; it does not imply low finite-sample error or absence of bias at finite <code>n</code>.</p>
-<p>A parameterization is <strong>identifiable</strong> if <code class="math-inline">p(x \mid  \theta )=p(x \mid  \theta ')</code> for all <code>x</code> implies <code class="math-inline">\theta =\theta '</code>. Without identifiability, no amount of data distinguishes equivalent parameter values. Mixture models, for example, are unchanged by permuting component labels unless an identifying convention is imposed.</p>
+<p>An estimator is <strong>consistent</strong> if <span class="math-inline" data-tex="\widehat{\theta}_{n} \to  \theta _{0}">θ̂ₙ → θ₀</span> in probability as <span class="math-inline" data-tex="n\to \infty">n→∞</span>. Consistency is asymptotic; it does not imply low finite-sample error or absence of bias at finite <code>n</code>.</p>
+<p>A parameterization is <strong>identifiable</strong> if <span class="math-inline" data-tex="p(x \mid  \theta )=p(x \mid  \theta &#x27;)">p(x | θ)=p(x | θ′)</span> for all <code>x</code> implies <span class="math-inline" data-tex="\theta =\theta &#x27;">θ=θ′</span>. Without identifiability, no amount of data distinguishes equivalent parameter values. Mixture models, for example, are unchanged by permuting component labels unless an identifying convention is imposed.</p>
 
 <h2 id="exponential-families">6. Exponential families</h2>
 <p>A regular exponential-family density or mass function has the form:</p>
-<div class="math-display">p(x | η) = h(x) exp(ηᵀT(x) - A(η)),
+<div class="math-display" data-tex="\begin{aligned}p(x \mid  \eta ) &amp;= h(x) \operatorname{exp}(\eta ^{\top}T(x) - A(\eta )),\\A(\eta ) &amp;= \operatorname{log} \int  h(x)\operatorname{exp}(\eta ^{\top}T(x)) d x.\end{aligned}">p(x | η) = h(x) exp(ηᵀT(x) - A(η)),
 
-A(η) = log ∫ h(x)exp(ηᵀT(x)) dx.
-</div>
+A(η) = log ∫ h(x)exp(ηᵀT(x)) dx.</div>
 <ul>
-<li><code class="math-inline">\eta</code> is the <strong>natural parameter</strong>.</li>
+<li><span class="math-inline" data-tex="\eta">η</span> is the <strong>natural parameter</strong>.</li>
 <li><code>T(x)</code> is the vector of <strong>sufficient statistics</strong>.</li>
-<li><code class="math-inline">A(\eta )</code> is the <strong>log-partition function</strong>, ensuring normalization.</li>
+<li><span class="math-inline" data-tex="A(\eta )">A(η)</span> is the <strong>log-partition function</strong>, ensuring normalization.</li>
 <li><code>h(x)</code> is the base measure.</li>
 </ul>
-<p>For IID observations, the likelihood depends on the data through <code class="math-inline">\sum _{i}T(x_{i})</code>; by the factorization theorem this sum is sufficient for <code class="math-inline">\eta</code>.</p>
+<p>For IID observations, the likelihood depends on the data through <span class="math-inline" data-tex="\sum _{i}T(x_{i})">ΣᵢT(xᵢ)</span>; by the factorization theorem this sum is sufficient for <span class="math-inline" data-tex="\eta">η</span>.</p>
 
 <h3 id="moment-relationships">Moment relationships</h3>
 <p>Differentiating the log-partition function under standard regularity conditions gives:</p>
-<div class="math-display">∇A(η)  = 𝔼_η[T(X)]
-∇²A(η) = Cov_η(T(X)) ⪰ 0.
-</div>
-<p>Thus <code class="math-inline">A</code> is convex, its gradient maps natural parameters to mean parameters, and its Hessian is both the covariance of sufficient statistics and the Fisher information in natural coordinates.</p>
-<p>For a Bernoulli variable with success probability <code class="math-inline">\mu</code>:</p>
-<div class="math-display">η = log(μ/(1-μ)),       T(x)=x,
-A(η)=log(1+exp(η)),     ∇A(η)=sigmoid(η)=μ.
-</div>
+<div class="math-display" data-tex="\begin{aligned}\nabla A(\eta )  &amp;= \mathbb{E}_\eta [T(X)]\\\nabla ^{2}A(\eta ) &amp;= \operatorname{Cov}_\eta (T(X)) \succeq  0.\end{aligned}">∇A(η)  = 𝔼_η[T(X)]
+∇²A(η) = Cov_η(T(X)) ⪰ 0.</div>
+<p>Thus <span class="math-inline" data-tex="A">A</span> is convex, its gradient maps natural parameters to mean parameters, and its Hessian is both the covariance of sufficient statistics and the Fisher information in natural coordinates.</p>
+<p>For a Bernoulli variable with success probability <span class="math-inline" data-tex="\mu">μ</span>:</p>
+<div class="math-display" data-tex="\begin{aligned}\eta  &amp;= \operatorname{log}(\mu /(1-\mu )),       T(x)=x,\\A(\eta )=\operatorname{log}(1+\operatorname{exp}(\eta )),     \nabla A(\eta )=\operatorname{sigmoid}(\eta )=\mu .\end{aligned}">η = log(μ/(1-μ)),       T(x)=x,
+A(η)=log(1+exp(η)),     ∇A(η)=sigmoid(η)=μ.</div>
 
 <h3 id="conjugate-priors">Conjugate priors</h3>
 <p>A prior is conjugate when the posterior remains in the same family after observing data. The generic conjugate prior for the natural parameter of an exponential family has the form:</p>
-<div class="math-display">p(η | χ,ν) ∝ exp(ηᵀχ - νA(η)).
-</div>
-<p>After <code>n</code> observations, the hyperparameters update as <code class="math-inline">\chi '=\chi +\sum _{i}T(x_{i})</code> and <code class="math-inline">\nu '=\nu +n</code>. Familiar pairs include Beta–Bernoulli/binomial, Dirichlet–categorical/multinomial, Gamma–Poisson, and Gaussian conjugate models. Conjugacy gives closed-form updates but is a computational convenience, not evidence that the prior is substantively correct.</p>
+<div class="math-display" data-tex="p(\eta  \mid  \chi ,\nu ) \propto  \operatorname{exp}(\eta ^{\top}\chi  - \nu A(\eta )).">p(η | χ,ν) ∝ exp(ηᵀχ - νA(η)).</div>
+<p>After <code>n</code> observations, the hyperparameters update as <span class="math-inline" data-tex="\chi &#x27;=\chi +\sum _{i}T(x_{i})">χ′=χ+ΣᵢT(xᵢ)</span> and <span class="math-inline" data-tex="\nu &#x27;=\nu +n">ν′=ν+n</span>. Familiar pairs include Beta–Bernoulli/binomial, Dirichlet–categorical/multinomial, Gamma–Poisson, and Gaussian conjugate models. Conjugacy gives closed-form updates but is a computational convenience, not evidence that the prior is substantively correct.</p>
 
 <h2 id="latent-variable-models">7. Latent-variable models</h2>
-<p>A latent-variable model introduces an unobserved <code class="math-inline">Z</code> that explains dependence or hidden structure. The <strong>complete-data likelihood</strong> treats both observed <code>x</code> and latent <code>z</code> as known:</p>
-<div class="math-display">p(x,z | θ) = p(z | θ)p(x | z,θ).
-</div>
+<p>A latent-variable model introduces an unobserved <span class="math-inline" data-tex="Z">Z</span> that explains dependence or hidden structure. The <strong>complete-data likelihood</strong> treats both observed <code>x</code> and latent <code>z</code> as known:</p>
+<div class="math-display" data-tex="p(x,z \mid  \theta ) = p(z \mid  \theta )p(x \mid  z,\theta ).">p(x,z | θ) = p(z | θ)p(x | z,θ).</div>
 <p>The <strong>observed-data likelihood</strong> marginalizes the latent variable:</p>
-<div class="math-display">p(x | θ) = Σ_z p(x,z | θ)       or       ∫p(x,z | θ)dz.
-</div>
-<p>The logarithm of this sum or integral couples the alternatives, so maximizing <code class="math-inline">\operatorname{log} p(x \mid  \theta )</code> can be harder than maximizing the complete-data log-likelihood. Mixture assignments, hidden Markov states, factors, and diffusion trajectories are common latent variables.</p>
+<div class="math-display" data-tex="p(x \mid  \theta ) = \sum _z p(x,z \mid  \theta )       \text{or}       \int p(x,z \mid  \theta )d z.">p(x | θ) = Σ_z p(x,z | θ)       or       ∫p(x,z | θ)dz.</div>
+<p>The logarithm of this sum or integral couples the alternatives, so maximizing <span class="math-inline" data-tex="\operatorname{log} p(x \mid  \theta )">log p(x | θ)</span> can be harder than maximizing the complete-data log-likelihood. Mixture assignments, hidden Markov states, factors, and diffusion trajectories are common latent variables.</p>
 
 <h3 id="em-algorithm">EM algorithm</h3>
 <p>Expectation–maximization alternates:</p>
 <ol>
-<li><strong>E-step:</strong> compute posterior responsibilities under the current parameters, <code class="math-inline">q(z)=p(z \mid  x,\theta _\text{old})</code>.</li>
-<li><strong>M-step:</strong> maximize <code class="math-inline">Q(\theta ,\theta _\text{old})=\mathbb{E}_q[\operatorname{log} p(x,Z \mid  \theta )]</code> with respect to <code class="math-inline">\theta</code>.</li>
+<li><strong>E-step:</strong> compute posterior responsibilities under the current parameters, <span class="math-inline" data-tex="q(z)=p(z \mid  x,\theta _\text{old})">q(z)=p(z | x,θ_old)</span>.</li>
+<li><strong>M-step:</strong> maximize <span class="math-inline" data-tex="Q(\theta ,\theta _\text{old})=\mathbb{E}_q[\operatorname{log} p(x,Z \mid  \theta )]">Q(θ,θ_old)=𝔼_q[log p(x,Z | θ)]</span> with respect to <span class="math-inline" data-tex="\theta">θ</span>.</li>
 </ol>
 <p>Each exact iteration does not decrease the observed-data likelihood, but EM can converge to a local optimum or saddle point and can be sensitive to initialization.</p>
 
 <h3 id="elbo-preview">ELBO preview</h3>
 <p>Introduce any normalized distribution <code>q(z)</code>. Jensen’s inequality gives:</p>
-<div class="math-display">log p(x)
+<div class="math-display" data-tex="\begin{aligned}\operatorname{log} p(x)\\&amp;= \operatorname{log} \int  q(z) p(x,z)/q(z) d z\\\ge  \mathbb{E}_q[\operatorname{log} p(x,Z)] - \mathbb{E}_q[\operatorname{log} q(Z)]\\&amp;= \mathcal{L}(q), \text{the} \text{evidence} \text{lower} \text{bound} (ELBO).\end{aligned}">log p(x)
 = log ∫ q(z) p(x,z)/q(z) dz
 ≥ 𝔼_q[log p(x,Z)] - 𝔼_q[log q(Z)]
-= ℒ(q), the evidence lower bound (ELBO).
-</div>
+= ℒ(q), the evidence lower bound (ELBO).</div>
 <p>The exact identity is:</p>
-<div class="math-display">log p(x) = ℒ(q) + D_KL(q(z) || p(z | x)).
-</div>
-<p>Because KL is non-negative, <code class="math-inline">\mathcal{L}(q)\le \operatorname{log} p(x)</code>. In exact EM, the E-step sets <code>q</code> to the current latent posterior, making the bound tight at the current parameters; the M-step raises the bound. Variational inference instead optimizes over a tractable family of <code>q</code> when the exact posterior is unavailable.</p>
+<div class="math-display" data-tex="\operatorname{log} p(x) = \mathcal{L}(q) + D_{KL}(q(z) \mathbin{\Vert} p(z \mid  x)).">log p(x) = ℒ(q) + D_KL(q(z) || p(z | x)).</div>
+<p>Because KL is non-negative, <span class="math-inline" data-tex="\mathcal{L}(q)\le \operatorname{log} p(x)">ℒ(q)≤log p(x)</span>. In exact EM, the E-step sets <code>q</code> to the current latent posterior, making the bound tight at the current parameters; the M-step raises the bound. Variational inference instead optimizes over a tractable family of <code>q</code> when the exact posterior is unavailable.</p>
 
 <h2 id="graphical-models">8. Graphical models</h2>
 <h3 id="directed-models">Directed models</h3>
 <p>A directed acyclic graph (Bayesian network) factorizes the joint using each node’s parents:</p>
-<div class="math-display">p(x₁,…,xₙ) = ∏ᵢ p(xᵢ | pa(xᵢ)).
-</div>
+<div class="math-display" data-tex="p(x_{1},\ldots ,x_{n}) = \prod _{i} p(x_{i} \mid  \text{pa}(x_{i})).">p(x₁,…,xₙ) = ∏ᵢ p(xᵢ | pa(xᵢ)).</div>
 <p>A node is conditionally independent of its non-descendants given its parents. Directed models naturally express generative or causal hypotheses, though a DAG is not automatically causal without suitable semantics and assumptions.</p>
 
 <h3 id="undirected-models">Undirected models</h3>
 <p>A Markov random field uses non-negative clique potentials:</p>
-<div class="math-display">p(x) = (1/Z) ∏_{C∈cliques} ψ_C(x_C),
-Z = Σ_x ∏_C ψ_C(x_C)              or the continuous analogue.
-</div>
-<p>Potentials need not be normalized probabilities. The partition function <code class="math-inline">Z</code> normalizes their product and is often expensive; this is central in energy-based models, where <code class="math-inline">p(x)=\operatorname{exp}(-E(x))/Z</code>.</p>
+<div class="math-display" data-tex="\begin{aligned}p(x) &amp;= (1/Z) \prod _{C\in \text{cliques}} \psi _C(x_{C}),\\Z &amp;= \sum _x \prod _C \psi _C(x_{C})              \text{or} \text{the} \text{continuous} \text{analogue}.\end{aligned}">p(x) = (1/Z) ∏_{C∈cliques} ψ_C(x_C),
+Z = Σ_x ∏_C ψ_C(x_C)              or the continuous analogue.</div>
+<p>Potentials need not be normalized probabilities. The partition function <span class="math-inline" data-tex="Z">Z</span> normalizes their product and is often expensive; this is central in energy-based models, where <span class="math-inline" data-tex="p(x)=\operatorname{exp}(-E(x))/Z">p(x)=exp(-E(x))/Z</span>.</p>
 
 <h3 id="d-separation">D-separation at a useful level</h3>
 <p>D-separation determines which conditional independences a DAG implies. Consider every undirected path between two node sets:</p>
 <ul>
-<li>A <strong>chain</strong> <code>X → M → Y</code> and a <strong>fork</strong> <code>X ← M → Y</code> are blocked when conditioning on <code class="math-inline">M</code>.</li>
-<li>A <strong>collider</strong> <code>X → M ← Y</code> is blocked by default, but becomes active when conditioning on <code class="math-inline">M</code> or one of its descendants.</li>
+<li>A <strong>chain</strong> <code>X → M → Y</code> and a <strong>fork</strong> <code>X ← M → Y</code> are blocked when conditioning on <span class="math-inline" data-tex="M">M</span>.</li>
+<li>A <strong>collider</strong> <code>X → M ← Y</code> is blocked by default, but becomes active when conditioning on <span class="math-inline" data-tex="M">M</span> or one of its descendants.</li>
 </ul>
-<p>If every path is blocked by conditioning set <code class="math-inline">Z</code>, then <code class="math-inline">X</code> and <code class="math-inline">Y</code> are d-separated given <code class="math-inline">Z</code>, implying <code>X ⊥ Y | Z</code> for every distribution that factorizes over the DAG. Conditioning can therefore remove dependence or create it, depending on graph structure.</p>
+<p>If every path is blocked by conditioning set <span class="math-inline" data-tex="Z">Z</span>, then <span class="math-inline" data-tex="X">X</span> and <span class="math-inline" data-tex="Y">Y</span> are d-separated given <span class="math-inline" data-tex="Z">Z</span>, implying <code>X ⊥ Y | Z</code> for every distribution that factorizes over the DAG. Conditioning can therefore remove dependence or create it, depending on graph structure.</p>
 
 <h3 id="factor-graphs">Factor graphs</h3>
 <p>A factor graph is bipartite: variable nodes connect to factor nodes. It represents:</p>
-<div class="math-display">p(x₁,…,xₙ) ∝ ∏_a f_a(x_a).
-</div>
+<div class="math-display" data-tex="p(x_{1},\ldots ,x_{n}) \propto  \prod _a f_{a}(x_{a}).">p(x₁,…,xₙ) ∝ ∏_a f_a(x_a).</div>
 <p>Factor graphs make the scope of each factor explicit and provide a common language for sum-product and max-product message passing. An HMM, for example, becomes a chain of transition and emission factors.</p>
 
 <h2 id="predictive-uncertainty">9. Predictive uncertainty</h2>
 <h3 id="aleatoric-and-epistemic">Aleatoric and epistemic uncertainty</h3>
 <ul>
-<li><strong>Aleatoric uncertainty</strong> is outcome variability represented by <code class="math-inline">p(y \mid  x,\theta )</code>. More data do not remove genuine observation noise, though the noise model can be learned better.</li>
-<li><strong>Epistemic uncertainty</strong> is uncertainty about the model or parameters, represented in Bayesian modelling by <code class="math-inline">p(\theta  \mid  \mathcal{D})</code>. It may shrink with informative data but can remain high out of distribution or under non-identifiability.</li>
+<li><strong>Aleatoric uncertainty</strong> is outcome variability represented by <span class="math-inline" data-tex="p(y \mid  x,\theta )">p(y | x,θ)</span>. More data do not remove genuine observation noise, though the noise model can be learned better.</li>
+<li><strong>Epistemic uncertainty</strong> is uncertainty about the model or parameters, represented in Bayesian modelling by <span class="math-inline" data-tex="p(\theta  \mid  \mathcal{D})">p(θ | 𝒟)</span>. It may shrink with informative data but can remain high out of distribution or under non-identifiability.</li>
 </ul>
 <p>The distinction is model-relative. Misspecification can be mistaken for either type, and the entropy of one softmax prediction does not by itself identify epistemic uncertainty.</p>
 
 <h3 id="posterior-predictive-uncertainty">Posterior predictive distributions</h3>
 <p>The posterior predictive combines both sources. For scalar regression, the law of total variance gives:</p>
-<div class="math-display">Var(Y* | x*,𝒟)
+<div class="math-display" data-tex="\begin{aligned}\operatorname{Var}(Y^{\ast} \mid  x^{\ast},\mathcal{D})\\&amp;= \mathbb{E}_{p(\theta \mid \mathcal{D})}[\operatorname{Var}(Y^{\ast} \mid  x^{\ast},\theta )]\\+ \operatorname{Var}_{p(\theta \mid \mathcal{D})}(\mathbb{E}[Y^{\ast} \mid  x^{\ast},\theta ])\\\approx  \text{aleatoric} \text{contribution} + \text{epistemic} \text{contribution}.\end{aligned}">Var(Y* | x*,𝒟)
 = 𝔼_{p(θ|𝒟)}[Var(Y* | x*,θ)]
   + Var_{p(θ|𝒟)}(𝔼[Y* | x*,θ])
-≈ aleatoric contribution + epistemic contribution.
-</div>
+≈ aleatoric contribution + epistemic contribution.</div>
 <p>This clean decomposition assumes the model’s conditional variance meaningfully represents data noise and the posterior meaningfully represents model uncertainty.</p>
 
 <h3 id="calibration-versus-sharpness">Calibration versus sharpness</h3>
@@ -340,36 +306,31 @@ Z = Σ_x ∏_C ψ_C(x_C)              or the continuous analogue.
 <h2 id="numerical-methods">10. Numerical methods</h2>
 <h3 id="log-probabilities-and-underflow">Log probabilities and underflow</h3>
 <p>Products of many probabilities rapidly underflow to zero in finite-precision arithmetic. Work with log probabilities:</p>
-<div class="math-display">log ∏ᵢ p(xᵢ | θ) = Σᵢ log p(xᵢ | θ).
-</div>
+<div class="math-display" data-tex="\operatorname{log} \prod _{i} p(x_{i} \mid  \theta ) = \sum _{i} \operatorname{log} p(x_{i} \mid  \theta ).">log ∏ᵢ p(xᵢ | θ) = Σᵢ log p(xᵢ | θ).</div>
 <p>This turns products into sums and preserves relative scale. Zero probabilities map to negative infinity and still require explicit support handling.</p>
 
 <h3 id="log-sum-exp">Log-sum-exp</h3>
 <p>To compute the logarithm of a sum of exponentials stably, subtract the largest input:</p>
-<div class="math-display">LSE(a₁,…,aₙ) = log Σᵢ exp(aᵢ)
-              = m + log Σᵢ exp(aᵢ-m),     m=maxᵢ aᵢ.
-</div>
+<div class="math-display" data-tex="\begin{aligned}LSE(a_{1},\ldots ,a_{n}) &amp;= \operatorname{log} \sum _{i} \operatorname{exp}(a_{i})\\&amp;= m + \operatorname{log} \sum _{i} \operatorname{exp}(a_{i}-m),     m=\operatorname{max}_{i} a_{i}.\end{aligned}">LSE(a₁,…,aₙ) = log Σᵢ exp(aᵢ)
+              = m + log Σᵢ exp(aᵢ-m),     m=maxᵢ aᵢ.</div>
 <p>Now every exponent is at most zero, avoiding overflow and reducing underflow. The same transformation stabilizes softmax and the normalization of log weights.</p>
 
 <h3 id="worked-calculation-log-sum-exp">Worked calculation 5: stable log-sum-exp</h3>
-<div class="math-display">log(exp(-1000) + exp(-1001))
+<div class="math-display" data-tex="\begin{aligned}\operatorname{log}(\operatorname{exp}(-1000) + \operatorname{exp}(-1001))\\&amp;= -1000 + \operatorname{log}(\operatorname{exp}(0) + \operatorname{exp}(-1))\\&amp;= -1000 + \operatorname{log}(1 + 0.367879)\\\approx  -999.6867.\end{aligned}">log(exp(-1000) + exp(-1001))
 = -1000 + log(exp(0) + exp(-1))
 = -1000 + log(1 + 0.367879)
-≈ -999.6867.
-</div>
-<p>Direct exponentiation may round both terms to zero, producing <code class="math-inline">\operatorname{log}(0)</code>; shifting computes the finite answer.</p>
+≈ -999.6867.</div>
+<p>Direct exponentiation may round both terms to zero, producing <span class="math-inline" data-tex="\operatorname{log}(0)">log(0)</span>; shifting computes the finite answer.</p>
 
 <h3 id="monte-carlo-estimation">Monte Carlo estimation</h3>
 <p>For samples <code>X⁽ˢ⁾ ~ p</code>, estimate an expectation with:</p>
-<div class="math-display">𝔼_p[f(X)] ≈ (1/S) Σ_{s=1}^S f(X⁽ˢ⁾).
-</div>
-<p>With IID finite-variance samples, the estimator is unbiased and its standard error falls as <code class="math-inline">1/\sqrt{S}</code>. Markov-chain samples are correlated, so effective sample size is smaller than the number of draws. Always report Monte Carlo error or diagnostics when simulation error can affect the conclusion.</p>
+<div class="math-display" data-tex="\mathbb{E}_p[f(X)] \approx  (1/S) \sum _{s=1}^S f(X^{(s)}).">𝔼_p[f(X)] ≈ (1/S) Σ_{s=1}^S f(X⁽ˢ⁾).</div>
+<p>With IID finite-variance samples, the estimator is unbiased and its standard error falls as <span class="math-inline" data-tex="1/\sqrt{S}">1/√S</span>. Markov-chain samples are correlated, so effective sample size is smaller than the number of draws. Always report Monte Carlo error or diagnostics when simulation error can affect the conclusion.</p>
 
 <h3 id="importance-sampling-preview">Importance sampling preview</h3>
 <p>When sampling from target <code>p</code> is difficult but proposal <code>q</code> is easy to sample, rewrite:</p>
-<div class="math-display">𝔼_p[f(X)] = 𝔼_q[w(X)f(X)],       w(x)=p(x)/q(x).
-</div>
-<p>If only an unnormalized target is known, self-normalized importance sampling uses <code class="math-inline">\sum _{s}w_{s}f(x_{s})/\sum _{s}w_{s}</code>. The proposal must cover the target’s support. Poor overlap creates a few enormous weights, high variance, and low effective sample size, often summarized by <code class="math-inline">ESS\approx (\sum w_{s})^{2}/\sum w_{s}^{2}</code>. Compute weights in log space and normalize them with log-sum-exp.</p>
+<div class="math-display" data-tex="\mathbb{E}_p[f(X)] = \mathbb{E}_q[w(X)f(X)],       w(x)=p(x)/q(x).">𝔼_p[f(X)] = 𝔼_q[w(X)f(X)],       w(x)=p(x)/q(x).</div>
+<p>If only an unnormalized target is known, self-normalized importance sampling uses <span class="math-inline" data-tex="\sum _{s}w_{s}f(x_{s})/\sum _{s}w_{s}">Σₛwₛf(xₛ)/Σₛwₛ</span>. The proposal must cover the target’s support. Poor overlap creates a few enormous weights, high variance, and low effective sample size, often summarized by <span class="math-inline" data-tex="ESS\approx (\sum w_{s})^{2}/\sum w_{s}^{2}">ESS≈(Σwₛ)²/Σwₛ²</span>. Compute weights in log space and normalize them with log-sum-exp.</p>
 
 <h2 id="common-failure-modes">Common failure modes</h2>
 <ul>
@@ -391,7 +352,7 @@ Z = Σ_x ∏_C ψ_C(x_C)              or the continuous analogue.
 <ol>
 <li>Derive Bayes’ rule from two factorizations of a joint distribution and identify all four terms.</li>
 <li>Give examples where conditional independence holds without marginal independence, and vice versa.</li>
-<li>Derive <code class="math-inline">H(p,q)=H(p)+D_{KL}(p\mathbin{\Vert}q)</code> and prove KL non-negativity with Jensen’s inequality.</li>
+<li>Derive <span class="math-inline" data-tex="H(p,q)=H(p)+D_{KL}(p\mathbin{\Vert}q)">H(p,q)=H(p)+D_KL(p||q)</span> and prove KL non-negativity with Jensen’s inequality.</li>
 <li>Explain why <code>D_KL(p||q)</code> and <code>D_KL(q||p)</code> behave differently when one distribution misses a mode.</li>
 <li>Compare the outputs—not just the objectives—of MLE, MAP, and Bayesian inference.</li>
 <li>Derive the mean and covariance of sufficient statistics from the log-partition function.</li>

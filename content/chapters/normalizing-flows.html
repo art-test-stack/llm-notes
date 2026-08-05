@@ -3,45 +3,37 @@
 
 <h2 id="change-of-variables">1. Change of variables</h2>
 <p>Let <code>z ∈ ℝᵈ</code> have a known density <code>p<sub>Z</sub>(z)</code>, and let an invertible differentiable mapping produce</p>
-<div class="math-display">x = f(z),          z = f⁻¹(x).
-</div>
+<div class="math-display" data-tex="x = f(z),          z = f^{-1}(x).">x = f(z),          z = f⁻¹(x).</div>
 <p>Probability mass is conserved. For a sufficiently small region around <code>z</code>, the linearization of <code>f</code> scales volume by the absolute Jacobian determinant:</p>
-<div class="math-display">dx = |det J_f(z)| dz,
-p_X(x) dx = p_Z(z) dz.
-</div>
+<div class="math-display" data-tex="\begin{aligned}d x &amp;= \mid \text{det} J_{f}(z)\mid  d z,\\p_{X}(x) d x &amp;= p_{Z}(z) d z.\end{aligned}">dx = |det J_f(z)| dz,
+p_X(x) dx = p_Z(z) dz.</div>
 <p>Substituting the first relation into the second and dividing by <code>dx</code> gives the density transformation:</p>
-<div class="math-display">p_X(f(z)) = p_Z(z) / |det J_f(z)|
+<div class="math-display" data-tex="\begin{aligned}p_{X}(f(z)) &amp;= p_{Z}(z) / \mid \text{det} J_{f}(z)\mid\\p_{X}(x) &amp;= p_{Z}(f^{-1}(x)) \mid \text{det} J_{f}^{-1}(x)\mid .\end{aligned}">p_X(f(z)) = p_Z(z) / |det J_f(z)|
 
-p_X(x) = p_Z(f⁻¹(x)) |det J_f⁻¹(x)|.
-</div>
-<p>The two forms agree because <code class="math-inline">J_{f^{-1}}(x)=J_f(z)^{-1}</code>. In log space, the product becomes the quantity optimized in maximum-likelihood training:</p>
-<div class="math-display">log p_X(x) = log p_Z(z) − log |det J_f(z)|,   z = f⁻¹(x).
-</div>
-<p>For a composition <code class="math-inline">f = \text{fK} ∘ \cdots  ∘ f1</code>, determinants multiply and log-determinants add:</p>
-<div class="math-display">log |det J_f| = Σₖ log |det J_fₖ|.
-</div>
+p_X(x) = p_Z(f⁻¹(x)) |det J_f⁻¹(x)|.</div>
+<p>The two forms agree because <span class="math-inline" data-tex="J_{f^{-1}}(x)=J_f(z)^{-1}">Jf⁻¹(x) = Jf(z)⁻¹</span>. In log space, the product becomes the quantity optimized in maximum-likelihood training:</p>
+<div class="math-display" data-tex="\operatorname{log} p_{X}(x) = \operatorname{log} p_{Z}(z) - \operatorname{log} \mid \text{det} J_{f}(z)\mid ,   z = f^{-1}(x).">log p_X(x) = log p_Z(z) − log |det J_f(z)|,   z = f⁻¹(x).</div>
+<p>For a composition <span class="math-inline" data-tex="f = \text{fK} ∘ \cdots  ∘ f1">f = fK ∘ ⋯ ∘ f1</span>, determinants multiply and log-determinants add:</p>
+<div class="math-display" data-tex="\operatorname{log} \mid \text{det} J_{f}\mid  = \sum _{k} \operatorname{log} \mid \text{det} J_{\text{fk}}\mid .">log |det J_f| = Σₖ log |det J_fₖ|.</div>
 
 <h3 id="worked-two-dimensional-transformation">Worked two-dimensional transformation</h3>
-<p>Take <code class="math-inline">z = (z_{1},z_{2})</code> from a standard two-dimensional Gaussian and define</p>
-<div class="math-display">x₁ = 2z₁ + 1
-x₂ = z₁ + 3z₂.
-</div>
-<p>The map is invertible, with <code class="math-inline">z_{1} = (x_{1} - 1)/2</code> and <code class="math-inline">z_{2} = (x_{2} - z_{1})/3</code>. Its Jacobian and determinant are</p>
-<div class="math-display">J_f = [2  0]
-      [1  3],       det J_f = 6.
-</div>
-<p>Since <code class="math-inline">\text{pZ}(z) = (2\pi )^{-1} \operatorname{exp}(-(z_{1}^{2}+z_{2}^{2})/2)</code>, the transformed density is</p>
-<div class="math-display">p_X(x) = 1/(12π) exp(−½[((x₁−1)/2)²
-                              + ((x₂−(x₁−1)/2)/3)²]).
-</div>
+<p>Take <span class="math-inline" data-tex="z = (z_{1},z_{2})">z = (z₁,z₂)</span> from a standard two-dimensional Gaussian and define</p>
+<div class="math-display" data-tex="\begin{aligned}x_{1} &amp;= 2z_{1} + 1\\x_{2} &amp;= z_{1} + 3z_{2}.\end{aligned}">x₁ = 2z₁ + 1
+x₂ = z₁ + 3z₂.</div>
+<p>The map is invertible, with <span class="math-inline" data-tex="z_{1} = (x_{1} - 1)/2">z₁ = (x₁ − 1)/2</span> and <span class="math-inline" data-tex="z_{2} = (x_{2} - z_{1})/3">z₂ = (x₂ − z₁)/3</span>. Its Jacobian and determinant are</p>
+<div class="math-display" data-tex="\begin{aligned}J_{f} &amp;= [2  0]\\{}[1  3],       \text{det} J_{f} &amp;= 6.\end{aligned}">J_f = [2  0]
+      [1  3],       det J_f = 6.</div>
+<p>Since <span class="math-inline" data-tex="\text{pZ}(z) = (2\pi )^{-1} \operatorname{exp}(-(z_{1}^{2}+z_{2}^{2})/2)">pZ(z) = (2π)⁻¹ exp(−(z₁²+z₂²)/2)</span>, the transformed density is</p>
+<div class="math-display" data-tex="\begin{aligned}p_{X}(x) &amp;= 1/(12\pi ) \operatorname{exp}(-\tfrac{1}{2}[((x_{1}-1)/2)^{2}\\+ ((x_{2}-(x_{1}-1)/2)/3)^{2}]).\end{aligned}">p_X(x) = 1/(12π) exp(−½[((x₁−1)/2)²
+                              + ((x₂−(x₁−1)/2)/3)²]).</div>
 <p>The factor <code>1/6</code> compensates for the sixfold expansion of area. This is the change-of-variables formula in a case where the Jacobian is triangular and the calculation is immediate.</p>
 
 <h2 id="design-constraints">2. Design constraints</h2>
 <ul>
 <li><strong>Invertibility:</strong> every data point must map to exactly one latent point on the modeled domain.</li>
-<li><strong>Efficient forward transform:</strong> generating <code class="math-inline">x = f(z)</code> should be cheap when sampling speed matters.</li>
-<li><strong>Efficient inverse:</strong> evaluating data likelihood needs <code class="math-inline">z = f^{-1}(x)</code>.</li>
-<li><strong>Efficient log determinant:</strong> a generic dense <code>d × d</code> determinant costs <code class="math-inline">O(d^{3})</code>, so flows impose diagonal, triangular, low-rank, or otherwise structured Jacobians.</li>
+<li><strong>Efficient forward transform:</strong> generating <span class="math-inline" data-tex="x = f(z)">x = f(z)</span> should be cheap when sampling speed matters.</li>
+<li><strong>Efficient inverse:</strong> evaluating data likelihood needs <span class="math-inline" data-tex="z = f^{-1}(x)">z = f⁻¹(x)</span>.</li>
+<li><strong>Efficient log determinant:</strong> a generic dense <code>d × d</code> determinant costs <span class="math-inline" data-tex="O(d^{3})">O(d³)</span>, so flows impose diagonal, triangular, low-rank, or otherwise structured Jacobians.</li>
 <li><strong>Expressivity:</strong> the structure that makes computation cheap must not prevent the composition from modeling useful dependencies.</li>
 </ul>
 <p>No single architecture optimizes every property. Coupling flows favor parallel transforms, while autoregressive flows make one direction cheaper than the other.</p>
@@ -50,27 +42,24 @@ x₂ = z₁ + 3z₂.
 <p>A coupling layer partitions its input into <code>z<sub>a</sub></code> and <code>z<sub>b</sub></code>. One part passes through unchanged and conditions the transformation of the other.</p>
 
 <h3 id="additive-coupling">Additive coupling</h3>
-<div class="math-display">x_a = z_a
+<div class="math-display" data-tex="\begin{aligned}x_{a} &amp;= z_{a}\\x_{b} &amp;= z_{b} + t(z_{a})\\z_{a} &amp;= x_{a}\\z_{b} &amp;= x_{b} - t(x_{a}).\end{aligned}">x_a = z_a
 x_b = z_b + t(z_a)
 
 z_a = x_a
-z_b = x_b − t(x_a).
-</div>
-<p>The conditioner <code>t</code> need not be invertible. The full map is invertible because the unchanged partition is available when undoing the translation. Its block-triangular Jacobian has ones on the diagonal, so <code class="math-inline">\operatorname{log} \mid \text{det} J\mid  = 0</code>.</p>
+z_b = x_b − t(x_a).</div>
+<p>The conditioner <code>t</code> need not be invertible. The full map is invertible because the unchanged partition is available when undoing the translation. Its block-triangular Jacobian has ones on the diagonal, so <span class="math-inline" data-tex="\operatorname{log} \mid \text{det} J\mid  = 0">log |det J| = 0</span>.</p>
 
 <h3 id="affine-coupling">Affine coupling</h3>
-<div class="math-display">x_a = z_a
+<div class="math-display" data-tex="\begin{aligned}x_{a} &amp;= z_{a}\\x_{b} &amp;= z_{b} \odot  \operatorname{exp}(s(z_{a})) + t(z_{a})\\z_{a} &amp;= x_{a}\\z_{b} &amp;= (x_{b} - t(x_{a})) \odot  \operatorname{exp}(-s(x_{a})).\end{aligned}">x_a = z_a
 x_b = z_b ⊙ exp(s(z_a)) + t(z_a)
 
 z_a = x_a
-z_b = (x_b − t(x_a)) ⊙ exp(−s(x_a)).
-</div>
+z_b = (x_b − t(x_a)) ⊙ exp(−s(x_a)).</div>
 <p>Its Jacobian is triangular even though the derivatives of <code>s</code> and <code>t</code> may be complicated:</p>
-<div class="math-display">J = [I                         0]
+<div class="math-display" data-tex="\begin{aligned}J &amp;= [I                         0]\\{}[\partial x_{b}/\partial z_{a}   \operatorname{diag}(\operatorname{exp}(s(z_{a})))]\\\operatorname{log} \mid \text{det} J\mid  &amp;= \sum _{j} s_{j}(z_{a}).\end{aligned}">J = [I                         0]
     [∂x_b/∂z_a   diag(exp(s(z_a)))]
 
-log |det J| = Σⱼ s_j(z_a).
-</div>
+log |det J| = Σⱼ s_j(z_a).</div>
 <p>A RealNVP-style flow stacks affine coupling layers and alternates which coordinates are frozen. Permutations, checkerboard or channel masks, and learned channel mixing prevent the same subset from remaining unchanged. In image flows, invertible <code>1×1</code> convolutions provide a learned permutation across channels. The main limitation is that each layer directly transforms only part of the state, so depth and mixing are essential for expressivity.</p>
 
 <h2 id="autoregressive-flows">4. Autoregressive flows</h2>
@@ -78,11 +67,11 @@ log |det J| = Σⱼ s_j(z_a).
 <table>
 <thead><tr><th>Architecture</th><th>Transformation</th><th>Density evaluation</th><th>Sampling</th></tr></thead>
 <tbody>
-<tr><td><strong>MAF</strong></td><td><code class="math-inline">x_{i} = \mu _{i}(x\lt i) + \sigma _{i}(x\lt i)z_{i}</code></td><td>Fast: all <code class="math-inline">z_{i} = (x_{i}-\mu _{i})/\sigma _{i}</code> can be computed in one masked-network pass for an observed <code>x</code>.</td><td>Slow: <code class="math-inline">x_{1},\ldots ,\text{xd}</code> must be generated sequentially.</td></tr>
-<tr><td><strong>IAF</strong></td><td><code class="math-inline">x_{i} = \mu _{i}(z\lt i) + \sigma _{i}(z\lt i)z_{i}</code></td><td>Slow: recovering <code>z</code> from an arbitrary <code>x</code> is sequential.</td><td>Fast: given all base noise <code>z</code>, a masked network produces the parameters in one pass.</td></tr>
+<tr><td><strong>MAF</strong></td><td><span class="math-inline" data-tex="x_{i} = \mu _{i}(x\lt i) + \sigma _{i}(x\lt i)z_{i}">xᵢ = μᵢ(x&lt;i) + σᵢ(x&lt;i)zᵢ</span></td><td>Fast: all <span class="math-inline" data-tex="z_{i} = (x_{i}-\mu _{i})/\sigma _{i}">zᵢ = (xᵢ−μᵢ)/σᵢ</span> can be computed in one masked-network pass for an observed <code>x</code>.</td><td>Slow: <span class="math-inline" data-tex="x_{1},\ldots ,\text{xd}">x₁,…,xd</span> must be generated sequentially.</td></tr>
+<tr><td><strong>IAF</strong></td><td><span class="math-inline" data-tex="x_{i} = \mu _{i}(z\lt i) + \sigma _{i}(z\lt i)z_{i}">xᵢ = μᵢ(z&lt;i) + σᵢ(z&lt;i)zᵢ</span></td><td>Slow: recovering <code>z</code> from an arbitrary <code>x</code> is sequential.</td><td>Fast: given all base noise <code>z</code>, a masked network produces the parameters in one pass.</td></tr>
 </tbody>
 </table>
-<p>For both, <code class="math-inline">\operatorname{log} \mid \text{det} J\mid  = \sum _{i} \operatorname{log} \mid \sigma _{i}\mid</code> in the direction written. Masked networks such as MADE zero selected connections so output <code>i</code> can depend only on permitted earlier inputs. They compute all conditionals in one network evaluation when the conditioning variables are already known; the dependency order still makes the opposite direction sequential.</p>
+<p>For both, <span class="math-inline" data-tex="\operatorname{log} \mid \text{det} J\mid  = \sum _{i} \operatorname{log} \mid \sigma _{i}\mid">log |det J| = Σᵢ log |σᵢ|</span> in the direction written. Masked networks such as MADE zero selected connections so output <code>i</code> can depend only on permitted earlier inputs. They compute all conditionals in one network evaluation when the conditioning variables are already known; the dependency order still makes the opposite direction sequential.</p>
 <p>Thus MAF is attractive when repeated likelihood evaluation is central, while IAF is attractive when fast sampling or a flexible variational posterior is central. They are closely related transformations viewed in opposite computational directions.</p>
 
 <h2 id="spline-flows">5. Spline flows</h2>
@@ -102,29 +91,24 @@ log |det J| = Σⱼ s_j(z_a).
 <h2 id="dequantization">7. Dequantization</h2>
 <p>Image pixels are discrete integers, while standard flows define densities over continuous space. Fitting a continuous density directly at isolated observations is ill-posed as a model of discrete probabilities: density is not probability mass, and the objective can improve by placing arbitrarily narrow, high spikes on the observed lattice.</p>
 <p><strong>Uniform dequantization</strong> replaces an integer pixel vector <code>y ∈ {0,…,255}ᵈ</code> with</p>
-<div class="math-display">x = (y + u) / 256,     u ~ Uniform([0,1)ᵈ).
-</div>
+<div class="math-display" data-tex="x = (y + u) / 256,     u ~ \text{Uniform}([0,1)ᵈ).">x = (y + u) / 256,     u ~ Uniform([0,1)ᵈ).</div>
 <p>The discrete probability assigned to <code>y</code> is the integral of the continuous density over its quantization cell. Training on uniform noise gives a variational lower bound on the corresponding discrete log-likelihood, up to the known scaling constant.</p>
 <p><strong>Variational dequantization</strong> learns a conditional noise distribution <code>q(u|y)</code>. Its bound includes the entropy correction:</p>
-<div class="math-display">log P(y) ≥ E_q[log p(y + u) − log q(u|y)].
-</div>
+<div class="math-display" data-tex="\operatorname{log} P(y) \ge  E_{q}[\operatorname{log} p(y + u) - \operatorname{log} q(u\mid y)].">log P(y) ≥ E_q[log p(y + u) − log q(u|y)].</div>
 <p>A learned <code>q</code> can shape noise around image structure and tighten the bound instead of forcing every quantization cell to use uniform noise.</p>
 
 <h2 id="continuous-normalizing-flows">8. Continuous normalizing flows</h2>
 <p>A continuous normalizing flow (CNF) replaces a finite stack of transformations with ODE dynamics:</p>
-<div class="math-display">dz(t)/dt = v_θ(z(t), t),     z(t₀) ~ p₀.
-</div>
+<div class="math-display" data-tex="d z(t)/d t = v_\theta (z(t), t),     z(t_{0}) ~ p_{0}.">dz(t)/dt = v_θ(z(t), t),     z(t₀) ~ p₀.</div>
 <p>Under suitable regularity, the ODE solution defines an invertible map: integrate forward to generate data and backward to recover the base point. The instantaneous change-of-variables formula is</p>
-<div class="math-display">d log p_t(z(t))/dt = −div v_θ(z(t),t)
+<div class="math-display" data-tex="\begin{aligned}d \operatorname{log} p_{t}(z(t))/d t &amp;= -\text{div} v_\theta (z(t),t)\\&amp;= -\operatorname{Tr}(\partial v_\theta /\partial z).\\\operatorname{log} p_{1}(z(t_{1})) &amp;= \operatorname{log} p_{0}(z(t_{0}))\\- \int [t_{0},t_{1}] \operatorname{Tr}(\partial v_\theta /\partial z) d t.\end{aligned}">d log p_t(z(t))/dt = −div v_θ(z(t),t)
                    = −Tr(∂v_θ/∂z).
 
 log p₁(z(t₁)) = log p₀(z(t₀))
-                − ∫[t₀,t₁] Tr(∂v_θ/∂z) dt.
-</div>
-<p>The divergence measures the infinitesimal expansion of volume. Computing the exact trace can scale poorly with dimension. Hutchinson estimation uses a random vector <code class="math-inline">\varepsilon</code> with <code class="math-inline">E[\varepsilon \varepsilon ^{\top}]=I</code>:</p>
-<div class="math-display">Tr(J) = E_ε[εᵀJε],     J = ∂v_θ/∂z.
-</div>
-<p>Automatic differentiation can compute the vector-Jacobian product without materializing <code class="math-inline">J</code>, trading exactness for estimator variance. CNF cost depends on the ODE solver's number of function evaluations: stiff or highly curved dynamics require small steps, and backward integration plus density tracking can be much slower than a fixed-depth discrete flow. Solver tolerances also affect numerical invertibility and likelihood accuracy.</p>
+                − ∫[t₀,t₁] Tr(∂v_θ/∂z) dt.</div>
+<p>The divergence measures the infinitesimal expansion of volume. Computing the exact trace can scale poorly with dimension. Hutchinson estimation uses a random vector <span class="math-inline" data-tex="\varepsilon">ε</span> with <span class="math-inline" data-tex="E[\varepsilon \varepsilon ^{\top}]=I">E[εεᵀ]=I</span>:</p>
+<div class="math-display" data-tex="\operatorname{Tr}(J) = E_\varepsilon [\varepsilon ^{\top}J\varepsilon ],     J = \partial v_\theta /\partial z.">Tr(J) = E_ε[εᵀJε],     J = ∂v_θ/∂z.</div>
+<p>Automatic differentiation can compute the vector-Jacobian product without materializing <span class="math-inline" data-tex="J">J</span>, trading exactness for estimator variance. CNF cost depends on the ODE solver's number of function evaluations: stiff or highly curved dynamics require small steps, and backward integration plus density tracking can be much slower than a fixed-depth discrete flow. Solver tolerances also affect numerical invertibility and likelihood accuracy.</p>
 
 <h2 id="strengths-and-limitations">9. Strengths and limitations</h2>
 <table>

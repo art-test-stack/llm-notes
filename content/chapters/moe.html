@@ -9,16 +9,16 @@ y = Σ_{e in selected} gate_e(x) · expert_e(x)
 </code></pre>
 <p>Only a small subset of experts is active per token. This increases total parameter capacity without making active FLOPs proportional to total parameters.</p>
 <h2 id="router-mathematics">Router mathematics</h2>
-<p>Let <code class="math-inline">x_t</code> be token <code class="math-inline">t</code>'s hidden state and let there be <code class="math-inline">E</code> experts. A linear router produces one logit per token and expert:</p>
-<div class="math-display">z_{t,e} = (W_r x_t)_e
+<p>Let <span class="math-inline" data-tex="x_t">x_t</span> be token <span class="math-inline" data-tex="t">t</span>'s hidden state and let there be <span class="math-inline" data-tex="E">E</span> experts. A linear router produces one logit per token and expert:</p>
+<div class="math-display" data-tex="\begin{aligned}z_{t,e} &amp;= (W_{r} x_{t})_e\\\operatorname{softmax} \text{gate}:  p_{t,e} &amp;= \operatorname{exp}(z_{t,e}) / \sum _j \operatorname{exp}(z_{t,j})\\\operatorname{sigmoid} \text{gate}:  s_{t,e} &amp;= \sigma (z_{t,e})\end{aligned}">z_{t,e} = (W_r x_t)_e
 
 softmax gate:  p_{t,e} = exp(z_{t,e}) / Σ_j exp(z_{t,j})
 sigmoid gate:  s_{t,e} = σ(z_{t,e})</div>
 <p>Softmax probabilities compete and sum to one. Sigmoid scores are independent and need not sum to one; this can reduce forced competition, but their scale must be handled when combining experts. In either case the router can select <code>S_t = TopK(scores_t, k)</code>. Top-1 selects one expert; top-2 permits two expert contributions and a fallback destination at greater compute and communication cost.</p>
 <p>A common combine rule renormalizes only the selected scores:</p>
-<div class="math-display">g_{t,e} = q_{t,e} / Σ_{j ∈ S_t} q_{t,j}    if e ∈ S_t, else 0
+<div class="math-display" data-tex="\begin{aligned}g_{t,e} &amp;= q_{t,e} / \sum _{j \in  S_{t}} q_{t,j}    \text{if} e \in  S_{t}, \text{else} 0\\y_{t} &amp;= \sum _{e \in  S_{t}} g_{t,e} \text{Expert}_{e}(x_{t})\end{aligned}">g_{t,e} = q_{t,e} / Σ_{j ∈ S_t} q_{t,j}    if e ∈ S_t, else 0
 y_t = Σ_{e ∈ S_t} g_{t,e} Expert_e(x_t)</div>
-<p>Here <code>q</code> may be the softmax probability <code>p</code> or sigmoid score <code>s</code>. For top-1, selected-set renormalization makes <code class="math-inline">g=1</code>; some implementations instead retain the raw selected probability as a multiplier so the task loss still supplies a gate-magnitude gradient.</p>
+<p>Here <code>q</code> may be the softmax probability <code>p</code> or sigmoid score <code>s</code>. For top-1, selected-set renormalization makes <span class="math-inline" data-tex="g=1">g=1</span>; some implementations instead retain the raw selected probability as a multiplier so the task loss still supplies a gate-magnitude gradient.</p>
 <h3 id="router-gradient-flow">Gradient flow</h3>
 <ul>
 <li>The hard <code>TopK</code> index operation is discontinuous. Ordinary backpropagation treats the chosen set as fixed; it does not differentiate through the counterfactual choice of another expert.</li>
@@ -27,13 +27,13 @@ y_t = Σ_{e ∈ S_t} g_{t,e} Expert_e(x_t)</div>
 <li>For renormalized top-1, the task path gives no local router gradient at all because the only weight is exactly one. Auxiliary balancing losses, router z-loss, noise, or specialized estimators are therefore especially important.</li>
 </ul>
 <h2 id="classical-auxiliary-load-balancing-loss">Classical auxiliary load-balancing loss</h2>
-<p>For a batch of <code class="math-inline">T</code> tokens under top-1 token-choice routing, define the observed routed-token fraction and the mean pre-selection router probability mass:</p>
-<div class="math-display">f_e = (1/T) Σ_t 1[argmax_j p_{t,j} = e]
+<p>For a batch of <span class="math-inline" data-tex="T">T</span> tokens under top-1 token-choice routing, define the observed routed-token fraction and the mean pre-selection router probability mass:</p>
+<div class="math-display" data-tex="\begin{aligned}f_{e} &amp;= (1/T) \sum _t 1[\operatorname{argmax}_{j} p_{t,j} = e]\\p_{e} &amp;= (1/T) \sum _t p_{t,e}\\L_{\text{balance}} &amp;= E \sum _e f_{e} p_{e}\\L_{\text{total}} &amp;= L_{\text{task}} + \alpha  L_{\text{balance}}\end{aligned}">f_e = (1/T) Σ_t 1[argmax_j p_{t,j} = e]
 p_e = (1/T) Σ_t p_{t,e}
 L_balance = E Σ_e f_e p_e
 L_total = L_task + α L_balance</div>
 <p>The assignment indicator in <code>f_e</code> comes from <code>argmax</code>/<code>TopK</code> and is nondifferentiable, so token counts alone cannot tell gradient descent how to alter router logits. In practice <code>f_e</code> is treated as a stopped-gradient statistic. The differentiable probability term <code>p_e</code> supplies router gradients: an expert with a high routed fraction is penalized for retaining high probability mass. For top-2, <code>f_e</code> can analogously count expert assignments out of <code>Tk</code>; implementations differ in whether first and second choices are weighted equally.</p>
-<p>The factor <code class="math-inline">E</code> makes the ideal uniform value <code>1</code>: if <code>f_e=p_e=1/E</code>, then <code>E Σ_e f_e p_e=1</code>. Complete concentration approaches <code class="math-inline">E</code>. The coefficient <code class="math-inline">\alpha</code> controls the quality-versus-balance tradeoff and must be interpreted with the implementation's reductions across tokens, layers, and devices. It is usually small relative to the task loss: too little allows hot or dead experts; too much can erase useful specialization or distort the main objective.</p>
+<p>The factor <span class="math-inline" data-tex="E">E</span> makes the ideal uniform value <code>1</code>: if <code>f_e=p_e=1/E</code>, then <code>E Σ_e f_e p_e=1</code>. Complete concentration approaches <span class="math-inline" data-tex="E">E</span>. The coefficient <span class="math-inline" data-tex="\alpha">α</span> controls the quality-versus-balance tradeoff and must be interpreted with the implementation's reductions across tokens, layers, and devices. It is usually small relative to the task loss: too little allows hot or dead experts; too much can erase useful specialization or distort the main objective.</p>
 <h3 id="related-router-objectives">Related router objectives</h3>
 <ul>
 <li><strong>Router z-loss:</strong> penalizes large log-normalizers, commonly <code>L_z = mean_t(log Σ_e exp(z_{t,e}))²</code>. It stabilizes router logits and numeric precision; it does not by itself guarantee balanced token counts.</li>
@@ -54,11 +54,11 @@ L_total = L_task + α L_balance</div>
 </tbody>
 </table>
 <h2 id="capacity-and-overflow">Capacity and overflow</h2>
-<p>For <code class="math-inline">T</code> tokens, <code class="math-inline">E</code> experts, top-k routing, and capacity factor <code>CF</code>, a common per-expert capacity is:</p>
-<div class="math-display">C = ceil(CF · T · k / E)</div>
-<p>The exact formula may use tokens local to an expert-parallel group and may round to kernel-friendly multiples. <code class="math-inline">CF=1</code> reserves the uniform expected load; a larger factor reduces overflow at the cost of padding, memory, and wasted compute.</p>
+<p>For <span class="math-inline" data-tex="T">T</span> tokens, <span class="math-inline" data-tex="E">E</span> experts, top-k routing, and capacity factor <code>CF</code>, a common per-expert capacity is:</p>
+<div class="math-display" data-tex="C = \text{ceil}(CF \cdot  T \cdot  k / E)">C = ceil(CF · T · k / E)</div>
+<p>The exact formula may use tokens local to an expert-parallel group and may round to kernel-friendly multiples. <span class="math-inline" data-tex="CF=1">CF=1</span> reserves the uniform expected load; a larger factor reduces overflow at the cost of padding, memory, and wasted compute.</p>
 <ul>
-<li><strong>Token dropping:</strong> discard assignments beyond <code class="math-inline">C</code>; this saves bounded work but loses the expert transformation for those tokens.</li>
+<li><strong>Token dropping:</strong> discard assignments beyond <span class="math-inline" data-tex="C">C</span>; this saves bounded work but loses the expert transformation for those tokens.</li>
 <li><strong>Residual bypass:</strong> a dropped token continues along the residual stream, avoiding a zeroed representation but still skipping the MoE computation.</li>
 <li><strong>Second-choice routing:</strong> try the token's next expert if the first is full, as in capacity-aware top-2 schemes; the fallback may also be full.</li>
 <li><strong>Random token selection:</strong> when an expert is oversubscribed, randomly choose which tokens it accepts instead of always favoring the highest router scores. This spreads training opportunity but adds variance.</li>
@@ -79,16 +79,16 @@ L_total = L_task + α L_balance</div>
 </tbody>
 </table>
 <p><strong>Top-1 assignments.</strong> E1 receives <code>{t1,t2,t6}</code>, E2 receives <code>{t3,t4}</code>, and E3 receives <code>{t5}</code>. Therefore:</p>
-<div class="math-display">f = (3/6, 2/6, 1/6) = (0.500, 0.333, 0.167)
+<div class="math-display" data-tex="\begin{aligned}f &amp;= (3/6, 2/6, 1/6) = (0.500, 0.333, 0.167)\\p &amp;= ((2.25)/6, (2.25)/6, (1.50)/6) = (0.375, 0.375, 0.250)\\L_{\text{balance}} &amp;= 3[(0.500)(0.375) + (0.333)(0.375) + (0.167)(0.250)]\\&amp;= 3[0.1875 + 0.1250 + 0.0417]\\&amp;= 1.0625\end{aligned}">f = (3/6, 2/6, 1/6) = (0.500, 0.333, 0.167)
 p = ((2.25)/6, (2.25)/6, (1.50)/6) = (0.375, 0.375, 0.250)
 
 L_balance = 3[(0.500)(0.375) + (0.333)(0.375) + (0.167)(0.250)]
           = 3[0.1875 + 0.1250 + 0.0417]
           = 1.0625</div>
-<p>The ideal uniform value is <code>1</code>, so <code>1.0625</code> shows mild imbalance. If <code class="math-inline">\alpha =0.01</code>, this batch contributes <code>0.010625</code> to the total objective under this reduction convention.</p>
-<p><strong>Top-2 assignments.</strong> Before capacity handling, E1 receives 3 assignments, E2 receives 6, and E3 receives 3, so the assignment fractions are <code class="math-inline">f=(0.25,0.50,0.25)</code> out of 12. Reusing the pre-selection <code>p</code> above gives <code class="math-inline">L_{\text{balance}}=3(0.25\cdot 0.375 + 0.50\cdot 0.375 + 0.25\cdot 0.250)=1.03125</code>. The renormalized weights in the table show exactly how the two selected expert outputs would be combined.</p>
-<p><strong>Apply capacity.</strong> With top-1 and <code class="math-inline">CF=1</code>, <code class="math-inline">C=\text{ceil}(1\cdot 6\cdot 1/3)=2</code>. E1 overflows by one assignment. If tokens are admitted by router score, <code>t6</code> (E1 score 0.45) overflows after <code>t1</code> and <code>t2</code>. Switch-style dropping can send <code>t6</code> through only the residual path. A second-choice router tries E2 (score 0.40), but E2 is already at capacity in this top-1 snapshot, so it must try another allowed destination or drop/bypass. Random selection would retain a random two of <code>{t1,t2,t6}</code>. Dropless routing processes all three and accepts the imbalance.</p>
-<p>For top-2 at <code class="math-inline">CF=1</code>, <code class="math-inline">C=\text{ceil}(1\cdot 6\cdot 2/3)=4</code>. E2 has six requested assignments and overflows by two while E1 and E3 each have room. A GShard-like capacity-aware policy may reject or reroute lower-priority second choices. Expert-choice with quota four instead lets each expert select up to four tokens directly, guaranteeing no expert batch exceeds four but not guaranteeing that every token receives the same number of experts. An auxiliary-loss-free router would keep the current model objective untouched and lower E1/E2 routing biases on subsequent batches according to their measured excess load.</p>
+<p>The ideal uniform value is <code>1</code>, so <code>1.0625</code> shows mild imbalance. If <span class="math-inline" data-tex="\alpha =0.01">α=0.01</span>, this batch contributes <code>0.010625</code> to the total objective under this reduction convention.</p>
+<p><strong>Top-2 assignments.</strong> Before capacity handling, E1 receives 3 assignments, E2 receives 6, and E3 receives 3, so the assignment fractions are <span class="math-inline" data-tex="f=(0.25,0.50,0.25)">f=(0.25,0.50,0.25)</span> out of 12. Reusing the pre-selection <code>p</code> above gives <span class="math-inline" data-tex="L_{\text{balance}}=3(0.25\cdot 0.375 + 0.50\cdot 0.375 + 0.25\cdot 0.250)=1.03125">L_balance=3(0.25·0.375 + 0.50·0.375 + 0.25·0.250)=1.03125</span>. The renormalized weights in the table show exactly how the two selected expert outputs would be combined.</p>
+<p><strong>Apply capacity.</strong> With top-1 and <span class="math-inline" data-tex="CF=1">CF=1</span>, <span class="math-inline" data-tex="C=\text{ceil}(1\cdot 6\cdot 1/3)=2">C=ceil(1·6·1/3)=2</span>. E1 overflows by one assignment. If tokens are admitted by router score, <code>t6</code> (E1 score 0.45) overflows after <code>t1</code> and <code>t2</code>. Switch-style dropping can send <code>t6</code> through only the residual path. A second-choice router tries E2 (score 0.40), but E2 is already at capacity in this top-1 snapshot, so it must try another allowed destination or drop/bypass. Random selection would retain a random two of <code>{t1,t2,t6}</code>. Dropless routing processes all three and accepts the imbalance.</p>
+<p>For top-2 at <span class="math-inline" data-tex="CF=1">CF=1</span>, <span class="math-inline" data-tex="C=\text{ceil}(1\cdot 6\cdot 2/3)=4">C=ceil(1·6·2/3)=4</span>. E2 has six requested assignments and overflows by two while E1 and E3 each have room. A GShard-like capacity-aware policy may reject or reroute lower-priority second choices. Expert-choice with quota four instead lets each expert select up to four tokens directly, guaranteeing no expert batch exceeds four but not guaranteeing that every token receives the same number of experts. An auxiliary-loss-free router would keep the current model objective untouched and lower E1/E2 routing biases on subsequent batches according to their measured excess load.</p>
 <h2 id="specialization-versus-uniformity">Specialization versus uniformity</h2>
 <p>Perfectly uniform routing is a systems proxy, not the semantic objective. An expert may usefully specialize by language, domain, syntax, modality, or token type, and natural traffic is not uniform across those categories. Forcing every batch to be exactly uniform can erase this structure and hurt quality.</p>
 <p>The operational goal is to separate <em>learned specialization</em> from <em>harmful imbalance</em>. A specialized expert can be valuable while still receiving enough varied updates and fitting within capacity. A <strong>hot expert</strong> is persistently oversubscribed, causes drops or stragglers, and may attract still more tokens through a feedback loop. A <strong>dead expert</strong> receives almost no tokens; it gets few task gradients, becomes undertrained, and then looks even less attractive to the router. Undertrained experts also waste stored parameters. Compare routing by semantic slice with capacity, gradient, and latency measurements before deciding that nonuniformity is a defect.</p>

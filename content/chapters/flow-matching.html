@@ -9,52 +9,52 @@
 </table>
 
 <h2 id="deterministic-transport">1. Deterministic transport</h2>
-<p>Start with a tractable base random variable <code class="math-inline">x_{0} \sim  p_{0}</code>, usually Gaussian noise, and evolve it through the ordinary differential equation</p>
-<div class="math-display">dxₜ/dt = vₜ(xₜ),     t ∈ [0, 1].</div>
-<p>The time-dependent vector field <code>vₜ</code> assigns a velocity to every point. If <code class="math-inline">\Phi _{s}\to _{t}(x)</code> denotes the solution at time <code>t</code> initialized at <code>x</code> at time <code>s</code>, then <code class="math-inline">\Phi</code> is the <strong>flow map</strong> and</p>
-<div class="math-display">xₜ = Φ₀→ₜ(x₀),       pₜ = (Φ₀→ₜ)♯ p₀.</div>
+<p>Start with a tractable base random variable <span class="math-inline" data-tex="x_{0} \sim  p_{0}">x₀ ∼ p₀</span>, usually Gaussian noise, and evolve it through the ordinary differential equation</p>
+<div class="math-display" data-tex="d x_{t}/d t = v_{t}(x_{t}),     t \in  [0, 1].">dxₜ/dt = vₜ(xₜ),     t ∈ [0, 1].</div>
+<p>The time-dependent vector field <code>vₜ</code> assigns a velocity to every point. If <span class="math-inline" data-tex="\Phi _{s}\to _{t}(x)">Φₛ→ₜ(x)</span> denotes the solution at time <code>t</code> initialized at <code>x</code> at time <code>s</code>, then <span class="math-inline" data-tex="\Phi">Φ</span> is the <strong>flow map</strong> and</p>
+<div class="math-display" data-tex="x_{t} = \Phi _{0}\to _{t}(x_{0}),       p_{t} = (\Phi _{0}\to _{t})_{\#} p_{0}.">xₜ = Φ₀→ₜ(x₀),       pₜ = (Φ₀→ₜ)♯ p₀.</div>
 <p>The pushforward notation says that the probability of any set under <code>pₜ</code> equals the probability of its preimage under the flow. A trained generative flow aims for <code>p₁ ≈ p_data</code>.</p>
 <p>If <code>vₜ(x)</code> is continuous in time and Lipschitz in <code>x</code> (with suitable growth bounds), the ODE has a unique solution. Uniqueness prevents two trajectories from meeting and then separating: the inverse map is obtained by integrating the same ODE backward. If the field is sufficiently smooth, the flow is a differentiable bijection, or diffeomorphism. Singular fields, blow-up, or loss of uniqueness can destroy global invertibility.</p>
 
 <h3 id="one-dimensional-example">A one-dimensional transport example</h3>
-<p>Let <code class="math-inline">x_{0} \sim  N(0, 1)</code> and target <code class="math-inline">N(\mu , \sigma ^{2})</code>, with <code class="math-inline">\sigma  \gt  0</code>. Couple the endpoints by <code class="math-inline">x_{1} = \mu  + \sigma x_{0}</code> and use</p>
-<div class="math-display">xₜ = (1 - t)x₀ + t x₁ = aₜx₀ + tμ,
+<p>Let <span class="math-inline" data-tex="x_{0} \sim  N(0, 1)">x₀ ∼ N(0, 1)</span> and target <span class="math-inline" data-tex="N(\mu , \sigma ^{2})">N(μ, σ²)</span>, with <span class="math-inline" data-tex="\sigma  \gt  0">σ &gt; 0</span>. Couple the endpoints by <span class="math-inline" data-tex="x_{1} = \mu  + \sigma x_{0}">x₁ = μ + σx₀</span> and use</p>
+<div class="math-display" data-tex="\begin{aligned}x_{t} &amp;= (1 - t)x_{0} + t x_{1} = a_{t}x_{0} + t\mu ,\\a_{t} &amp;= 1 + t(\sigma  - 1).\end{aligned}">xₜ = (1 - t)x₀ + t x₁ = aₜx₀ + tμ,
 aₜ = 1 + t(σ - 1).</div>
-<p>Then <code class="math-inline">p_{t} = N(t\mu , a_{t}^{2})</code>, and the Eulerian velocity—written using the current position rather than the hidden starting point—is</p>
-<div class="math-display">vₜ(x) = μ + (σ - 1)(x - tμ)/aₜ.</div>
-<p>At <code class="math-inline">t = 1</code>, the map is exactly <code class="math-inline">x_{0} \mapsto  \mu  + \sigma x_{0}</code>. Because <code class="math-inline">a_{t} \gt  0</code>, it stays invertible. Its one-dimensional divergence is <code class="math-inline">\partial _{x}v_{t} = (\sigma  - 1)/a_{t}</code>, so integrating the instantaneous log-density change gives <code class="math-inline">-\int _{0}^{1} \partial _{x}v_{t} d t = -\operatorname{log} \sigma</code>, precisely the log-Jacobian correction for scaling by <code class="math-inline">\sigma</code>.</p>
+<p>Then <span class="math-inline" data-tex="p_{t} = N(t\mu , a_{t}^{2})">pₜ = N(tμ, aₜ²)</span>, and the Eulerian velocity—written using the current position rather than the hidden starting point—is</p>
+<div class="math-display" data-tex="v_{t}(x) = \mu  + (\sigma  - 1)(x - t\mu )/a_{t}.">vₜ(x) = μ + (σ - 1)(x - tμ)/aₜ.</div>
+<p>At <span class="math-inline" data-tex="t = 1">t = 1</span>, the map is exactly <span class="math-inline" data-tex="x_{0} \mapsto  \mu  + \sigma x_{0}">x₀ ↦ μ + σx₀</span>. Because <span class="math-inline" data-tex="a_{t} \gt  0">aₜ &gt; 0</span>, it stays invertible. Its one-dimensional divergence is <span class="math-inline" data-tex="\partial _{x}v_{t} = (\sigma  - 1)/a_{t}">∂ₓvₜ = (σ - 1)/aₜ</span>, so integrating the instantaneous log-density change gives <span class="math-inline" data-tex="-\int _{0}^{1} \partial _{x}v_{t} d t = -\operatorname{log} \sigma">-∫₀¹ ∂ₓvₜ dt = -log σ</span>, precisely the log-Jacobian correction for scaling by <span class="math-inline" data-tex="\sigma">σ</span>.</p>
 
 <h2 id="continuity-equation">2. Continuity equation</h2>
-<p>Let <code class="math-inline">\Omega _{t} = \Phi _{0}\to _{t}(\Omega _{0})</code> be any region moving with the flow. Deterministic transport neither creates nor destroys probability, hence</p>
-<div class="math-display">d/dt ∫_{Ωₜ} pₜ(x) dx = 0.</div>
+<p>Let <span class="math-inline" data-tex="\Omega _{t} = \Phi _{0}\to _{t}(\Omega _{0})">Ωₜ = Φ₀→ₜ(Ω₀)</span> be any region moving with the flow. Deterministic transport neither creates nor destroys probability, hence</p>
+<div class="math-display" data-tex="d/d t \int _{\Omega _{t}} p_{t}(x) d x = 0.">d/dt ∫_{Ωₜ} pₜ(x) dx = 0.</div>
 <p>Applying the transport theorem converts the change over the moving region into a local balance law:</p>
-<div class="math-display">0 = ∫_{Ωₜ} [∂ₜpₜ(x) + ∇·(pₜ(x)vₜ(x))] dx.</div>
+<div class="math-display" data-tex="0 = \int _{\Omega _{t}} [\partial _{t}p_{t}(x) + \nabla \cdot (p_{t}(x)v_{t}(x))] d x.">0 = ∫_{Ωₜ} [∂ₜpₜ(x) + ∇·(pₜ(x)vₜ(x))] dx.</div>
 <p>Because this holds for every material region, the integrand must vanish:</p>
-<div class="math-display">∂ₜ pₜ + ∇·(pₜ vₜ) = 0.</div>
+<div class="math-display" data-tex="\partial _{t} p_{t} + \nabla \cdot (p_{t} v_{t}) = 0.">∂ₜ pₜ + ∇·(pₜ vₜ) = 0.</div>
 <p>This is probability conservation. The flux <code>pₜvₜ</code> carries probability across boundaries: density rises where more flux enters than leaves. Expanding the divergence gives</p>
-<div class="math-display">∂ₜpₜ + vₜ·∇pₜ + pₜ ∇·vₜ = 0.</div>
+<div class="math-display" data-tex="\partial _{t}p_{t} + v_{t}\cdot \nabla p_{t} + p_{t} \nabla \cdot v_{t} = 0.">∂ₜpₜ + vₜ·∇pₜ + pₜ ∇·vₜ = 0.</div>
 <p>Along a trajectory, the first two terms form the material derivative, so</p>
-<div class="math-display">dpₜ(xₜ)/dt = -pₜ(xₜ) ∇·vₜ(xₜ).</div>
+<div class="math-display" data-tex="d p_{t}(x_{t})/d t = -p_{t}(x_{t}) \nabla \cdot v_{t}(x_{t}).">dpₜ(xₜ)/dt = -pₜ(xₜ) ∇·vₜ(xₜ).</div>
 <p>Negative divergence compresses volume and raises density; positive divergence expands volume and lowers density. A probability path and a velocity field are compatible exactly when they satisfy this continuity equation (up to regularity and boundary conditions).</p>
 
 <h2 id="continuous-normalizing-flows">3. Continuous normalizing flows</h2>
 <p>A continuous normalizing flow (CNF) parameterizes <code>vₜ</code>, commonly with a neural network, and uses the ODE flow as an invertible density model. Dividing the material-density equation by <code>pₜ(xₜ)</code> yields the instantaneous change-of-variables formula:</p>
-<div class="math-display">d log pₜ(xₜ)/dt = -∇·vₜ(xₜ) = -tr(∂vₜ/∂x).</div>
-<p>Therefore, for a data point <code class="math-inline">x_{1}</code>, integrate the state backward to <code class="math-inline">x_{0}</code> while accumulating</p>
-<div class="math-display">log p₁(x₁) = log p₀(x₀) - ∫₀¹ ∇·vₜ(xₜ) dt.</div>
+<div class="math-display" data-tex="d \operatorname{log} p_{t}(x_{t})/d t = -\nabla \cdot v_{t}(x_{t}) = -\operatorname{tr}(\partial v_{t}/\partial x).">d log pₜ(xₜ)/dt = -∇·vₜ(xₜ) = -tr(∂vₜ/∂x).</div>
+<p>Therefore, for a data point <span class="math-inline" data-tex="x_{1}">x₁</span>, integrate the state backward to <span class="math-inline" data-tex="x_{0}">x₀</span> while accumulating</p>
+<div class="math-display" data-tex="\operatorname{log} p_{1}(x_{1}) = \operatorname{log} p_{0}(x_{0}) - \int _{0}^{1} \nabla \cdot v_{t}(x_{t}) d t.">log p₁(x₁) = log p₀(x₀) - ∫₀¹ ∇·vₜ(xₜ) dt.</div>
 <p>This supports likelihood computation without forming the determinant of a full discrete Jacobian. It does not make likelihood free: an ODE solver evaluates the network repeatedly, and the divergence requires derivatives of every output with respect to its corresponding input.</p>
-<p>Exact traces can be expensive in high dimension. Hutchinson estimation uses a random vector <code class="math-inline">\varepsilon</code> with <code class="math-inline">E[\varepsilon \varepsilon ^{\top}] = I</code>:</p>
-<div class="math-display">tr(J) = Eε[εᵀJε],     J = ∂vₜ/∂x.</div>
-<p>A vector–Jacobian product estimates the trace without materializing <code class="math-inline">J</code>. One or a few probes reduce compute but introduce variance. Solver tolerances, number of function evaluations, divergence estimation, and differentiation through the solve dominate CNF training and likelihood cost.</p>
+<p>Exact traces can be expensive in high dimension. Hutchinson estimation uses a random vector <span class="math-inline" data-tex="\varepsilon">ε</span> with <span class="math-inline" data-tex="E[\varepsilon \varepsilon ^{\top}] = I">E[εεᵀ] = I</span>:</p>
+<div class="math-display" data-tex="\operatorname{tr}(J) = E\varepsilon [\varepsilon ^{\top}J\varepsilon ],     J = \partial v_{t}/\partial x.">tr(J) = Eε[εᵀJε],     J = ∂vₜ/∂x.</div>
+<p>A vector–Jacobian product estimates the trace without materializing <span class="math-inline" data-tex="J">J</span>. One or a few probes reduce compute but introduce variance. Solver tolerances, number of function evaluations, divergence estimation, and differentiation through the solve dominate CNF training and likelihood cost.</p>
 
 <h2 id="flow-matching-objective">4. Flow matching objective</h2>
-<p>Flow matching begins by choosing a target probability path <code>pₜ</code> from <code class="math-inline">p_{0}</code> to <code>p_data</code> and a velocity <code>uₜ</code> that generates it. It then fits a model <code class="math-inline">v\theta (t, x)</code> by regression:</p>
-<div class="math-display">L_FM(θ) = E_{t ∼ U[0,1], x ∼ pₜ} [ ||vθ(t, x) - uₜ(x)||² ].</div>
+<p>Flow matching begins by choosing a target probability path <code>pₜ</code> from <span class="math-inline" data-tex="p_{0}">p₀</span> to <code>p_data</code> and a velocity <code>uₜ</code> that generates it. It then fits a model <span class="math-inline" data-tex="v\theta (t, x)">vθ(t, x)</span> by regression:</p>
+<div class="math-display" data-tex="L_{FM}(\theta ) = E_{t \sim  U[0,1], x \sim  p_{t}} [ \lVert v\theta (t, x) - u_{t}(x)\rVert^{2} ].">L_FM(θ) = E_{t ∼ U[0,1], x ∼ pₜ} [ ||vθ(t, x) - uₜ(x)||² ].</div>
 <p>The marginal target <code>uₜ(x)</code> is usually unavailable. Conditional flow matching (CFM) makes the problem tractable by introducing conditioning information <code>z</code>—for example a data endpoint, noise endpoint, or paired endpoints—and a conditional path <code>pₜ(x | z)</code> whose samples and velocity <code>uₜ(x | z)</code> are available in closed form:</p>
-<div class="math-display">L_CFM(θ) = E_{t,z,xₜ ∼ pₜ(·|z)} [ ||vθ(t, xₜ) - uₜ(xₜ | z)||² ].</div>
+<div class="math-display" data-tex="L_{CFM}(\theta ) = E_{t,z,x_{t} \sim  p_{t}(\cdot \mid z)} [ \lVert v\theta (t, x_{t}) - u_{t}(x_{t} \mid  z)\rVert^{2} ].">L_CFM(θ) = E_{t,z,xₜ ∼ pₜ(·|z)} [ ||vθ(t, xₜ) - uₜ(xₜ | z)||² ].</div>
 <p>Under the usual regularity and consistency conditions, squared-loss regression learns</p>
-<div class="math-display">v*(t, x) = E[uₜ(x | z) | xₜ = x].</div>
-<p>This conditional expectation is the marginal velocity associated with <code class="math-inline">p_{t}(x) = \int p_{t}(x \mid  z)p(z)d z</code>; averaging the conditional continuity equations recovers the marginal continuity equation. This is a <strong>population-optimum</strong> result for the specified consistent conditional path, under the required regularity, sufficient model capacity, and successful optimization. Finite data, finite capacity, and optimization error produce only an approximation to that marginal flow.</p>
+<div class="math-display" data-tex="v^{\ast}(t, x) = E[u_{t}(x \mid  z) \mid  x_{t} = x].">v*(t, x) = E[uₜ(x | z) | xₜ = x].</div>
+<p>This conditional expectation is the marginal velocity associated with <span class="math-inline" data-tex="p_{t}(x) = \int p_{t}(x \mid  z)p(z)d z">pₜ(x) = ∫pₜ(x | z)p(z)dz</span>; averaging the conditional continuity equations recovers the marginal continuity equation. This is a <strong>population-optimum</strong> result for the specified consistent conditional path, under the required regularity, sufficient model capacity, and successful optimization. Finite data, finite capacity, and optimization error produce only an approximation to that marginal flow.</p>
 <p>The computational advantage is central: training draws <code>t</code> and <code>z</code>, constructs <code>xₜ</code> directly, evaluates an analytic conditional velocity, and performs ordinary supervised regression. It does <strong>not</strong> simulate the current learned ODE to obtain each training example. ODE solving is deferred to sampling (and to likelihood evaluation, if used).</p>
 
 <h2 id="path-choices">5. Path choices</h2>
@@ -62,16 +62,16 @@ aₜ = 1 + t(σ - 1).</div>
 <table>
 <thead><tr><th>Path</th><th>Typical construction</th><th>Consequence</th></tr></thead>
 <tbody>
-<tr><td>Linear Gaussian interpolation</td><td><code class="math-inline">x_{t} = \alpha _{t}x_{\text{data}} + \sigma _{t}\varepsilon</code>, with <code class="math-inline">\varepsilon  \sim  N(0,I)</code>; conditional target <code class="math-inline">u_{t} = \dot{\alpha}_{t}x_{\text{data}} + \dot{\sigma}_{t}\varepsilon</code>.</td><td>Simple sampling and analytic targets. The schedule controls signal-to-noise ratio and endpoint behavior.</td></tr>
-<tr><td>Variance preserving</td><td>Choose <code class="math-inline">\alpha _{t}^{2} + \sigma _{t}^{2} = 1</code>, often matching diffusion marginals.</td><td>Keeps the variance stable for standardized data and gives a direct bridge to diffusion parameterizations.</td></tr>
+<tr><td>Linear Gaussian interpolation</td><td><span class="math-inline" data-tex="x_{t} = \alpha _{t}x_{\text{data}} + \sigma _{t}\varepsilon">xₜ = αₜx_data + σₜε</span>, with <span class="math-inline" data-tex="\varepsilon  \sim  N(0,I)">ε ∼ N(0,I)</span>; conditional target <span class="math-inline" data-tex="u_{t} = \dot{\alpha}_{t}x_{\text{data}} + \dot{\sigma}_{t}\varepsilon">uₜ = α̇ₜx_data + σ̇ₜε</span>.</td><td>Simple sampling and analytic targets. The schedule controls signal-to-noise ratio and endpoint behavior.</td></tr>
+<tr><td>Variance preserving</td><td>Choose <span class="math-inline" data-tex="\alpha _{t}^{2} + \sigma _{t}^{2} = 1">αₜ² + σₜ² = 1</span>, often matching diffusion marginals.</td><td>Keeps the variance stable for standardized data and gives a direct bridge to diffusion parameterizations.</td></tr>
 <tr><td>Optimal-transport-inspired</td><td>Pair base and data samples to reduce transport cost, then interpolate between paired endpoints.</td><td>Shorter, less intersecting conditional paths can yield a simpler marginal field, but computing a useful coupling adds cost or approximation.</td></tr>
 </tbody>
 </table>
 <p>High curvature forces a solver to take smaller steps. Many conditional paths may also cross at the same <code>(t,x)</code> with different target velocities. Regression averages those directions, which can bend the learned marginal trajectories or make the target ambiguous. This does not mean trajectories of the final well-posed ODE cross: the learned field assigns only one velocity to each <code>(t,x)</code>. Better endpoint couplings and path schedules can reduce these conflicting conditional targets.</p>
 
 <h2 id="rectified-flow">6. Rectified flow</h2>
-<p>Rectified flow is a particular flow-matching construction. Draw a base sample <code class="math-inline">x_{0}</code> and a data sample <code class="math-inline">x_{1}</code>, often initially independently, and prescribe the straight conditional interpolation</p>
-<div class="math-display">xₜ = (1 - t)x₀ + tx₁,     uₜ(xₜ | x₀,x₁) = x₁ - x₀.</div>
+<p>Rectified flow is a particular flow-matching construction. Draw a base sample <span class="math-inline" data-tex="x_{0}">x₀</span> and a data sample <span class="math-inline" data-tex="x_{1}">x₁</span>, often initially independently, and prescribe the straight conditional interpolation</p>
+<div class="math-display" data-tex="x_{t} = (1 - t)x_{0} + \text{tx}_{1},     u_{t}(x_{t} \mid  x_{0},x_{1}) = x_{1} - x_{0}.">xₜ = (1 - t)x₀ + tx₁,     uₜ(xₜ | x₀,x₁) = x₁ - x₀.</div>
 <p>The network regresses the constant endpoint displacement from noisy intermediate points. Although every conditional path is straight, the marginal regression field need not produce straight trajectories: different endpoint lines can cross, and their velocities are averaged.</p>
 <p><strong>Reflow</strong> improves the coupling. First use a trained flow to map base samples to generated endpoints. Treat each generated endpoint and its originating base sample as a new pair, then retrain on straight interpolations between those coupled endpoints. Repeating this process can reduce crossings and straighten the learned trajectories, at the cost of generating a new paired dataset and retraining.</p>
 <p>Straighter, smoother trajectories have lower discretization error under large time steps, so Euler or Heun may reach good quality with fewer network evaluations. This is an empirical advantage, not a guarantee: model approximation error can still dominate.</p>
@@ -79,9 +79,9 @@ aₜ = 1 + t(σ - 1).</div>
 
 <h2 id="connection-to-diffusion">7. Connection to diffusion</h2>
 <p>A forward diffusion follows an SDE</p>
-<div class="math-display">dx = f(t,x)dt + g(t)dWₜ</div>
-<p>that gradually turns data into noise. If <code class="math-inline">s_{t}(x) = \nabla _{x} \operatorname{log} p_{t}(x)</code> is the score, the corresponding reverse-time SDE has drift <code>f - g²sₜ</code> plus stochastic noise (with the equation integrated from terminal time back to data time). The same marginal densities are also generated by the deterministic probability-flow ODE</p>
-<div class="math-display">dx/dt = v_PF(t,x),     v_PF(t,x) = f(t,x) - ½g(t)²sₜ(x).</div>
+<div class="math-display" data-tex="d x = f(t,x)d t + g(t)d W_{t}">dx = f(t,x)dt + g(t)dWₜ</div>
+<p>that gradually turns data into noise. If <span class="math-inline" data-tex="s_{t}(x) = \nabla _{x} \operatorname{log} p_{t}(x)">sₜ(x) = ∇ₓ log pₜ(x)</span> is the score, the corresponding reverse-time SDE has drift <code>f - g²sₜ</code> plus stochastic noise (with the equation integrated from terminal time back to data time). The same marginal densities are also generated by the deterministic probability-flow ODE</p>
+<div class="math-display" data-tex="d x/d t = v_{PF}(t,x),     v_{PF}(t,x) = f(t,x) - \tfrac{1}{2}g(t)^{2}s_{t}(x).">dx/dt = v_PF(t,x),     v_PF(t,x) = f(t,x) - ½g(t)²sₜ(x).</div>
 <p>This is the score-to-velocity conversion. A learned score can therefore be sampled either stochastically with the reverse SDE or deterministically with the probability-flow ODE. They share one-time marginals in the idealized exact-model setting but not individual trajectories or finite-step errors.</p>
 <table>
 <thead><tr><th>Method</th><th>Training target</th><th>Sampling dynamics</th><th>Defining feature</th></tr></thead>
@@ -94,10 +94,10 @@ aₜ = 1 + t(σ - 1).</div>
 <p>Diffusion and flow matching may use the same Gaussian probability path while predicting different but algebraically convertible targets. Diffusion training commonly estimates a score or noise; flow matching directly estimates a velocity. The objective parameterization, weighting over time, and sampling dynamics—not merely the endpoint distributions—distinguish the methods.</p>
 
 <h2 id="conditioning-and-guidance">8. Conditioning and guidance</h2>
-<p>A conditional generator learns <code class="math-inline">v\theta (t,x,c)</code>, where <code>c</code> may be a class, text sequence, image, audio, spatial map, or any combination. Cross-attention, concatenated features, and modality-specific encoders can inject multimodal context while the ODE state remains the generated sample.</p>
+<p>A conditional generator learns <span class="math-inline" data-tex="v\theta (t,x,c)">vθ(t,x,c)</span>, where <code>c</code> may be a class, text sequence, image, audio, spatial map, or any combination. Cross-attention, concatenated features, and modality-specific encoders can inject multimodal context while the ODE state remains the generated sample.</p>
 <p>Classifier-free guidance trains with the condition randomly dropped, then combines conditional and unconditional predictions during sampling:</p>
-<div class="math-display">v_guided = v_uncond + w(v_cond - v_uncond).</div>
-<p>At <code class="math-inline">w = 1</code> this equals the conditional prediction; larger <code>w</code> usually strengthens adherence but can reduce diversity, distort the learned field, and increase solver sensitivity. This linear velocity-space combination is an operational guidance construction. It is exactly inherited from score-space classifier-free guidance only when the chosen probability path and parameterization give the stated affine score-to-velocity relation with matching conditional and unconditional coefficients; otherwise its semantics are convention-dependent rather than universally equivalent.</p>
+<div class="math-display" data-tex="v_{\text{guided}} = v_{\text{uncond}} + w(v_{\text{cond}} - v_{\text{uncond}}).">v_guided = v_uncond + w(v_cond - v_uncond).</div>
+<p>At <span class="math-inline" data-tex="w = 1">w = 1</span> this equals the conditional prediction; larger <code>w</code> usually strengthens adherence but can reduce diversity, distort the learned field, and increase solver sensitivity. This linear velocity-space combination is an operational guidance construction. It is exactly inherited from score-space classifier-free guidance only when the chosen probability path and parameterization give the stated affine score-to-velocity relation with matching conditional and unconditional coefficients; otherwise its semantics are convention-dependent rather than universally equivalent.</p>
 <p>For inpainting, known coordinates can be clamped or projected onto a time-consistent noised version of the observation while the unknown region evolves. Mask-aware training gives the field the information needed to respect the boundary. More general constraints can be imposed through conditioning, projection, or gradient guidance, but modifying the velocity at sampling time changes the transported distribution and can break exact likelihood or invertibility claims.</p>
 
 <h2 id="sampling-and-numerical-solvers">9. Sampling and numerical solvers</h2>
