@@ -25,24 +25,40 @@ Each source chapter must:
 - contain no scripts, styles, embeds, forms, external assets, or executable URLs;
 - contain no personal data, credentials, local paths, internal-network URLs, private navigation, or private provenance sections;
 - match its SHA-256 hash, character count, section count, and equation count in `manifest.json`;
-- preserve each formula as a `.math-inline` or `.math-display` element with a non-empty canonical `data-tex` attribute and a readable text fallback;
-- contain no pre-rendered MathML before the public build.
+- preserve each explicitly marked formula as a `.math-inline` or `.math-display` element with a non-empty canonical `data-tex` attribute and readable fallback;
+- contain no pre-rendered KaTeX or MathML before the public build.
 
 The manifest uses schema version 2 and declares `total_math_expressions` plus `math_expressions` for every chapter.
 
+## Reviewed formula-like code spans
+
+Some legacy chapters used `<code>` for tensor shapes or mathematical formulas. The public repository may promote those spans only through `content/math-code-promotions.json`.
+
+Each promotion must contain:
+
+```json
+{
+  "text": "exact visible source text",
+  "tex": "reviewed canonical TeX",
+  "occurrences": 1
+}
+```
+
+The renderer must fail when the exact source occurrence count changes. Generic pattern matching must not silently reinterpret arbitrary code as mathematics. Real configuration, program syntax, indexing expressions, and test conditions remain code.
+
 ## Mathematical publication boundary
 
-The private exporter owns mathematical source preservation. It must recognize both inline `<span>` and display `<div>` math elements and preserve their canonical TeX.
-
-The public build owns typesetting:
+The private exporter owns canonical mathematical source preservation. The public repository owns reviewed legacy classification and typesetting:
 
 1. install the exact KaTeX version locked in `package-lock.json`;
-2. render every preserved expression at build time with `output: "mathml"`, `trust: false`, and parsing errors enabled;
-3. replace every source math element with static MathML;
-4. fail when the rendered count differs from the manifest;
-5. reject any deployed `data-tex` attribute, math CDN, browser-side KaTeX runtime, or auto-render script.
+2. verify every reviewed code promotion against exact visible source text and occurrence count;
+3. render every preserved and promoted expression at build time with `output: "htmlAndMathml"`, `trust: false`, and parsing errors enabled;
+4. ship KaTeX's static visual HTML together with its accessible MathML layer;
+5. vendor the pinned KaTeX stylesheet and font files under `site/assets/katex/`;
+6. fail when wrapper, visual-layer, accessibility-layer, native-MathML, or declared equation counts differ;
+7. reject deployed `data-tex`, math CDNs, browser-side KaTeX runtimes, and auto-render scripts.
 
-The browser receives native MathML only. KaTeX, its CSS, and its fonts are build dependencies rather than runtime dependencies.
+Long formulas must be constrained by local scroll containers so they cannot expand the document viewport. The service worker caches the stylesheet immediately and downloads the full local font set only with the explicit offline-library action.
 
 ## Explicit allowlist
 
@@ -54,22 +70,24 @@ Public exports must not contain personal identity or contact information, employ
 
 Context-specific identifiers are checked and neutralized in the private exporter. They are not committed to this public repository, even inside denylist source code.
 
-The public repository independently enforces exact schemas, hashes, chapter depth, TeX and MathML counts, unique IDs, valid relationships, generic leak patterns, local-only links and assets, and battery-safe PWA behavior. An optional `PUBLICATION_DENYLIST_B64` Actions secret provides defense in depth without exposing private patterns.
+The public repository independently enforces exact schemas, hashes, chapter depth, canonical and promoted equation counts, local KaTeX assets, unique IDs, valid relationships, generic leak patterns, local-only links, and battery-safe PWA behavior. An optional `PUBLICATION_DENYLIST_B64` Actions secret provides defense in depth without exposing private patterns.
 
 ## Clean-history rule
 
-Content is transferred only as newly generated files, never by forking, mirroring, merging, or copying commits from the private repository. Transfer archives and temporary materialization workflows are removed before a public pull request is finalized.
+Content is transferred only as newly generated files, never by forking, mirroring, merging, or copying commits from the private repository. Transfer archives and temporary diagnostic workflows are removed before a public pull request is finalized.
 
 ## Validation sequence
 
 1. Generate the chapter export from the private allowlist.
-2. Verify that every math element has canonical TeX.
+2. Verify that every source math element has canonical TeX.
 3. Run the private context-aware sanitizer and validation.
 4. Manually inspect the artifact as public information.
 5. Import it with `python3 scripts/import_bundle.py <bundle>`.
-6. Install locked build dependencies with `npm ci`.
-7. Run `python3 scripts/validate_public.py`.
-8. Inspect the public pull-request diff.
-9. Merge only after validation passes.
+6. Review any formula-like code promotions explicitly.
+7. Install locked build dependencies with `npm ci`.
+8. Run `python3 scripts/validate_public.py`.
+9. Inspect browser diagnostics for representative desktop and mobile pages when mathematical presentation changes.
+10. Inspect the public pull-request diff.
+11. Merge only after validation passes.
 
 Ambiguous material is excluded. Adding a new public data type requires changing this contract, importer, and validator in the same reviewed pull request.
