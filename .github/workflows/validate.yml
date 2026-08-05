@@ -1,0 +1,22 @@
+name: Validate public site
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      PUBLICATION_DENYLIST_B64: ${{ secrets.PUBLICATION_DENYLIST_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate privacy, content, links, and PWA behavior
+        run: python3 scripts/validate_public.py
