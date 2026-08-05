@@ -13,10 +13,11 @@ private source repository
             ▼
 public llm-notes repository
 ├── 39 substantive HTML chapter fragments
-├── 1,395 preserved TeX expressions
-├── build-time KaTeX → native MathML rendering
+├── 1,395 preserved canonical TeX expressions
+├── 146 reviewed promotions of formula-like code spans
+├── build-time KaTeX → static HTML + accessible MathML
+├── local KaTeX stylesheet and fonts
 ├── neutral topic registry and glossary
-├── strict structural and generic leak checks
 ├── installable web-app manifest
 ├── manual offline cache
 └── GitHub Pages deployment
@@ -24,18 +25,19 @@ public llm-notes repository
 iPhone Home Screen web app
 ```
 
-The public repository never imports private Git history. Mathematical source is kept in `data-tex` attributes inside the reviewed chapter fragments and converted during the build to static MathML. The deployed site contains no KaTeX runtime, CDN dependency, or downloadable math font package.
+The public repository never imports private Git history. Mathematical source is converted during the build to KaTeX's static visual HTML plus an accessibility MathML layer. The deployed site contains no KaTeX JavaScript runtime or external math dependency.
 
 ## Public content model
 
 - `content/topics.json`: neutral topic titles, summaries, prerequisites, and connections.
 - `content/glossary.json`: concise technical definitions.
 - `content/chapters/*.html`: privacy-reviewed chapter fragments with canonical TeX and readable fallbacks.
-- `content/chapter-manifest.json`: SHA-256 hashes, character counts, section counts, and equation counts.
-- `scripts/render_math.cjs`: pinned KaTeX server-side renderer producing MathML only.
-- `scripts/build_site.py`: deterministic static-site and PWA generator.
+- `content/chapter-manifest.json`: SHA-256 hashes, character counts, section counts, and canonical equation counts.
+- `content/math-code-promotions.json`: explicit reviewed conversions for formula-like spans that were historically marked as code.
+- `scripts/render_math.cjs`: pinned KaTeX build-time renderer producing static HTML and MathML.
+- `scripts/build_site.py`: deterministic static-site and PWA generator that vendors KaTeX presentation assets.
 - `scripts/content_policy.py`: schema, integrity, TeX, generic leak, and optional secret-backed checks.
-- `scripts/validate_public.py`: privacy, content-depth, exact MathML-count, link, and battery-behavior checks.
+- `scripts/validate_public.py`: privacy, exact equation-layer counts, local asset, link, and battery-behavior checks.
 - `package-lock.json`: reproducible KaTeX 0.18.1 build dependency.
 - `site/`: generated output; ignored locally and produced in CI.
 
@@ -52,14 +54,16 @@ Then open `http://localhost:8000/`.
 
 ## Mathematical rendering
 
-The private exporter preserves every equation as canonical TeX plus a plain-text fallback. During the public build:
+The pipeline separates source preservation, reviewed classification, and presentation:
 
-1. `scripts/content_policy.py` verifies the declared TeX count and integrity hashes.
-2. `scripts/render_math.cjs` calls `katex.renderToString` with `output: "mathml"`.
-3. `scripts/build_site.py` embeds the resulting static MathML in each page.
-4. `scripts/validate_public.py` requires exactly the manifest-declared number of `<math>` elements and rejects remaining `data-tex` attributes.
+1. The private exporter preserves canonical TeX for explicitly marked inline and display equations.
+2. `content/math-code-promotions.json` explicitly classifies legacy formula-like `<code>` spans; no broad heuristic silently changes code into mathematics.
+3. `scripts/render_math.cjs` renders every expression with KaTeX using `output: "htmlAndMathml"`, `trust: false`, and parse failures enabled.
+4. `scripts/build_site.py` copies the pinned KaTeX stylesheet and font files into `site/assets/katex/`.
+5. `scripts/validate_public.py` requires an exact one-to-one set of static wrappers, visual KaTeX layers, accessible MathML layers, and native `<math>` elements.
+6. Chromium and WebKit diagnostics verify the reported desktop and iPhone pages without document-width overflow.
 
-This makes equations readable online and offline without executing a mathematical renderer on the device.
+The current corpus publishes 1,541 typeset expressions: 1,395 canonical TeX expressions plus 146 reviewed promotions. Long display formulas remain inside horizontally scrollable local containers rather than expanding the whole page.
 
 ## Importing a privacy-reviewed chapter export
 
@@ -86,9 +90,9 @@ Repository administrators may configure `PUBLICATION_DENYLIST_B64`, a base64-enc
 
 ## PWA and battery behavior
 
-- The small application shell is cached during service-worker installation.
-- The complete detailed library is downloaded only after an explicit tap.
-- Equations arrive as static MathML; there is no browser-side KaTeX execution.
+- The small application shell and local equation stylesheet are cached during service-worker installation.
+- The complete detailed library and local KaTeX fonts are downloaded only after an explicit tap.
+- Equations arrive as static HTML and MathML; there is no browser-side KaTeX execution.
 - Refreshing the full library is a manual action.
 - There are no analytics, ads, polling timers, push notifications, WebSockets, periodic synchronization, or background synchronization.
 
