@@ -1,0 +1,186 @@
+<section class="chapter-content" data-topic="retrieval">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to distinguish sparse retrieval, dense bi-encoders, cross-encoders, late interaction, and hybrid systems; explain how embedding models are trained; select indexing and ranking metrics; and diagnose retrieval independently from generation.</p>
+<h2 id="technical-framing">Technical framing</h2>
+<p>The RAG landmark combines parametric generation with an external corpus or index, commonly called non-parametric memory; the retriever, reranker, encoders, and generator may still be parameterized. REALM integrates latent retrieval during pretraining. In its reported setup, RETRO retrieved from a roughly two-trillion-token corpus and let a smaller model reach Pile performance comparable to named much larger baselines. That result is not a general law that retrieval replaces parameter scaling. These systems shift some knowledge from weights into an updatable corpus, but introduce indexing, recall, context-construction, and latency concerns; retrieval alone guarantees neither factuality nor freshness, grounding, or attribution.</p>
+<p>Cross-attention provides the conditioning mechanism:</p>
+<div class="math-display">Q = X_query W_Q
+K = X_context W_K
+V = X_context W_V
+Attention(Q,K,V) = softmax(QKᵀ / √d) V
+</div>
+<p>Queries and context may have different sequence lengths. In latent cross-attention, a small set of latent queries reads a much larger input. This reduces later computation but creates a bottleneck that may discard information.</p>
+<h2 id="retrieval-architecture">Retrieval architecture</h2>
+<p>Candidate generation and candidate scoring are separate stages:</p>
+<ul>
+<li><strong>BM25 / sparse retrieval:</strong> strong for exact terminology, identifiers, rare words, and lexical constraints.</li>
+<li><strong>Dense bi-encoder:</strong> embeds query and document independently, enabling approximate nearest-neighbour search and semantic matching.</li>
+<li><strong>Hybrid retrieval:</strong> combines sparse and dense scores or candidate sets.</li>
+<li><strong>Cross-encoder reranker:</strong> jointly encodes query and candidate for stronger relevance estimates at higher latency.</li>
+<li><strong>Late interaction:</strong> retains multiple token-level vectors, trading storage for finer-grained matching.</li>
+</ul>
+<p>Cosine similarity equals a dot product only after vector normalization. Index configuration, embedding version, and score calibration must therefore be recorded together.</p>
+<p>Metadata filters—tenant, permission, date, geography, document type—are security and correctness constraints. They should be applied in retrieval, not left to the language model after unauthorized text has entered context.</p>
+<h2 id="bm25-from-first-principles">BM25 from first principles</h2>
+<p>BM25 scores a document <code class="math-inline">D</code> against query <code>q</code> by adding a contribution for each query term. A common positive-IDF form is:</p>
+<div class="math-display">score(q,D) = Σ[t ∈ q] IDF(t) · f(t,D)(k₁ + 1)
+                                      ─────────────────────────────
+                                      f(t,D) + k₁(1 - b + b|D|/avgdl)
+
+IDF(t) = ln(1 + (N - n(t) + 0.5)/(n(t) + 0.5))
+</div>
+<p>Here <code>f(t,D)</code> is term frequency in the document, <code>|D|</code> is document length, <code>avgdl</code> is average document length, <code class="math-inline">N</code> is the corpus size, and <code>n(t)</code> is the number of documents containing the term. The IDF term makes rare terms more valuable. BM25 usually omits query-term frequency because web-style queries are short; variants can add it.</p>
+<p>The fraction is a saturating term-frequency function: the first few matches help most, while repeated occurrences approach an upper bound of <code class="math-inline">k_{1} + 1</code>. <code class="math-inline">k_{1}</code> controls how quickly frequency saturates: <code class="math-inline">k_{1} = 0</code> makes term presence almost binary, while a larger value rewards repetition for longer. <code>b</code> controls document-length normalization: <code class="math-inline">b = 0</code> applies none, while <code class="math-inline">b = 1</code> fully scales by <code>|D|/avgdl</code>. Typical starting points are <code class="math-inline">k_{1} \approx  1.2</code> and <code class="math-inline">b \approx  0.75</code>, but both should be tuned on the target corpus.</p>
+<h3 id="worked-bm25-example">Worked retrieval example</h3>
+<p>Suppose <code class="math-inline">N = 1,000,000</code>, <code class="math-inline">\text{avgdl} = 100</code>, <code class="math-inline">k_{1} = 1.2</code>, and <code class="math-inline">b = 0.75</code>. The query is <code>vector database</code>. A 150-token document contains <code>vector</code> three times and <code>database</code> once; their document frequencies are 1,000 and 10,000.</p>
+<div class="math-display">length term = k₁(1 - b + b|D|/avgdl)
+            = 1.2(0.25 + 0.75·1.5) = 1.65
+
+IDF(vector)   ≈ ln(1 + 999000.5/1000.5)   = 6.907
+IDF(database) ≈ ln(1 + 990000.5/10000.5)  = 4.605
+
+TFsat(vector)   = 3·2.2/(3 + 1.65) = 1.419
+TFsat(database) = 1·2.2/(1 + 1.65) = 0.830
+
+score ≈ 6.907·1.419 + 4.605·0.830 = 13.62
+</div>
+<p>The rarer term contributes more, three occurrences do not count as three independent matches, and the above-average document length reduces both contributions. Scores are meaningful for ranking within one index and query, not as calibrated probabilities.</p>
+<h2 id="training-dense-retrievers">Training dense retrievers</h2>
+<p>A bi-encoder computes <code class="math-inline">q = \text{Eq}(\text{text})</code> and <code class="math-inline">d = \text{Ed}(\text{passage})</code> independently. Dot product and cosine similarity differ unless vectors are normalized:</p>
+<div class="math-display">dot(q,d) = qᵀd
+cos(q,d) = qᵀd / (||q||₂ ||d||₂)
+q̂ = q/||q||₂, d̂ = d/||d||₂  ⇒  cos(q,d) = q̂ᵀd̂
+</div>
+<p>Unnormalized dot product lets vector norms affect rank and can encode confidence or popularity, but it may encourage norm growth. L2 normalization removes that degree of freedom and makes cosine search implementable as maximum inner-product search. Apply the same normalization during training, indexing, and serving.</p>
+<p>An InfoNCE-style loss gives one positive passage probability mass over a candidate pool:</p>
+<div class="math-display">s(q,d) = sim(Eq(q), Ed(d))
+Lq = -log [ exp(s(q,d⁺)/τ) / Σ[d ∈ {d⁺} ∪ Nq] exp(s(q,d)/τ) ]
+</div>
+<p>The temperature <code class="math-inline">\tau</code> controls softmax sharpness: lower values amplify small score differences and gradients, while values that are too low make noisy or false negatives dominate. It can be fixed or learned, but must be monitored with embedding norms and negative-pool size.</p>
+<p>Queries and documents are asymmetric: a query states an information need, while a passage contains evidence and is often much longer. Encoders may share weights for efficiency or use separate weights, prompts, and maximum lengths to model that asymmetry. Pooling can use a special <code>[CLS]</code> token, masked mean pooling, or the final non-padding token. Mean pooling spreads evidence across tokens; special-token or last-token pooling delegates aggregation to training. The deployed pooling, truncation, and <a href="tokenization.html">tokenization</a> must exactly match index construction.</p>
+<p>Training data should match deployment query style, document domain, language, and granularity. A retriever trained on short factual questions may perform poorly on long engineering requests or code identifiers. Domain adaptation should therefore be evaluated against both target-domain recall and regression on broader traffic.</p>
+<h2 id="negative-sampling">Negative sampling and mining</h2>
+<table>
+<thead><tr><th>Negative source</th><th>What it teaches</th><th>Main risk or cost</th></tr></thead>
+<tbody>
+<tr><td>Random corpus passages</td><td>Coarse topic separation; useful early in training</td><td>Often too easy, so gradients quickly vanish</td></tr>
+<tr><td>In-batch passages</td><td>Many negatives from one forward pass</td><td>Correlated batches and accidental false negatives</td></tr>
+<tr><td>BM25 hard negatives</td><td>Distinguishes lexical overlap from actual relevance</td><td>Underrepresents semantic confusions with little word overlap</td></tr>
+<tr><td>Dense-mined hard negatives</td><td>Attacks the current model's nearest mistakes</td><td>Stale mining and self-reinforcing model bias</td></tr>
+<tr><td>Cross-encoder-mined negatives</td><td>Uses a stronger teacher to find subtle boundaries</td><td>Expensive; teacher errors and score thresholds matter</td></tr>
+</tbody>
+</table>
+<p>A false negative is actually relevant but labelled negative. It pushes useful evidence away and is especially likely for duplicate passages, multi-answer questions, and in-batch pools. Mitigate it with deduplication, multiple-positive labels, teacher or human checks, and a margin that ignores ambiguous candidates rather than forcing every pair apart.</p>
+<p>Distributed training can all-gather passage embeddings across workers, turning a local batch of <code class="math-inline">B</code> into roughly <code>world_size × B</code> in-batch candidates. This improves pool diversity but increases communication and the chance of false negatives; gradients and masking semantics must be explicit. A practical curriculum starts with random and in-batch negatives, introduces BM25 hard negatives after basic alignment, then periodically mines dense or cross-encoder negatives from fresh checkpoints. Re-mine between rounds rather than on every step, and retain a mix of easy and hard examples so training does not collapse onto a narrow error distribution.</p>
+<h2 id="late-interaction">Late interaction</h2>
+<p>A ColBERT-style model encodes every query and document token into contextual, usually normalized vectors. It performs the expensive encoding independently, then retains token-level interaction at search time:</p>
+<div class="math-display">Eq(q) = [q₁, …, qₘ]       Ed(D) = [d₁, …, dₙ]
+MaxSim(qᵢ,D) = max[j=1…n] qᵢᵀdⱼ
+score(q,D) = Σ[i=1…m] MaxSim(qᵢ,D)
+</div>
+<p>Each query token finds its best document-token match, preserving fine-grained evidence that a single pooled vector can blur. The price is storing and searching many vectors per passage rather than one; compression and token pruning help, but memory, index traffic, and latency remain above a bi-encoder.</p>
+<table>
+<thead><tr><th>Scorer</th><th>Stored document representation</th><th>Query-time interaction</th><th>Typical role</th></tr></thead>
+<tbody>
+<tr><td>Bi-encoder</td><td>One vector per passage</td><td>One dot product or cosine</td><td>Fast first-stage retrieval</td></tr>
+<tr><td>Late interaction</td><td>One vector per retained token</td><td>Many MaxSim operations</td><td>Higher-recall retrieval or middle-stage ranking</td></tr>
+<tr><td>Cross-encoder</td><td>Raw tokens or text</td><td>Full joint transformer pass per pair</td><td>Strong, expensive reranking</td></tr>
+</tbody>
+</table>
+<h2 id="indexing-and-approximate-search">Indexing and approximate search</h2>
+<p>Flat exact search computes similarity against every vector and provides the recall ceiling for a given embedding model. Approximate-nearest-neighbour indexes reduce the number or cost of comparisons, trading some index recall for latency and memory.</p>
+<table>
+<thead><tr><th>Index</th><th>Internal idea</th><th>Construction parameters</th><th>Query parameters</th><th>Best fit and trade-offs</th></tr></thead>
+<tbody>
+<tr><td>Flat exact</td><td>Contiguous vectors; exhaustive SIMD/GPU scan</td><td>Vector dtype and layout</td><td>Batch size; optional exact top-k</td><td>Highest recall, trivial updates, no training; latency and bandwidth grow linearly with corpus size</td></tr>
+<tr><td>HNSW</td><td>Multi-layer proximity graph; greedy descent then local beam search</td><td><code class="math-inline">M</code> neighbours per node; <code>efConstruction</code></td><td><code>efSearch</code></td><td>Excellent recall/latency and incremental inserts; graph overhead costs memory and heavy deletion is awkward</td></tr>
+<tr><td>IVF</td><td>K-means coarse centroids partition vectors into inverted lists</td><td><code>nlist</code>, training sample, clustering iterations</td><td><code>nprobe</code> lists searched</td><td>Scales well and batches efficiently; misses vectors when the right cell is not probed</td></tr>
+<tr><td>IVF/PQ</td><td>IVF pruning plus product-quantized residual or vector codes</td><td><code>nlist</code>, PQ subspaces <code>m</code>, bits per code, codebooks</td><td><code>nprobe</code>, candidates to rescore</td><td>Lowest memory and fast distance tables; quantization adds ranking error and requires representative training data</td></tr>
+</tbody>
+</table>
+<p>Product quantization splits a vector into <code>m</code> subvectors and replaces each with a short codebook identifier. Distances are approximated by table lookups, often followed by exact rescoring of a small candidate set. More HNSW <code>efSearch</code>, IVF <code>nprobe</code>, or rescore candidates generally improves recall while increasing latency. Larger <code class="math-inline">M</code>/<code>efConstruction</code>, more IVF centroids, and larger PQ codebooks increase build cost or memory but can improve the attainable frontier. Tune construction and query parameters separately against exact-search neighbours.</p>
+<p>The index version must be coupled to the embedding model, normalization, pooling, tokenization, distance function, and document preprocessing. Re-embedding only part of a corpus with a new model creates an incoherent vector space unless the migration strategy is explicit.</p>
+<p>Updates are also index-specific. Flat indexes make append and compact operations simple. HNSW supports inserts, but deletion often marks a tombstone because rewiring the graph is costly. IVF can append to lists; many deletes or distribution drift make lists imbalanced. A common design searches an immutable bulk index plus a small mutable fresh index, filters tombstoned IDs at query time, and periodically compacts or fully rebuilds. Permission revocation must update the authoritative filter immediately even if physical deletion and reindexing lag.</p>
+<h2 id="hybrid-fusion">Hybrid fusion</h2>
+<p>Hybrid retrieval first forms a candidate-set union, for example <code class="math-inline">C = \text{topKBM}25 \cup  \text{topKdense}</code>, then deduplicates by canonical document or passage ID. Fusion can be rank-based or score-based:</p>
+<div class="math-display">RRF(d) = Σ[r ∈ retrievers] 1 / (c + rankᵣ(d))
+weighted(d) = α · calibrated_sparse(d) + (1 - α) · calibrated_dense(d)
+</div>
+<p>Reciprocal-rank fusion (RRF) needs no comparable raw scores; <code>c</code>, often around 60, reduces the dominance of rank 1. Weighted fusion can exploit score magnitude, but BM25 is unbounded and query-dependent while cosine is bounded and often tightly clustered. Raw addition can therefore let one retriever dominate after a corpus, query-length, or model change. Calibrate per retriever on held-out queries using rank normalization, z-scores with guarded variance, min-max statistics, or a learned relevance calibration model. Calibration must be versioned and checked by query slice; when distributions drift or a retriever returns very few candidates, RRF is usually safer.</p>
+<h2 id="reranking-and-latency-budgets">Reranking and latency budgets</h2>
+<p>A cross-encoder processes each query-candidate pair jointly, enabling token-level interaction and usually stronger precision. Common training objectives are:</p>
+<ul>
+<li><strong>Pointwise:</strong> predict relevance for each pair independently with binary cross-entropy, graded regression, or ordinal loss. It is simple but does not directly optimize ordering.</li>
+<li><strong>Pairwise:</strong> prefer a positive over a negative, for example <code class="math-inline">-\operatorname{log} \sigma (s(q,d^{+}) - s(q,d^{-}))</code>. It learns relative order but sampling determines which comparisons matter.</li>
+<li><strong>Listwise:</strong> normalize scores across a candidate list and match a target relevance distribution. It best reflects ranking context but costs more memory and depends on constructing representative lists.</li>
+</ul>
+<p>The candidate budget determines both the ceiling and the cost: a reranker cannot recover a relevant passage absent from its input, while its compute grows roughly with candidate count and token length. Batch pairs to use accelerators efficiently, bucket by length to reduce padding, and cap both query and passage tokens. Large batches improve throughput but may wait too long at low traffic, so use a short queue deadline and monitor p95/p99 latency.</p>
+<h3 id="worked-cascade">Worked retrieval, reranking, and latency cascade</h3>
+<table>
+<thead><tr><th>Stage</th><th>Items</th><th>Illustrative latency</th><th>Output</th></tr></thead>
+<tbody>
+<tr><td>Query encoding and permission predicate</td><td>1 query over 1M documents</td><td>4 ms</td><td>Normalized query vector plus allowed-ID filter</td></tr>
+<tr><td>ANN retrieval</td><td>1M → 200</td><td>12 ms</td><td>200 candidates; exact-search audit says Recall@200 = 0.96</td></tr>
+<tr><td>Fusion, deduplication, cheap filters</td><td>200 → 30</td><td>4 ms</td><td>30 candidates within the cross-encoder budget</td></tr>
+<tr><td>Cross-encoder, two batches of 15</td><td>30 → ranked 30</td><td>28 ms</td><td>Joint relevance scores</td></tr>
+<tr><td>Diversity and context selection</td><td>30 → 5</td><td>1 ms</td><td>5 final passages</td></tr>
+</tbody>
+</table>
+<p>The retrieval pipeline totals about 49 ms before generation. Within the 30-candidate rerank set, suppose passage A was first-stage rank 1 but merely defines “vector database” and receives cross-encoder score 1.1; passage B was rank 7, directly answers the query, and scores 4.6; passage C was rank 12, gives a relevant benchmark, and scores 3.9. Reranking produces B, C, A; the final selector keeps B and C, then fills three slots with non-duplicate evidence. This improves precision without asking the cross-encoder to score all one million documents.</p>
+<p>If the reranker times out, a low-risk fallback can return the fused first-stage order, record degraded mode, and lower the answer-confidence signal. For security-sensitive or high-stakes queries, fail closed or abstain rather than silently changing ranking semantics. Define separate behavior for an unavailable dense index, sparse index, metadata service, and reranker.</p>
+<h2 id="metrics">Metrics</h2>
+<div class="math-display">Recall@k    = |relevant ∩ top-k| / |relevant|
+Precision@k = |relevant ∩ top-k| / k
+RR(q)        = 1 / rank of first relevant result;  MRR = meanq RR(q)
+DCG@k        = Σ[i=1…k] (2^relᵢ - 1) / log₂(i + 1)
+nDCG@k       = DCG@k / ideal_DCG@k
+</div>
+<p><code>Recall@k</code> measures evidence coverage and is the key ceiling before reranking; define how queries with no labelled relevant item are handled. <code>Precision@k</code> measures result purity. MRR emphasizes the first relevant result and ignores later relevant items. nDCG rewards putting highly graded evidence early and works well when relevance is not binary.</p>
+<p>Final answer quality is not a clean retrieval metric. A capable model may answer from parametric memory despite bad retrieval, while a weak generator may fail despite perfect evidence. Maintain versioned, labelled retrieval sets with pooled judgements from multiple systems, hard negatives, domain terminology, freshness cases, and sufficient coverage of all relevant passages. Evaluate first-stage recall, post-rerank ordering, and final <a href="rag.html">RAG</a> answer quality separately.</p>
+<p>Report paired confidence intervals for system differences, preferably by bootstrap resampling whole queries rather than individual documents; also report the number of queries and practical effect size. Inspect query slices for length, language, rare identifiers, temporal freshness, ambiguous intent, multi-hop evidence, document type, tenant, and permission regime. Averages can improve while a critical slice regresses, so predeclare guardrail slices and minimum sample sizes. See <a href="evaluation.html">evaluation methodology</a> for broader experimental design.</p>
+<p>Permission-filter correctness is a hard constraint, not a relevance trade-off. Test that every returned ID is allowed for the requesting principal, including caches, hybrid unions, fallbacks, deleted documents, and adversarial cross-tenant queries. Track unauthorized-result rate with a target of exactly zero, alongside filter-induced recall loss on documents the principal may access. The threat boundary is expanded in <a href="security.html">security and data leakage</a>.</p>
+<p>Online metrics include result clicks, source opens, citation acceptance, downstream task success, reformulation or abandonment, answer escalation, empty-result rate, and p50/p95/p99 latency. These signals are position-biased and confounded by the generator and UI, so compare randomized experiments with guardrails for permission violations, latency, and zero-result regressions; do not treat click-through rate alone as relevance.</p>
+<h2 id="operational-concerns">Operational concerns</h2>
+<ul>
+<li>index freshness and versioning;</li>
+<li>approximate-search recall versus latency;</li>
+<li>hard-negative mining and false negatives;</li>
+<li>embedding drift after model changes;</li>
+<li>deduplication of near-identical passages;</li>
+<li>domain adaptation;</li>
+<li>multilingual retrieval and tokenization;</li>
+<li>cache invalidation after permission changes;</li>
+<li>fallback when the index or reranker is unavailable.</li>
+</ul>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>dense semantic similarity returning topically related but non-answering passages;</li>
+<li>lexical retrieval missing paraphrases;</li>
+<li>filter leakage across users;</li>
+<li>evaluating only easy random negatives;</li>
+<li>stale embeddings after document updates;</li>
+<li>mixed embedding-model versions in one index;</li>
+<li>score fusion without calibration;</li>
+<li>expensive reranking causing latency spikes;</li>
+<li>false negatives corrupting contrastive training.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Compare BM25, a bi-encoder, and a cross-encoder.</li>
+<li>Derive the contrastive-retrieval objective and discuss negatives.</li>
+<li>Design hybrid retrieval for an engineering-document corpus.</li>
+<li>Explain Recall@k, MRR, and nDCG.</li>
+<li>Show why answer correctness cannot isolate retrieval quality.</li>
+<li>Choose an ANN and reranking budget from latency and recall requirements.</li>
+<li>Define a safe metadata-filtering and cache-invalidation boundary.</li>
+<li>Explain how negative-mining curricula can amplify false negatives.</li>
+<li>Compare exact, HNSW, IVF, and IVF/PQ indexes under an update-heavy workload.</li>
+</ol>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="rag.html">Retrieval-Augmented Generation</a></li>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+<li><a href="security.html">LLM Security, Prompt Injection and Data Leakage</a></li>
+<li><a href="tokenization.html">Tokenization and Vocabulary Design</a></li>
+</ul>
+</section>

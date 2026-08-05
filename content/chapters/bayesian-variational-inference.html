@@ -1,0 +1,193 @@
+<section class="chapter-content" data-topic="bayesian-variational-inference">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to derive the evidence lower bound (ELBO), explain pathwise gradients and mini-batch scaling, diagnose the limitations of a mean-field approximation, compare common neural-network uncertainty methods, and turn parameter uncertainty into posterior predictive uncertainty.</p>
+
+<h2 id="notation">Notation</h2>
+<p>Let <code>D = {(x_i, y_i)}_{i=1}^N</code> be the observed data, <code>w</code> the model parameters, <code>p(w)</code> the prior, and <code>p(D | w)</code> the likelihood. The variational family is <code class="math-inline">q_\phi (w)</code>. For supervised iid data, <code>log p(D | w) = Σ_i log p(y_i | x_i, w)</code>.</p>
+
+<h2 id="bayesian-learning">1. Bayesian learning</h2>
+<p>Bayesian learning treats unknown parameters as random variables. Before observing data, beliefs are encoded by a <strong>prior</strong> <code>p(w)</code>. A model of how parameters generate observations gives the <strong>likelihood</strong> <code>p(D | w)</code>. Bayes' rule combines them:</p>
+<div class="math-display">p(w | D) = p(D | w) p(w) / p(D)
+p(D)     = ∫ p(D | w) p(w) dw</div>
+<p>The <strong>posterior</strong> <code>p(w | D)</code> represents updated parameter uncertainty. Prediction averages over that uncertainty rather than selecting one parameter vector:</p>
+<div class="math-display">p(y* | x*, D) = ∫ p(y* | x*, w) p(w | D) dw</div>
+<p>This <strong>posterior predictive</strong> can widen where data are sparse and contract where data constrain the model.</p>
+
+<h3 id="difference-from-map-training">Difference from MAP training</h3>
+<p>Maximum a posteriori (MAP) training returns one mode:</p>
+<div class="math-display">w_MAP = argmax_w [log p(D | w) + log p(w)]</div>
+<p>For an isotropic prior <code class="math-inline">w ~ N(0,\sigma ^{2}I)</code>, negative-log-posterior MAP minimizes <code>-Σ_i log p(y_i|x_i,w) + ||w||²/(2σ²)</code>, up to a constant. If the data loss is averaged over <code>n</code> observations, the matching coefficient becomes <code class="math-inline">1/(2n\sigma ^{2})</code>. This is L2 regularization added to the objective. Multiplicative or decoupled optimizer weight decay, as in AdamW, is not generally equivalent under adaptive optimization; the familiar equivalence holds for ordinary SGD with consistent learning-rate and scaling conventions. MAP still discards posterior width, correlations, and alternative modes. Full Bayesian prediction integrates over parameters; MAP usually predicts with <code>p(y* | x*, w_MAP)</code>.</p>
+
+<h2 id="intractable-posterior-inference">2. Intractable posterior inference</h2>
+<p>The denominator in Bayes' rule is the <strong>marginal likelihood</strong>, or evidence:</p>
+<div class="math-display">p(D) = ∫ p(D | w) p(w) dw</div>
+<p>It averages the likelihood over every possible parameter setting. This integral both normalizes the posterior and rewards models that explain the data across a substantial region of prior mass rather than at only one finely tuned point.</p>
+<p>For a neural network with millions or billions of weights, the integral is high-dimensional and the likelihood is a nonlinear, non-conjugate function of <code>w</code>. Exact summation on a grid grows exponentially with dimension; symbolic conjugate integration does not apply; and even evaluating all important modes is impossible because symmetries and nonlinearities produce a complicated posterior geometry. Exact posterior prediction contains another integral over this unavailable posterior. Consequently, neural-network Bayesian inference relies on approximations such as variational inference, local Gaussian approximations, or sampling methods whose costs are themselves substantial.</p>
+
+<h2 id="variational-inference">3. Variational inference</h2>
+<p>Variational inference (VI) chooses a tractable family <code class="math-inline">q_\phi (w)</code> and fits its parameters <code class="math-inline">\phi</code> so that <code class="math-inline">q_\phi (w)</code> approximates <code>p(w | D)</code>. The conventional objective minimizes the reverse KL divergence:</p>
+<div class="math-display">φ* = argmin_φ KL(q_φ(w) || p(w | D))</div>
+
+<h3 id="elbo-derivation">ELBO derivation</h3>
+<p>Insert <code class="math-inline">q_\phi (w) / q_\phi (w)</code> into the evidence and apply Jensen's inequality:</p>
+<div class="math-display">log p(D)
+= log ∫ p(D, w) dw
+= log ∫ q_φ(w) [p(D, w) / q_φ(w)] dw
+= log E_q [p(D, w) / q_φ(w)]
+≥ E_q [log p(D, w) - log q_φ(w)]
+= E_q [log p(D | w)] - KL(q_φ(w) || p(w))
+≡ ELBO(φ)</div>
+<p>The same result follows from an exact decomposition:</p>
+<div class="math-display">log p(D) = ELBO(φ) + KL(q_φ(w) || p(w | D))</div>
+<p>Because <code>log p(D)</code> is constant with respect to <code class="math-inline">\phi</code> and KL is non-negative, maximizing the ELBO is equivalent to minimizing <code class="math-inline">KL(q_\phi  \mathbin{\Vert} p(w \mid  D))</code>.</p>
+<p>The <strong>expected log-likelihood term</strong> <code>E_q[log p(D | w)]</code> is often called the data-fit or reconstruction term: sampled weights should explain the observations. The <strong>KL-to-prior term</strong> constrains the approximate posterior to remain near <code>p(w)</code>. Maximizing the ELBO therefore balances fit against complexity:</p>
+<div class="math-display">maximize: expected log likelihood − divergence from prior
+minimize: negative expected log likelihood + KL-to-prior</div>
+<p>“Reconstruction” is most literal for latent-variable generative models. In supervised prediction, “expected log-likelihood” is the clearer name.</p>
+
+<h2 id="mean-field-gaussian-approximation">4. Mean-field Gaussian approximation</h2>
+<p>A common choice assigns an independent Gaussian to every weight:</p>
+<div class="math-display">q_φ(w) = ∏_j Normal(w_j; μ_j, σ_j²)
+φ      = {μ_j, ρ_j}_j
+σ_j    = softplus(ρ_j) &gt; 0</div>
+<p>This doubles the number of learned scalars relative to a point estimate but makes sampling and the KL to a Gaussian prior cheap. For <code class="math-inline">p(w) = \mathcal{N}(0, \tau ^{2}I)</code>, the KL is analytic:</p>
+<div class="math-display">KL(q || p) = ½ Σ_j [(σ_j² + μ_j²)/τ² − 1 + log(τ²/σ_j²)]</div>
+<p>The factorization cannot represent posterior correlations, curved valleys, heavy tails, or multiple separated modes. Neural-network weights are strongly coupled: permuting hidden units can describe the same function, while rescaling adjacent layers can create extended posterior ridges. Independent marginals can therefore give misleading uncertainty even if their individual variances look plausible.</p>
+
+<h3 id="mode-seeking-reverse-kl">Mode-seeking behavior of <code class="math-inline">KL(q \mathbin{\Vert} p)</code></h3>
+<p>Reverse KL heavily penalizes placing <code>q</code> where <code>p</code> has little density, but it does not penalize missing regions where <code>p</code> has mass if <code>q</code> assigns them none. With a restricted unimodal family and a multimodal target, the optimum often covers one mode instead of bridging modes. This “mode-seeking” behavior commonly underestimates uncertainty. It is a tendency induced by the KL direction and family restriction, not a guarantee that every VI posterior is too narrow.</p>
+
+<h2 id="reparameterization-trick">5. Reparameterization trick</h2>
+<p>Directly differentiating through a random draw <code class="math-inline">w ~ q_\phi</code> is awkward because the sampling operation depends on <code class="math-inline">\phi</code>. For a diagonal Gaussian, move the randomness into a parameter-free variable:</p>
+<div class="math-display">ε ~ Normal(0, I)
+w = μ + σ ⊙ ε</div>
+<p>Now an expectation can be written <code class="math-inline">E_\varepsilon [f(\mu  + \sigma \odot \varepsilon )]</code>, and automatic differentiation follows the deterministic path from <code class="math-inline">\mu , \sigma</code> through <code>w</code> to the loss. These <strong>pathwise gradients</strong> use how the same random draw changes smoothly with <code class="math-inline">\phi</code>, and usually have much lower variance than score-function estimators such as <code class="math-inline">f(w) \nabla _\phi  \operatorname{log} q_\phi (w)</code>.</p>
+
+<h3 id="mini-batch-scaling-and-monte-carlo">Mini-batch scaling and Monte Carlo estimates</h3>
+<p>For a uniformly sampled mini-batch <code class="math-inline">B</code> of size <code class="math-inline">M</code>, an unbiased estimator of the full-data ELBO is:</p>
+<div class="math-display">ELBO_B ≈ (N/M) Σ_{i∈B} log p(y_i | x_i, w) − KL(q_φ(w) || p(w))
+where w = μ + σ ⊙ ε,  ε ~ Normal(0, I)</div>
+<p>The factor <code>N/M</code> scales only the mini-batch likelihood sum; the global KL appears once per full-data objective. If code averages likelihood over the batch, multiply that mean by <code class="math-inline">N</code>. An alternative divides the KL across the number of mini-batches, but the two conventions must not be mixed.</p>
+<p>With <code class="math-inline">S</code> weight samples, replace the expectation by <code class="math-inline">(1/S) \sum _s \operatorname{log} p(D \mid  w^{s})</code>. One sample per mini-batch is often sufficient during training because successive batches provide more Monte Carlo draws. More samples reduce estimator noise at higher compute cost; prediction commonly uses many more samples. Local reparameterization and Flipout-style estimators can further reduce gradient variance by decorrelating perturbations across examples.</p>
+
+<h2 id="stochastic-variational-inference">6. Stochastic variational inference</h2>
+<p>Stochastic variational inference (SVI) combines the ELBO with data subsampling and stochastic optimization. The scaled mini-batch likelihood gives an unbiased estimate of the data sum, enabling Robbins–Monro updates or optimizers such as Adam without scanning the entire dataset for every step.</p>
+<p>In classical conjugate exponential-family models, <strong>natural gradients</strong> precondition updates by the inverse Fisher information of the variational family. They follow the geometry of distributions rather than Euclidean parameter coordinates and can yield especially simple, stable updates for global variational parameters. In non-conjugate neural VI they are possible but less common because Fisher-vector computations or approximations add complexity; ordinary adaptive gradients are the usual baseline.</p>
+
+<h3 id="local-versus-global-latent-variables">Local versus global latent variables</h3>
+<ul>
+<li><strong>Global variables</strong>, such as mixture proportions or neural-network weights, are shared by all observations. Their posterior uses evidence from the whole dataset and their variational parameters persist across mini-batches.</li>
+<li><strong>Local variables</strong>, such as a topic assignment or per-example latent code <code>z_i</code>, belong to one observation or group. A mini-batch updates only its local factors, often by coordinate ascent, optimization, or an amortized inference network.</li>
+</ul>
+<p>SVI typically estimates local factors for the sampled data, then uses their sufficient statistics to update the global factors with the appropriate population scaling. Amortization avoids storing a separate variational parameter vector for every example, but introduces an amortization gap if the inference network cannot reach each example's best local approximation.</p>
+
+<h2 id="bayesian-neural-network-methods">7. Bayesian neural-network methods</h2>
+<table>
+<thead>
+<tr><th>Method</th><th>Approximation and training</th><th>Prediction</th><th>Main trade-off</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Mean-field VI / Bayes by Backprop</strong></td><td>Optimize a factorized weight posterior with a reparameterized Monte Carlo ELBO.</td><td>Average predictions from sampled weights.</td><td>Principled variational objective, but roughly doubles parameter storage and misses correlations and modes.</td></tr>
+<tr><td><strong>Laplace approximation</strong></td><td>Fit MAP, then approximate the posterior locally as Gaussian using the loss Hessian or a structured curvature approximation.</td><td>Sample around MAP or approximate the predictive integral.</td><td>Convenient post hoc method; quality depends on local quadratic geometry and scalable curvature structure.</td></tr>
+<tr><td><strong>MC dropout</strong></td><td>Train with dropout; interpret a particular regularized dropout objective as approximate variational inference.</td><td>Keep dropout active and average stochastic forward passes.</td><td>Very easy and cheap to adopt, but the posterior family and uncertainty are constrained by masks and dropout rate.</td></tr>
+<tr><td><strong>Deep ensembles</strong></td><td>Train several point-estimate networks from different initializations and often shuffled data.</td><td>Mix member predictive distributions.</td><td>Not Bayesian posterior inference, but a strong uncertainty and shift-detection baseline; costs multiple full trainings and models.</td></tr>
+<tr><td><strong>SWAG</strong></td><td>Fit a low-rank-plus-diagonal Gaussian to SGD iterates near a solution.</td><td>Sample weights from the fitted Gaussian, often with batch-normalization statistics refreshed.</td><td>Captures some correlations cheaply after conventional training, but remains local and trajectory-dependent.</td></tr>
+<tr><td><strong>MAP</strong></td><td>Optimize likelihood plus log prior and retain one parameter vector.</td><td>One forward model, unless combined with a separate predictive-noise model.</td><td>Cheapest baseline; has no distribution over weights and usually under-represents epistemic uncertainty.</td></tr>
+</tbody>
+</table>
+<p><strong>Bayes by Backprop</strong> is the standard neural mean-field VI recipe: learn means and variances by backpropagating a Monte Carlo estimate of the variational free energy, using the reparameterization trick. <strong>MC dropout</strong> is Bayesian only under a specific approximate interpretation; ordinary dropout probabilities are not automatically calibrated posterior probabilities. <strong>Laplace</strong> and <strong>SWAG</strong> are usually centered near one basin, whereas ensembles can occupy distinct basins but do not weight members according to a Bayesian posterior.</p>
+
+<h2 id="prior-design">8. Prior design</h2>
+<ul>
+<li><strong>Gaussian priors:</strong> <code>w_j ~ Normal(0, τ²)</code> are computationally convenient and make mean-field KL terms analytic. The scale <code class="math-inline">\tau</code> controls shrinkage and must be interpreted relative to architecture, normalization, fan-in, and parameterization.</li>
+<li><strong>Hierarchical priors:</strong> learn or infer shared scales, for example <code>w_j ~ Normal(0, τ²)</code> with <code class="math-inline">\tau  ~ \text{half}-\text{Cauchy}</code>. They let groups of weights adapt their regularization strength and can encode layer- or unit-level structure.</li>
+<li><strong>Scale mixtures:</strong> a mixture of narrow and wide Gaussians can place substantial mass near zero while retaining heavy tails for large weights. The KL may then require Monte Carlo estimation.</li>
+<li><strong>Function-space consequences:</strong> priors over weights induce priors over functions, and seemingly harmless iid weight priors can imply implausible output scales, smoothness, or correlations. Architecture and prior cannot be assessed independently.</li>
+<li><strong>Prior sensitivity:</strong> weak data, out-of-distribution inputs, and non-identifiable neural parameters expose prior choices most strongly. Sensitivity analysis should vary defensible prior families and scales, then compare posterior predictions rather than only weight histograms.</li>
+</ul>
+<p>Hierarchical and heavy-tailed priors are more expressive, but an inflexible variational family may fail to inherit their useful dependencies or tails. A sophisticated prior does not repair a severely misspecified <code class="math-inline">q_\phi</code>.</p>
+
+<h2 id="posterior-predictive-uncertainty">9. Posterior predictive uncertainty</h2>
+<p>Given approximate posterior samples <code class="math-inline">w^{s} ~ q_\phi (w)</code>, estimate the posterior predictive with:</p>
+<div class="math-display">p(y* | x*, D) ≈ (1/S) Σ_s p(y* | x*, w^(s))</div>
+<p>Use independent or appropriately decorrelated samples and report Monte Carlo error when <code class="math-inline">S</code> is small.</p>
+
+<h3 id="regression-decomposition">Regression decomposition</h3>
+<p>If each model predicts <code>y | x,w ~ Normal(m_w(x), v_w(x))</code>, the law of total variance gives:</p>
+<div class="math-display">E[y* | x*, D]   ≈ mean_s m_s
+Var[y* | x*, D] ≈ mean_s v_s              + variance_s m_s
+                  aleatoric uncertainty      epistemic uncertainty</div>
+<p>The first term is expected observation noise; the second measures disagreement in conditional means across weight samples. This decomposition is model-dependent: misspecification can move unexplained error between the two terms.</p>
+
+<h3 id="small-bayesian-regression-example">Small Bayesian regression example</h3>
+<p>Consider <code>y_i = w x_i + η_i</code>, with known <code class="math-inline">\eta _i ~ \mathcal{N}(0, 0.2^{2})</code> and prior <code>w ~ Normal(0, 1)</code>. For <code class="math-inline">x = [-1, 0, 1]</code> and <code class="math-inline">y = [-2.1, 0.1, 1.9]</code>, conjugacy gives:</p>
+<div class="math-display">posterior variance = (1/1² + Σ_i x_i²/0.2²)⁻¹ = 1/51 ≈ 0.0196
+posterior mean     = posterior variance × Σ_i x_i y_i/0.2²
+                   = (1/51) × 100 ≈ 1.9608
+
+w | D ~ Normal(1.9608, 0.0196)</div>
+<p>At <code class="math-inline">x^{\ast} = 1.5</code>, the predictive mean is <code class="math-inline">1.5 \times  1.9608 \approx  2.94</code>. The predictive variance is:</p>
+<div class="math-display">0.2² + 1.5² × 0.0196 ≈ 0.0841
+noise    parameter uncertainty
+
+predictive standard deviation ≈ 0.29</div>
+<p>A VI implementation would learn an approximate Gaussian for <code>w</code>, sample <code class="math-inline">w^{s} = \mu  + \sigma \varepsilon ^{s}</code>, and recover the predictive mean and variance by Monte Carlo. This one-dimensional conjugate result is a useful correctness check for the ELBO, reparameterization, and uncertainty decomposition.</p>
+
+<h3 id="classification-uncertainty-and-calibration">Classification uncertainty and calibration</h3>
+<p>For classification, average probability vectors, not class labels or logits:</p>
+<div class="math-display">p(y*=k | x*, D) ≈ (1/S) Σ_s softmax_k(f_{w^(s)}(x*))</div>
+<p>Predictive entropy summarizes total uncertainty. The mutual information between predictions and sampled weights—predictive entropy minus expected per-sample entropy—is a common epistemic-disagreement measure, while the expected entropy reflects ambiguity within each sampled model. Neither is automatically calibrated.</p>
+<p>Check probabilistic predictions with negative log-likelihood, Brier score, reliability diagrams, and expected calibration error, including important subgroups and shifted data. Calibration means that events assigned probability <code>p</code> occur about a fraction <code>p</code> of the time; it does not guarantee accuracy, sharpness, or useful out-of-distribution detection. Post-hoc temperature scaling can improve calibration on validation-like data without fixing the posterior approximation.</p>
+
+<h2 id="scaling-limitations">10. Scaling limitations</h2>
+<ul>
+<li><strong>Parameter count:</strong> storing <code class="math-inline">\mu</code> and <code class="math-inline">\sigma</code> for every weight approximately doubles model parameters; optimizer states multiply this further.</li>
+<li><strong>Memory and compute:</strong> posterior sampling adds random-number generation and often requires multiple forward passes. Training must retain gradients for variational parameters and may need distributed synchronization for both sets.</li>
+<li><strong>Approximation misspecification:</strong> a low ELBO optimization error does not imply a good posterior if the variational family cannot express its shape. Predictive quality can hide poor uncertainty away from the training distribution.</li>
+<li><strong>Correlated weights:</strong> mean field ignores strong within-layer and cross-layer dependencies. Full covariance is quadratic in parameter count; low-rank, Kronecker-factored, block-diagonal, and matrix-variate approximations trade fidelity for tractability.</li>
+<li><strong>Cold-posterior phenomena:</strong> neural networks sometimes predict better when the likelihood is tempered as <code class="math-inline">p(D \mid  w)^{1/T}</code> with <code class="math-inline">T \lt  1</code>, producing a posterior sharper than the nominal Bayesian posterior. Possible causes include likelihood misspecification, data augmentation, prior mismatch, duplicated or curated data, and approximate inference. The phenomenon is a diagnostic, not a universal prescription to tune temperature on the test set.</li>
+<li><strong>Large language models:</strong> a variational distribution over every pretrained parameter is usually prohibitive. Practical approximations place uncertainty only over adapters, LoRA factors, a last layer, a prediction head, selected blocks, or a low-dimensional subspace; combine a frozen backbone with ensembles; or fit local Laplace/SWAG-style approximations. These are parameter-efficient posterior approximations, not full Bayesian inference over the entire LLM.</li>
+</ul>
+<p>Scaling decisions should start from the uncertainty needed by the downstream decision. If a small ensemble, calibrated head, or last-layer posterior meets that need, a full mean-field distribution over a foundation model is unlikely to justify its cost.</p>
+
+<h2 id="method-selection">Method selection summary</h2>
+<ul>
+<li>Start with <strong>MAP</strong> when only point accuracy and a cheap baseline are needed.</li>
+<li>Use <strong>MC dropout</strong> when retrofitting repeated stochastic predictions into an existing dropout model matters more than posterior fidelity.</li>
+<li>Use <strong>Laplace</strong> for a post-hoc local posterior around a good MAP solution, especially when a last-layer or structured curvature approximation is sufficient.</li>
+<li>Use <strong>mean-field VI</strong> when an explicit learned weight distribution and online variational objective are important, accepting its independence assumptions.</li>
+<li>Use <strong>deep ensembles</strong> as the strong practical uncertainty baseline when multiple trainings and model copies are affordable.</li>
+<li>Use <strong>SWAG</strong> when SGD checkpoints are available and a cheap correlated local Gaussian is attractive.</li>
+</ul>
+
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>scaling the KL by <code>N/M</code> together with the likelihood, thereby over-regularizing;</li>
+<li>sampling once at evaluation and calling the result a posterior predictive;</li>
+<li>averaging classification logits instead of predictive probabilities;</li>
+<li>equating a narrow mean-field posterior with certainty rather than approximation bias;</li>
+<li>using weight-space variance as a direct proxy for function-space uncertainty;</li>
+<li>comparing methods without matching architecture, data, augmentation, and compute;</li>
+<li>reporting calibration only in-distribution or only as one aggregate ECE number;</li>
+<li>calling ensembles Bayesian without specifying a posterior or member-weighting argument.</li>
+</ul>
+
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Derive the ELBO both with Jensen's inequality and with the KL decomposition.</li>
+<li>Explain why <code class="math-inline">w = \mu  + \sigma \odot \varepsilon</code> lowers gradient variance and what remains stochastic.</li>
+<li>Write the correctly scaled mini-batch ELBO for a dataset of size <code class="math-inline">N</code>.</li>
+<li>Explain why reverse KL and a unimodal family can miss posterior modes.</li>
+<li>Compare VI, Laplace, MC dropout, ensembles, SWAG, and MAP under a fixed compute budget.</li>
+<li>Decompose predictive variance for heteroscedastic Bayesian regression.</li>
+<li>Explain what a cold posterior might reveal about the model, prior, data pipeline, or approximation.</li>
+</ol>
+
+<h2 id="prerequisites-and-cross-links">Prerequisites and cross-links</h2>
+<ul>
+<li><a href="probabilistic-modelling.html">Probabilistic Modelling</a> — likelihoods, latent variables, and Bayesian foundations.</li>
+<li><a href="uncertainty-quantification.html">Uncertainty Quantification</a> — calibration, uncertainty types, and evaluation.</li>
+<li><a href="gaussian-processes.html">Gaussian Processes</a> — a function-space Bayesian perspective.</li>
+<li><a href="hmm-state-space.html">Hidden Markov and State-Space Models</a> — local/global latent variables and structured inference.</li>
+</ul>
+</section>

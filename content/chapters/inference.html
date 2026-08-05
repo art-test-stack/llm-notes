@@ -1,0 +1,197 @@
+<section class="chapter-content" data-topic="inference">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to separate prefill and decode, estimate their FLOPs and memory traffic, account for KV-cache memory and placement, explain cache layouts and decoding methods, implement cached GQA, and test position, mask, and batching correctness.</p>
+
+<h2 id="notation-and-assumptions">Notation and assumptions</h2>
+<p>Let <code class="math-inline">B</code> be batch size, <code class="math-inline">S</code> prompt length, <code class="math-inline">T</code> cached length during decode, <code class="math-inline">H</code> hidden size, <code class="math-inline">F</code> MLP intermediate size, <code class="math-inline">L</code> layers, <code class="math-inline">H_{q}</code> query heads, <code class="math-inline">H_{\text{kv}}</code> KV heads, <code class="math-inline">D_{h} = H/H_{q}</code>, and <code class="math-inline">r = H_{\text{kv}}/H_{q}</code>. One multiply-add counts as two FLOPs. Formulas describe dense decoder layers with SwiGLU and omit embeddings, the final vocabulary projection, normalization, bias, activation, and other lower-order elementwise work unless stated.</p>
+
+<h2 id="autoregressive-generation">Autoregressive generation</h2>
+<p>A decoder predicts one token at a time. Without caching, every step recomputes keys and values for the whole prefix. A KV cache stores each layer's projected keys and values, so a decode step projects only the new token. The new query must still attend to all visible cached positions: caching removes repeated work, not the linear-in-context read at each step.</p>
+
+<h2 id="prefill-versus-decode">Prefill versus decode</h2>
+<p><strong>Prefill</strong> consumes all prompt tokens in parallel and writes the initial cache; <strong>decode</strong> repeatedly consumes one token per active request and reads a growing cache. Summing decode attention over many generated tokens is still quadratic in the total decoded length, even though caching avoids recomputing old projections and old query rows.</p>
+
+<h2 id="prefill-cost-model">Prefill cost model</h2>
+<p>Prefill processes all <code>B × S</code> prompt tokens in parallel and creates the initial cache. For one layer:</p>
+<table>
+<thead><tr><th>Operation</th><th>Approximate FLOPs</th><th>Comment</th></tr></thead>
+<tbody>
+<tr><td>Q, K, V projections</td><td><code>2 B S H² (1 + 2r)</code></td><td>Q has width <code class="math-inline">H</code>; K and V each have width <code>rH</code>. For MHA, this is <code>6BSH²</code>.</td></tr>
+<tr><td>Attention scores <code>QKᵀ</code></td><td><code>2 B S² H</code></td><td>Causal kernels may skip masked work; this is the dense upper estimate.</td></tr>
+<tr><td>Stable softmax</td><td>roughly <code>5 B H_q S²</code></td><td>Max, subtract, exponentiate, sum, and divide; kernel accounting varies.</td></tr>
+<tr><td>Value aggregation <code>PV</code></td><td><code>2 B S² H</code></td><td>Same leading matmul cost as scores.</td></tr>
+<tr><td>Output projection</td><td><code>2 B S H²</code></td><td>Concatenated query-head outputs back to width <code class="math-inline">H</code>.</td></tr>
+<tr><td>SwiGLU MLP</td><td><code>6 B S H F</code></td><td>Two <code>H→F</code> projections plus one <code>F→H</code>; activation is lower order.</td></tr>
+</tbody>
+</table>
+<p>Ignoring the softmax and other elementwise terms, the full decoder stack is approximately:</p>
+<div class="math-display">F_prefill ≈ L B [S(4 + 4r)H² + 4S²H + 6SHF]
+</div>
+<p>The linear projections and MLP scale as <code class="math-inline">O(BLSH^{2})</code> when <code class="math-inline">F = O(H)</code>; attention scales as <code class="math-inline">O(BLS^{2}H)</code>. Long prompts eventually make attention dominant, while ordinary prompts in large models can still be MLP-heavy. Large matrices reuse weights and activations well, so prefill is commonly compute-bound.</p>
+<h3 id="prefill-example">Explicit prefill estimate</h3>
+<p>For <code class="math-inline">B=1</code>, <code class="math-inline">S=2,048</code>, <code class="math-inline">L=32</code>, <code class="math-inline">H=4,096</code>, <code class="math-inline">F=11,008</code>, <code class="math-inline">H_{q}=32</code>, and <code class="math-inline">H_{\text{kv}}=8</code> (<code class="math-inline">r=0.25</code>): QKV projections cost about <strong>3.30 TFLOPs</strong>, scores <strong>1.10 TFLOPs</strong>, value aggregation <strong>1.10 TFLOPs</strong>, output projections <strong>2.20 TFLOPs</strong>, and the MLP <strong>17.73 TFLOPs</strong>. The total is about <strong>25.4 TFLOPs per prompt</strong>, before the vocabulary head and lower-order operations. This is an operation count, not a latency prediction.</p>
+
+<h2 id="decode-cost-model">Decode cost model</h2>
+<p>At one-token decode, replace <code class="math-inline">S</code> by one for projections, but attend over the growing cache of length <code class="math-inline">T</code>. For one layer and one decode step:</p>
+<ul>
+<li>new-token QKV projections: <code>2 B H²(1 + 2r)</code> FLOPs;</li>
+<li>attention score plus value aggregation: <code>4 B T H</code> FLOPs, plus roughly <code>5 B H_q T</code> for softmax;</li>
+<li>output projection: <code>2 B H²</code> FLOPs;</li>
+<li>SwiGLU MLP: <code>6 B H F</code> FLOPs.</li>
+</ul>
+<pre><code class="language-text">F_decode_step ≈ L B [(4 + 4r)H² + 6HF + 4TH]
+KV_read_step  ≈ 2 B L T H_kv D_h s_cache bytes
+weight bytes per step ≈ P × s_weight                 # weights read once for the batch
+weight bytes per produced token ≈ P × s_weight / B  # ideal batch amortization
+</code></pre>
+<p>For the example above at <code class="math-inline">T=4,096</code>, one decode step is about <strong>13.5 GFLOPs per sequence</strong> (excluding the vocabulary head and elementwise work) and reads <strong>512 MiB</strong> of fp16 KV data per sequence. A 7B model in fp16 also exposes about <strong>14 GB</strong> of weights to the step; at batch one, an idealized <code class="math-inline">\approx 14 GFLOP / 14.5 GB</code> gives only about <strong>1 FLOP/byte</strong>. Batching amortizes the weight read, but every sequence still reads its own cache.</p>
+<p>That low arithmetic intensity leaves tensor cores underfed: decode is often limited by HBM bandwidth rather than peak FLOPs. Small one-token matrix shapes also launch many short kernels, so launch latency, synchronization, request scheduling, and CPU dispatch can matter. Kernel fusion, CUDA graphs, continuous batching, weight quantization, and paged attention target these costs; none changes the semantic requirement to read visible K/V.</p>
+
+<span id="kv-cache-memory"></span><h2 id="kv-cache-accounting">KV-cache accounting</h2>
+<p>For scalar size <code>s_cache</code> bytes:</p>
+<div class="math-display">M_KV = 2 × B × L × T × H_kv × D_h × s_cache
+</div>
+<p>The factor two stores keys and values. Standard MHA has <code class="math-inline">H_{\text{kv}}=H_{q}</code>; GQA shares each KV head across a group of query heads; MQA has <code class="math-inline">H_{\text{kv}}=1</code>. Relative to MHA at the same <code class="math-inline">H_{q}</code> and <code class="math-inline">D_{h}</code>, cache capacity and cache-read bandwidth scale by <code>H_kv/H_q</code>.</p>
+<ul>
+<li><strong>Dtype and quantization:</strong> fp32, fp16/bf16, int8, and lower-bit caches use roughly 4, 2, 1, and fewer than 1 data bytes per element. Quantized layouts also store scales (often per head or block) and may require padding; include that metadata and dequantization cost.</li>
+<li><strong>Sliding window:</strong> replace <code class="math-inline">T</code> by the retained window <code class="math-inline">W</code> for sliding-attention layers. Global-attention layers and persistent prefix tokens still need separate accounting.</li>
+<li><strong>Tensor parallelism:</strong> when KV heads are sharded, each TP rank holds roughly <code>1/TP</code> of the layer cache. If <code class="math-inline">H_{\text{kv}} \lt  TP</code>, implementations may replicate KV heads to avoid awkward collectives, so the saving is not automatic.</li>
+<li><strong>Pipeline parallelism:</strong> each stage stores cache only for its local layers, but every stage needs capacity for the same active requests. The tightest stage determines capacity.</li>
+<li><strong>Beam search:</strong> physically copying K/V for every beam multiplies cache by beam width. A block table can share immutable prompt and common beam-prefix blocks, then use copy-on-write after branches diverge. Logical beam reordering should update references, not move all K/V bytes.</li>
+</ul>
+<h3 id="kv-example">Numerical cache and concurrency example</h3>
+<p>Take the same 32-layer GQA model with <code class="math-inline">H_{\text{kv}}=8</code>, <code class="math-inline">D_{h}=128</code>, fp16 cache (<code>s_cache=2</code>), and <code class="math-inline">T=4,096</code>:</p>
+<pre><code class="language-text">M_KV/request = 2 × 32 × 4,096 × 8 × 128 × 2
+             = 536,870,912 bytes = 512 MiB
+
+80 GiB GPU - 14 GiB weights - 6 GiB runtime/workspace = 60 GiB cache budget
+maximum resident requests ≈ floor(60 GiB / 0.5 GiB) = 120
+</code></pre>
+<p>This <strong>120-request</strong> figure is a capacity ceiling at exactly 4,096 cached tokens, not a throughput promise; fragmentation, block metadata, longer sequences, temporary activations, and safety margin reduce production concurrency. At the same shape, MHA (<code class="math-inline">H_{\text{kv}}=32</code>) needs 2 GiB/request and fits about 30; MQA needs 64 MiB/request and fits about 960. An int8 GQA cache roughly doubles the 120 ceiling before scale overhead, while a 1,024-token sliding window roughly quadruples it for purely windowed layers.</p>
+
+<h2 id="cache-layouts">Cache layouts and lifecycle</h2>
+<table>
+<thead><tr><th>Layout</th><th>Mechanism</th><th>Trade-off</th></tr></thead>
+<tbody>
+<tr><td>Contiguous</td><td>Reserve <code>[L,B,H_kv,T_max,D_h]</code> or per-request contiguous buffers and write at the current offset.</td><td>Simple addressing and good locality, but internal waste from unused capacity; growth or compaction may copy large tensors.</td></tr>
+<tr><td>Paged</td><td>Store fixed-size physical K/V blocks in a pool. Each request owns a logical sequence of block IDs.</td><td>Near-on-demand allocation, cheap sharing and reordering; block-table lookup and partially filled tail blocks add overhead.</td></tr>
+<tr><td>Ring buffer</td><td>For a window <code class="math-inline">W</code>, write position <code>t</code> into physical slot <code>t mod W</code>.</td><td>Constant memory and no shifting; attention must read wrapped segments in logical order and protect non-evictable prefix/global tokens.</td></tr>
+</tbody>
+</table>
+<p>A <strong>block table</strong> maps <code>(request, logical_block)</code> to a physical block. Allocation appends blocks; eviction decrements references and returns blocks to a free list only when the reference count reaches zero. Policies can evict completed or cancelled requests immediately, reclaim recomputable prefix-cache entries under pressure, or reject/preempt work before corrupting a live sequence.</p>
+<h3 id="cache-reordering">Dynamic-batch and beam reordering</h3>
+<p>Suppose batch rows <code>[A,B,C]</code> become <code>[C,A]</code> after B finishes. A contiguous batch-major cache must gather rows <code>[2,0]</code> consistently at <em>every layer</em>, together with lengths, positions, RNG state, stop state, and output buffers. A paged cache instead changes the scheduler's request-to-block-table mapping to <code>[table_C, table_A]</code>; physical K/V blocks do not move. Beam parent selection is the same operation with repeated indices: duplicate table references, increment reference counts, and copy only a shared tail block if a child needs to append to it.</p>
+<p>After speculative decoding proposes <code>k</code> tokens and the verifier accepts only <code>a</code>, set the logical length back by <code>k-a</code>, free any now-unreachable whole blocks, and reset the tail-block write offset. Bytes beyond the new length may remain physically present but must be masked and overwritten before reuse. Roll back positions, sampled-token buffers, RNG/counter state where applicable, and stop state with the same transaction; stale table entries or lengths can leak rejected tokens into later attention.</p>
+
+<span id="sampling"></span><h2 id="decoding-methods">Decoding methods</h2>
+<ul>
+<li><strong>Greedy:</strong> choose <code>argmax(logits)</code>. Deterministic, cheap, and locally optimal, but it cannot recover from an early poor choice.</li>
+<li><strong>Temperature:</strong> sample from <code class="math-inline">\operatorname{softmax}(\text{logits} / \tau )</code>. Lower <code class="math-inline">\tau</code> sharpens; higher <code class="math-inline">\tau</code> flattens. Treat <code class="math-inline">\tau =0</code> as greedy instead of dividing by zero.</li>
+<li><strong>Top-k:</strong> retain the <code>k</code> highest logits and mask the rest before normalization. The candidate-set size is fixed.</li>
+<li><strong>Top-p (nucleus):</strong> sort by descending probability and retain the smallest prefix whose cumulative mass reaches <code>p</code>, including the threshold-crossing token. Candidate-set size adapts to uncertainty.</li>
+<li><strong>Beam search:</strong> retain the highest-scoring partial sequences, usually with length normalization. It is search, not sampling, and expands compute and cache state with beam width.</li>
+<li><strong>Constrained decoding:</strong> mask tokens that are invalid under a grammar, automaton, schema, or lexical constraint. Apply constraints before sampling and define behavior when the allowed set is empty.</li>
+</ul>
+<p>For numerical stability, perform filtering in logit space, compute <code class="math-inline">z = \text{logits}/\tau</code>, subtract <code>max(z)</code>, exponentiate in fp32, normalize with an fp32 sum, then sample. An implementation may use stable log-softmax or a fused kernel, but should never exponentiate raw large logits. Each request needs an independent RNG stream or counter keyed by request and token index so dynamic rebatching does not silently change its samples. Keep EOS tokens, stop strings/automata, generated length, maximum length, and finished/cancelled flags per request; mask finished rows or remove them without borrowing another request's state.</p>
+
+<span id="position-handling"></span><h2 id="prefix-and-prompt-caching">Prefix and prompt caching</h2>
+<p>A prefix-cache hit is valid only when the cached K/V has the same semantics as fresh prefill. A safe identity key includes:</p>
+<ul>
+<li>the exact token IDs, not merely prompt text;</li>
+<li>tokenizer identity and version, special-token policy, and chat-template identity/version;</li>
+<li>model checkpoint and architecture version plus adapter/LoRA version and any cache-affecting runtime mode;</li>
+<li>KV dtype/quantization scheme and compatible kernel/layout version;</li>
+<li>position semantics: absolute offset, position IDs, RoPE configuration/scaling, and any sliding-window or global-token policy.</li>
+</ul>
+<p>Hashing rendered text alone is unsafe because tokenization and templates can change. Store collision-resistant content keys and verify token boundaries. Share complete immutable blocks across requests and use reference counts. If a request appends into a partially filled shared block, copy that block first (copy-on-write); otherwise it would mutate every request that references the prefix. The suffix gets private blocks, while the common prefix remains shared.</p>
+
+<span id="tensor-shapes"></span><h2 id="cached-gqa-implementation">Cached GQA attention pseudocode</h2>
+<p>The pseudocode below keeps KV heads grouped instead of materializing repeated K/V. <code>length[b]</code> is the number of cached tokens before this call; requests may have unequal lengths.</p>
+<pre><code class="language-python"># x:           [B, 1, H]
+# Wq:          [H, Hq*Dh]       Wk, Wv: [H, Hkv*Dh]
+# block_table: [B, max_blocks]   length, position: [B]
+# G = Hq // Hkv; require Hq % Hkv == 0
+
+def cached_gqa(x, Wq, Wk, Wv, Wo, cache, block_table, length, position):
+    B = x.shape[0]
+    q = (x @ Wq).view(B, 1, Hq, Dh).transpose(1, 2)   # [B,Hq,1,Dh]
+    k = (x @ Wk).view(B, 1, Hkv, Dh).transpose(1, 2)  # [B,Hkv,1,Dh]
+    v = (x @ Wv).view(B, 1, Hkv, Dh).transpose(1, 2)  # [B,Hkv,1,Dh]
+
+    q, k = apply_rope(q, k, position)                 # position[b] == length[b]
+    cache.write(block_table, length, k, v)             # append one slot/request
+    K, V, valid = cache.gather(block_table, length + 1)
+    # K,V: [B,Hkv,Tmax,Dh]; valid: [B,1,1,1,Tmax]
+
+    q = q.view(B, Hkv, G, 1, Dh)                       # map G Q heads/KV head
+    score = einsum("bhgqd,bhtd-&gt;bhgqt", q, K) / sqrt(Dh)
+    score = where(valid, score, -inf)                  # hide padding/unwritten slots
+    prob = softmax(score.float(), dim=-1).to(x.dtype)  # stable fp32 reduction
+    ctx = einsum("bhgqt,bhtd-&gt;bhgqd", prob, V)        # [B,Hkv,G,1,Dh]
+    ctx = ctx.reshape(B, Hq, 1, Dh).transpose(1, 2).reshape(B, 1, H)
+    return ctx @ Wo, length + 1                        # [B,1,H], updated lengths
+</code></pre>
+<p>Real paged-attention kernels gather logically rather than materializing dense <code class="math-inline">K</code> and <code class="math-inline">V</code>; the shapes above specify semantics. During prefill, write only real prompt tokens. For padded batches, derive each request's position from its valid-token count, not the padded tensor width.</p>
+
+<h2 id="correctness-tests">Correctness tests</h2>
+<pre><code class="language-python">def test_cached_matches_uncached(model, prompts):
+    # Fixed weights, eval mode, no sampling; compare every generation step.
+    full_ids = prompts
+    cache = empty_cache()
+    for step in range(8):
+        ref = model(full_ids, use_cache=False).logits[:, -1]
+        got, cache = model(full_ids if step == 0 else full_ids[:, -1:],
+                           cache=cache, use_cache=True)
+        assert allclose(got[:, -1], ref, atol=2e-5, rtol=2e-4)
+        full_ids = append(full_ids, argmax(ref, dim=-1))
+
+def test_unequal_prompts(model):
+    # Lengths 3 and 7 in one padded batch must match two independent runs.
+    batched = generate_cached(model, pad([ids_a[:3], ids_b[:7]]), lengths=[3, 7])
+    assert_close(batched[0], generate_cached(model, ids_a[:3]))
+    assert_close(batched[1], generate_cached(model, ids_b[:7]))
+
+def test_position_offset_and_mask(model):
+    # Continuing a prefix at position p must match an uncached prefix+token pass.
+    prefix = ids[:11]
+    cache = prefill(model, prefix, position=arange(11))
+    got = decode(model, ids[11], cache, position=11)
+    ref = model(ids[:12], position=arange(12), use_cache=False).logits[-1]
+    assert_close(got.logits[-1], ref)
+    assert got.attention_probability[padded_or_future_slots].max() == 0
+</code></pre>
+<p>Run equivalence tests in fp32 first, then use documented dtype-specific tolerances. Also cover GQA head grouping, cache growth across block boundaries, ring-buffer wraparound, maximum length, EOS per request, dynamic-batch reordering, beam parent reordering, prefix copy-on-write, and speculative rollback. A useful failure-localization rule: divergence on the first cached token suggests mask/shape/head mapping; divergence only after later tokens suggests write offsets, position increments, reorder state, or rollback.</p>
+
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>concatenating or gathering the cache on the wrong axis;</li>
+<li>overwriting cache positions or exposing unwritten padding;</li>
+<li>applying RoPE twice, resetting offsets, or reusing a prefix under incompatible position semantics;</li>
+<li>materializing repeated GQA K/V unnecessarily;</li>
+<li>reordering K/V without reordering lengths, block tables, RNG, and stop state;</li>
+<li>freeing shared blocks without reference counting or mutating them without copy-on-write;</li>
+<li>retaining finished requests in active batches or letting them consume another RNG stream;</li>
+<li>assuming cache quantization changes only bytes while ignoring scale metadata and kernel support;</li>
+<li>claiming caching changes dense-attention asymptotics rather than avoiding recomputation.</li>
+</ul>
+
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Derive prefill FLOPs and identify when the <code>S²</code> term dominates.</li>
+<li>Estimate decode arithmetic intensity from weight and cache traffic.</li>
+<li>Compute MHA, GQA, and MQA cache capacity for a concrete GPU budget.</li>
+<li>Explain how block-table remapping avoids copying cache during continuous batching.</li>
+<li>Implement cached GQA and compare every step against full attention.</li>
+<li>Diagnose a cache whose first token is correct but later tokens diverge.</li>
+</ol>
+
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="serving.html">LLM Serving and Request Scheduling</a></li>
+<li><a href="distributed-inference.html">Distributed Inference</a></li>
+<li><a href="quantization.html">Quantization, Pruning and Distillation</a></li>
+<li><a href="speculative-decoding.html">Speculative Decoding</a></li>
+<li><a href="rope.html">RoPE and Positional Extrapolation</a></li>
+<li><a href="long-context.html">Long-Context Modelling</a></li>
+</ul>
+</section>

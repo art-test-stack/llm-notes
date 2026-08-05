@@ -1,0 +1,191 @@
+<section class="chapter-content" data-topic="evaluation">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to choose metrics from the decision being made, distinguish model evaluation from system evaluation, identify contamination and judge bias, and construct a regression suite that combines capability, safety, latency, and cost.</p>
+<h2 id="stage-specific-evaluation">Stage-specific evaluation</h2>
+<p>The training-method note correctly treats evaluation as stage-dependent:</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Useful evaluation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pretraining</td>
+<td>held-out loss/perplexity, slice loss, downstream benchmarks, memorization, contamination checks</td>
+</tr>
+<tr>
+<td>Continued pretraining</td>
+<td>domain benchmarks, general-capability regression, forgetting, vocabulary and long-context tests</td>
+</tr>
+<tr>
+<td>SFT</td>
+<td>instruction following, format validity, task accuracy, tool execution, refusal calibration</td>
+</tr>
+<tr>
+<td>Preference tuning</td>
+<td>blind pairwise comparison, reward-model agreement, length/style bias, KL drift, diversity</td>
+</tr>
+<tr>
+<td>RL</td>
+<td>reward curves plus independent evaluation, pass@k, exploit audits, entropy/KL, stability</td>
+</tr>
+</tbody>
+</table>
+<p>A reward increase is not sufficient evidence of a capability increase because the policy may exploit the reward or verifier.</p>
+<h2 id="evaluation-design-from-decisions">Evaluation design from decisions</h2>
+<p>Start with the decision, not the benchmark. A concrete decision might be: <em>replace the current support assistant for English and French billing conversations if task success improves without worsening safety, latency, cost, or any protected user slice</em>. Turn that sentence into a written evaluation plan before running either model:</p>
+<ol>
+<li><strong>Deployment decision:</strong> name the candidate, baseline, product surface, traffic allocation, and exact promote/hold/rollback action.</li>
+<li><strong>Population and slices:</strong> sample from the intended production distribution, then predefine important slices such as language, domain, length, difficulty, geography, accessibility need, and new versus experienced users. Report both traffic-weighted and worst-group results.</li>
+<li><strong>Acceptable errors:</strong> distinguish false answers, unsafe answers, false refusals, invalid formats, tool side effects, and timeouts. Set stricter tolerances for irreversible or high-severity errors.</li>
+<li><strong>Metrics:</strong> pre-register one primary metric that decides the experiment, secondary diagnostic metrics, aggregation rules, exclusion rules, statistical tests, confidence level, and stopping rule. This prevents choosing the most favorable result after seeing the data.</li>
+<li><strong>Baseline and minimum detectable effect (MDE):</strong> evaluate the shipped system and simple alternatives, then state the smallest change worth detecting. For example, with baseline task success of 72%, an absolute improvement below 2 percentage points may not justify migration risk; power the study for that 2-point MDE.</li>
+</ol>
+<p>The unit of analysis must match the decision. If users, conversations, or documents generate several correlated examples, split and resample at that cluster level rather than pretending every row is independent.</p>
+<h2 id="gpt-lab-evaluation-example">GPT-Lab evaluation example</h2>
+<p>GPT-Lab uses two complementary evaluations:</p>
+<ul>
+<li><strong>Bits per byte (BPB):</strong> held-out autoregressive loss normalized by original byte count, making comparisons less dependent on tokenizer segmentation.</li>
+<li><strong>CORE:</strong> an aggregate downstream benchmark suite using multiple-choice, schema, and language-modeling tasks.</li>
+</ul>
+<p>For BPB:</p>
+<div class="math-display">BPB = total negative log-likelihood in bits / total target bytes
+    = total_nats / (ln(2) × total_bytes)
+</div>
+<p>Distributed evaluation must aggregate numerator and denominator rather than averaging per-rank ratios. Ignored targets and special tokens with zero byte length must not contribute.</p>
+<p>CORE centers accuracy against each task's random baseline:</p>
+<div class="math-display">centered_accuracy = (accuracy - random_baseline) / (1 - random_baseline)
+</div>
+<p>BPB asks how well the model predicts held-out text; CORE asks whether that capability transfers to tasks. They should not be treated as interchangeable.</p>
+<h2 id="statistical-estimation-and-comparison">Statistical estimation and comparison</h2>
+<ul>
+<li><strong>Bootstrap confidence interval:</strong> resample independent evaluation units with replacement, recompute the metric, and use the bootstrap distribution to estimate uncertainty. Resample users or conversations—not individual turns—when observations are clustered.</li>
+<li><strong>Paired bootstrap:</strong> when two models answer the same examples, resample example IDs once and carry both outputs together. Compute the candidate-minus-baseline difference on every replicate; pairing removes between-example difficulty noise.</li>
+<li><strong>Permutation test:</strong> under the null that systems are exchangeable, randomly swap their labels within each paired example and compare the observed metric difference with the resulting null distribution. This is useful when a metric's sampling distribution is unclear.</li>
+<li><strong>McNemar's test:</strong> for paired binary outcomes, test only discordant examples: baseline-wrong/candidate-right versus baseline-right/candidate-wrong. It answers whether their success probabilities differ while respecting pairing.</li>
+<li><strong>Multiple comparisons:</strong> define a small primary family, then control false positives across secondary metrics and slices with Holm–Bonferroni (family-wise error) or Benjamini–Hochberg (false discovery rate). Do not quietly test dozens of slices at unadjusted <code class="math-inline">p \lt  0.05</code>.</li>
+</ul>
+<p><strong>Effect size is not significance.</strong> Report the absolute and relative difference, its confidence interval, and a practical threshold. A tiny effect can be statistically significant at huge sample size; a useful effect can be inconclusive in an underpowered study. Choose sample size before evaluation from baseline variance/rate, MDE, significance level, desired power (commonly 80% or 90%), pairing, and expected attrition. Rare safety failures usually require far more samples or targeted stress tests than average-quality metrics.</p>
+<h3 id="paired-model-comparison-example">Paired-model comparison example</h3>
+<p>Suppose baseline A and candidate B answer the same 1,000 support cases. A succeeds on 720 and B on 748, an effect of <strong>+2.8 percentage points</strong>. Of the paired cases, 61 are A-wrong/B-right and 33 are A-right/B-wrong. Run a paired bootstrap over the 1,000 case IDs to obtain a 95% confidence interval for the +2.8-point difference, a within-case permutation test for the chosen score, and McNemar's test on the 61 versus 33 binary discordances. Promote only if the pre-registered practical threshold is met and the confidence interval and corrected test support it; the raw 748 versus 720 totals alone are not sufficient.</p>
+<h2 id="metric-selection">Metric selection</h2>
+<ul>
+<li><strong>Perplexity / loss:</strong> token prediction under one tokenizer and distribution.</li>
+<li><strong>Exact match / F1:</strong> constrained question answering or extraction.</li>
+<li><strong>pass@k:</strong> probability that at least one of <code>k</code> sampled solutions succeeds.</li>
+<li><strong>Pairwise preference:</strong> relative response quality under a rubric.</li>
+<li><strong>Calibration metrics:</strong> agreement between confidence and correctness.</li>
+<li><strong>Retrieval metrics:</strong> Recall@k, MRR, nDCG, metadata-filter correctness.</li>
+<li><strong>Systems metrics:</strong> TTFT, inter-token latency, end-to-end latency, tokens/s, requests/s, goodput, memory, and cost.</li>
+</ul>
+<p>Goodput—the throughput that still satisfies latency SLOs—is often more informative than peak throughput.</p>
+<h2 id="generative-task-scoring">Generative-task scoring</h2>
+<table>
+<thead>
+<tr><th>Method</th><th>Best use</th><th>Main caution</th></tr>
+</thead>
+<tbody>
+<tr><td>Exact match</td><td>Canonical short answers, normalized labels, deterministic extraction</td><td>Rejects equivalent wording unless normalization is carefully defined</td></tr>
+<tr><td>Token F1</td><td>Span overlap and partially correct extraction</td><td>Rewards shared tokens without proving factual or semantic correctness</td></tr>
+<tr><td>Semantic similarity</td><td>Paraphrase-tolerant screening with a validated embedding/model</td><td>Can miss negation, numbers, attribution, and domain-critical distinctions</td></tr>
+<tr><td>Unit tests</td><td>Code and executable tasks</td><td>Coverage and hidden edge cases determine what “correct” means</td></tr>
+<tr><td>Structured-output validity</td><td>JSON/schema/API contracts and required fields</td><td>Syntax validity does not imply correct field values</td></tr>
+<tr><td>Human ratings</td><td>Quality dimensions requiring judgment</td><td>Require rubrics, training, blinding, and agreement measurement</td></tr>
+<tr><td>Pairwise preferences</td><td>Comparing two responses when absolute scales drift</td><td>Randomize order and allow ties; preferences do not reveal why</td></tr>
+<tr><td>Rubric-based scoring</td><td>Separating correctness, completeness, relevance, style, and safety</td><td>Anchor every scale point with examples and report dimension scores</td></tr>
+</tbody>
+</table>
+<p>Automatic lexical metrics fail on open-ended generation: a factually correct paraphrase may have little word overlap, while a fluent answer can copy reference words yet reverse their meaning. Use exact or lexical scoring only where the output contract makes it valid; otherwise combine executable checks, structured validation, rubric-based human or calibrated-judge assessment, and targeted error analysis.</p>
+<h2 id="llm-as-judge">LLM-as-judge</h2>
+<p>LLM judges scale subjective evaluation but can prefer the first or second position, reward verbosity, favor outputs from their own model family (<strong>self-preference</strong>), follow superficial style, or be manipulated by text inside an answer. Hide system identity, randomize answer order, score swapped-order duplicates, and treat answer content as untrusted data.</p>
+<p><strong>Pairwise grading</strong> is usually easier and more stable for choosing between two candidates; <strong>scalar grading</strong> supports comparisons across many runs but needs anchored scale points and is prone to score drift. Allow ties. For high-impact decisions, use a diverse multi-judge ensemble, aggregate independent judgments (for example majority vote or a fitted preference model), and surface disagreement rather than assuming consensus is truth.</p>
+<h3 id="judge-calibration-protocol">Judge-calibration protocol</h3>
+<ol>
+<li>Create a frozen, stratified calibration set sized from the target agreement precision or statistical power, expected label prevalence, pairing, slice requirements, and tolerated uncertainty; there is no universal fixed minimum. Cover major slices, close calls, known failures, order-swapped pairs, verbose distractors, self-family outputs, prompt-injection attempts, and other adversarial examples.</li>
+<li>Have at least two trained human raters independently apply the same anchored rubric while blinded to model identity; adjudicate disagreements to form a gold set and record inter-rater agreement.</li>
+<li>Run the version-pinned judge with temperature, prompt, rubric, parser, and answer order recorded. Repeat with A/B order swapped.</li>
+<li>Measure agreement with adjudicated humans (pairwise accuracy and Cohen's kappa for labels; rank correlation and per-score confusion for ordinal ratings), tie behavior, and accuracy by slice. Separately measure position-flip rate and preferences for longer or self-family answers after controlling for human labels.</li>
+<li>Admit the judge only if pre-registered thresholds pass—for example, pairwise accuracy ≥85%, kappa ≥0.70, every critical slice ≥80%, and order-flip rate ≤5%. Otherwise revise the rubric/judge or route the affected cases to humans.</li>
+<li>Recalibrate on the frozen set whenever the judge model, version, prompt, rubric, decoding, or parser changes, and periodically audit a random production sample plus all judge/model disagreements.</li>
+</ol>
+<p>Versioning is part of the measurement: a silent judge-model upgrade can move scores even when the evaluated system is unchanged.</p>
+<h2 id="contamination-and-memorization">Contamination and memorization</h2>
+<ul>
+<li>Track provenance and search training, tuning, retrieval, prompt, and tool corpora for <strong>exact overlap</strong> and normalized or fuzzy n-gram overlap with benchmark questions, references, and solutions.</li>
+<li>Audit <strong>prompt or solution leakage</strong> through repositories, system prompts, few-shot examples, traces, public leaderboards, and retrieved documents—not only pretraining data.</li>
+<li>Use temporal splits whose evaluation items postdate the training cutoff, while recognizing that an incorrect cutoff or later continued training can invalidate them.</li>
+<li>Detect <strong>paraphrased contamination</strong> with semantic retrieval followed by manual review; hashing alone will miss translated, reordered, or paraphrased copies.</li>
+<li>Run memorization probes such as canary extraction, completion of rare prefixes, answer-without-question tests, and comparisons of performance on suspected-overlap versus clean subsets.</li>
+<li>Watch for benchmark saturation: near-ceiling scores, tiny rank changes, widespread public solutions, and poor correlation with fresh tasks mean the suite no longer discriminates. Retire, refresh, or keep a private rolling holdout.</li>
+</ul>
+<h2 id="benchmark-design">Benchmark design</h2>
+<p>A mature suite includes:</p>
+<ol>
+<li>component and invariant tests;</li>
+<li>offline capability benchmarks;</li>
+<li>slices by language, domain, length, difficulty, and user group;</li>
+<li>adversarial and safety cases;</li>
+<li>end-to-end system evaluation;</li>
+<li>online outcome and monitoring metrics.</li>
+</ol>
+<p>Construct it from a written task specification and sampling frame. Sample realistic inputs before looking at model failures, reserve train/development/test partitions by user or source, deduplicate within and across splits, and keep a hidden final holdout. Define inclusion rules, difficulty labels, gold-answer creation, allowed tools/context, and ambiguous-item handling. Have domain experts review a stratified sample and measure annotator agreement; discard or adjudicate items whose ground truth is not reproducible.</p>
+<p>Pre-register the primary metric and stopping rule where possible. Report uncertainty and practical effect size, not only a point estimate. Check data lineage and benchmark contamination. Version items, labels, rubrics, prompts, templates, retrieval corpora, and decoding settings; publish change logs without exposing the hidden solutions. Refresh with newly sampled production cases and retire saturated or leaked items while preserving an anchored subset for longitudinal comparison.</p>
+<h2 id="slice-and-robustness-evaluation">Slice and robustness evaluation</h2>
+<p>Report language, domain, input/output length, difficulty, and demographic or user-group slices with sample counts and confidence intervals. Slice definitions should follow likely harms and deployment needs, not be invented after an aggregate result disappoints. For small groups, collect more data or use uncertainty-aware estimates rather than hiding them.</p>
+<p>Test robustness with meaning-preserving prompt perturbations (format, spelling, casing, distractors, instruction order), controlled difficulty changes, and realistic distribution shifts across time, geography, sources, products, and user behavior. Track consistency under perturbation and <strong>worst-group performance</strong> alongside the population-weighted mean. A candidate that gains two points overall but loses ten points for a critical language or user group should fail the gate.</p>
+<h2 id="holistic-system-evaluation">Holistic system evaluation</h2>
+<p>Evaluate the deployed pipeline, not just the base model. Replay representative end-to-end traces and retain component outputs so a failure can be localized:</p>
+<ul>
+<li><strong>Retrieval:</strong> Recall@k/nDCG, citation support, freshness, authorization filters, and answer quality conditional on retrieved evidence.</li>
+<li><strong>Tools:</strong> selection, argument/schema validity, execution success, side-effect correctness, recovery from tool errors, and unnecessary-call rate.</li>
+<li><strong>Latency and cost:</strong> end-to-end and component p50/p95/p99, time to first token, output length, accelerator time, external calls, and cost per successful task—not merely per request.</li>
+<li><strong>Goodput and reliability:</strong> useful requests completed inside the latency SLO, timeout/error rates, availability, retry amplification, and degradation behavior under load.</li>
+<li><strong>Security:</strong> prompt injection, data exfiltration, cross-tenant access, unsafe tool actions, secret exposure, and abuse resistance.</li>
+<li><strong>Calibration:</strong> confidence, abstention, escalation, and citation behavior aligned with correctness and risk.</li>
+<li><strong>Trace evaluation:</strong> score the final outcome plus retrieval, reasoning/action trajectory, tool observations, policy decisions, and failure recovery. A correct final answer reached through an unsafe action is still a system failure.</li>
+</ul>
+<h2 id="systems-scaling">Systems scaling</h2>
+<p>Strong scaling keeps the total problem fixed while adding devices; communication eventually dominates. Weak scaling grows the problem with device count and is easier to make look efficient. State clearly which one is measured.</p>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>one aggregate score hiding severe slice regressions;</li>
+<li>benchmark contamination;</li>
+<li>changing prompts between model comparisons;</li>
+<li>averaging ratios incorrectly across ranks;</li>
+<li>reward or judge exploitation;</li>
+<li>reporting only mean latency and omitting p95/p99;</li>
+<li>using the same model as generator and uncalibrated judge;</li>
+<li>treating statistical significance as practical value.</li>
+</ul>
+<h2 id="regression-and-release-gates">Regression and release gates</h2>
+<p>Keep a versioned regression suite of immutable <strong>golden tests</strong>, sampled production traces, fresh capability tasks, adversarial safety cases, and slice-specific failures. Every result records model, prompt, retrieval index, tools, judge, decoding, hardware, and dataset versions. A concrete launch matrix for the support-assistant example could be:</p>
+
+<p><strong>Online monitoring</strong> should cover outcome proxies, user corrections, refusals, safety events, drift, latency, cost, tool errors, and slice mix, with delayed labels reconciled later. Define rollback before launch: immediately roll back on any critical safety/security event, cross-tenant leak, or unauthorized side effect; roll back if p95 latency exceeds 2.5 s or request errors exceed 1% for 10 consecutive minutes, or if a sequentially monitored primary outcome drops by more than 2 points with the pre-specified alert confidence. Keep the previous artifact and configuration deployable; canarying is not a rollback plan unless rollback is fast and tested.</p>
+<h2 id="project-applications">Project applications</h2>
+<ul>
+<li><strong>GPT-Lab:</strong> BPB, CORE, throughput, MFU, memory, and data-path regression tests.</li>
+<li><strong>the implementation project:</strong> backend equivalence, unsupported devices, causal/mask behavior, numerical tolerance, and benchmarks.</li>
+<li><strong>Thesis:</strong> distinguish structured gradient regimes from validated epistemic uncertainty.</li>
+<li><strong>Control project:</strong> separate numerical simulation correctness from physical validity and stability.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Design an evaluation suite for a new instruction-tuned model.</li>
+<li>Explain why perplexity can improve while user utility does not.</li>
+<li>Compare pass@k with pass@1.</li>
+<li>Audit an LLM-as-judge experiment for bias.</li>
+<li>Define strong and weak scaling.</li>
+<li>Explain why ratios should be aggregated through sufficient statistics.</li>
+</ol>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="calibration.html">Hallucination, Grounding and Calibration</a></li>
+<li><a href="rag.html">Retrieval-Augmented Generation</a></li>
+<li><a href="security.html">LLM Security, Prompt Injection and Data Leakage</a></li>
+<li><a href="reasoning.html">Reasoning Models, Test-Time Compute and Verifiers</a></li>
+<li><a href="serving.html">LLM Serving and Inference Systems</a></li>
+<li><a href="synthetic-data.html">Synthetic Data and Distillation</a></li>
+</ul>
+</section>

@@ -1,0 +1,425 @@
+<section class="chapter-content" data-topic="pretraining-data">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to describe the complete pretraining-data pipeline, compute the effective token batch, reason about mixture weights and replay, explain document packing and rank sharding, and identify contamination, duplication, and recovery failures.</p>
+<h2 id="training-stage-context">Training-stage context</h2>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Main question</th>
+<th>Typical data</th>
+<th>Objective</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pretraining</td>
+<td>Can the model predict and represent language?</td>
+<td>large unlabeled corpora</td>
+<td>token cross-entropy</td>
+</tr>
+<tr>
+<td>Continued pretraining</td>
+<td>Can it acquire a domain, language, format, or context length?</td>
+<td>focused unlabeled corpora</td>
+<td>language-model objective</td>
+</tr>
+<tr>
+<td>SFT</td>
+<td>Can it respond in the desired interface?</td>
+<td>prompt-response demonstrations</td>
+<td>response-token cross-entropy</td>
+</tr>
+<tr>
+<td>Preference optimization</td>
+<td>Does it prefer better responses?</td>
+<td>chosen/rejected pairs</td>
+<td>pairwise preference loss</td>
+</tr>
+<tr>
+<td>Online RL</td>
+<td>Can behavior improve through rewarded exploration?</td>
+<td>prompts, rollouts, rewards</td>
+<td>policy-gradient objective</td>
+</tr>
+</tbody>
+</table>
+<p>For causal language modeling:</p>
+<div class="math-display">L_NLL(θ) = -Σ_t log p_θ(x_t | x_&lt;t)
+</div>
+<p>This learns syntax, semantics, corpus knowledge, code and mathematical patterns, and reusable representations. It does not by itself guarantee instruction following, truthfulness, safety, calibration, or stable dialogue.</p>
+<h2 id="pipeline">Pipeline</h2>
+<p>A production pipeline usually performs:</p>
+<pre><code class="language-text">acquisition → parsing → normalization → classification → quality filtering
+→ exact/near deduplication → privacy/licensing checks → contamination checks
+→ mixture weighting → sharding → tokenization → packing
+</code></pre>
+<p>Raw token count is not useful token count. Boilerplate, duplicates, SEO text, malformed code, and low-quality synthetic text can consume compute while adding little generalization.</p>
+<h3 id="end-to-end-pipeline">End-to-end pipeline</h3>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Input and operation</th>
+<th>Persisted output</th>
+<th>Critical check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1. Acquire</td>
+<td>Raw document plus source response</td>
+<td>Immutable content ID, source URI, fetch time, license metadata</td>
+<td>Can this exact artifact be traced, blocked, or removed?</td>
+</tr>
+<tr>
+<td>2. Parse</td>
+<td>Decode HTML, PDF, code, or other source format</td>
+<td>Text, structural fields, parser version, parse status</td>
+<td>Did parsing silently drop text or join unrelated fields?</td>
+</tr>
+<tr>
+<td>3. Normalize and classify</td>
+<td>Unicode and whitespace normalization; language and source classification</td>
+<td>Canonical text and labels without overwriting the raw artifact</td>
+<td>Are normalization rules versioned and language-aware?</td>
+</tr>
+<tr>
+<td>4. Filter and redact</td>
+<td>Quality, boilerplate, SEO, PII, malware, policy, and license checks</td>
+<td>Accepted or rejected document, reason codes, redaction map</td>
+<td>Can acceptance and every rejection reason be reproduced?</td>
+</tr>
+<tr>
+<td>5. Deduplicate</td>
+<td>Exact hashes, normalized hashes, MinHash/LSH candidates, span matching</td>
+<td>Duplicate cluster ID, representative, similarity score, decision</td>
+<td>Are legitimate templates or repeated code being over-removed?</td>
+</tr>
+<tr>
+<td>6. Decontaminate</td>
+<td>Compare against validation and benchmark registries</td>
+<td>Match type, benchmark ID, evidence, quarantine decision</td>
+<td>Were solutions, translations, and paraphrases checked too?</td>
+</tr>
+<tr>
+<td>7. Mix and shard</td>
+<td>Assign sampling weights, shuffle deterministically, write shards</td>
+<td>Mixture version, shard manifest, document-to-shard mapping</td>
+<td>Do measured token exposures match intended weights?</td>
+</tr>
+<tr>
+<td>8. Tokenize</td>
+<td>Apply a pinned tokenizer and boundary policy</td>
+<td>Token IDs, document boundaries, token counts</td>
+<td>Are tokenizer version and language-specific fertility recorded?</td>
+</tr>
+<tr>
+<td>9. Pack</td>
+<td>Fill fixed-length rows from tokenized documents</td>
+<td>Packed sequence, segment metadata, loss and attention masks</td>
+<td>Are boundary semantics, padding, and cross-document attention intentional?</td>
+</tr>
+</tbody>
+</table>
+<p>The last two stages depend on the choices described in <a href="tokenization.html">Tokenization and Vocabulary Design</a>. Synthetic records should retain their generator and verifier lineage as described in <a href="synthetic-data.html">Synthetic Data Generation and Filtering</a>.</p>
+<h3 id="data-quality-dimensions">Data-quality dimensions</h3>
+<ul>
+<li>correctness and factuality;</li>
+<li>domain, task, style, language, and difficulty diversity;</li>
+<li>exact and near-duplicate rate;</li>
+<li>benchmark decontamination;</li>
+<li>provenance, licensing, privacy, and removal requirements;</li>
+<li>formatting and chat-template consistency;</li>
+<li>language-specific token fertility;</li>
+<li>verifier precision for generated or filtered data.</li>
+</ul>
+<p>Near-deduplication must be tuned carefully. Aggressive matching can remove legitimate repeated code or standard legal/technical templates; weak matching leaves memorized copies across training and validation.</p>
+<h2 id="exact-and-near-deduplication">Exact and near deduplication</h2>
+<p>Deduplication has three distinct operating points:</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>What counts as a match</th>
+<th>Typical mechanism</th>
+<th>Main risk</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Exact</td>
+<td>Identical raw bytes or canonical text</td>
+<td>Cryptographic or fast content hash</td>
+<td>Misses trivial formatting changes</td>
+</tr>
+<tr>
+<td>Near</td>
+<td>Large lexical overlap after small edits</td>
+<td>Shingles, MinHash, Jaccard similarity, and LSH</td>
+<td>Can remove legitimate repeated structure</td>
+</tr>
+<tr>
+<td>Semantic</td>
+<td>Same meaning despite paraphrase or translation</td>
+<td>Embedding retrieval followed by a stronger verifier</td>
+<td>Expensive and prone to topic-level false positives</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Exact deduplication.</strong> Hash raw bytes to catch identical artifacts, then hash normalized text to catch copies that differ only in Unicode form, whitespace, line endings, casing where appropriate, or removable markup. Preserve both hashes and the normalization version: aggressive normalization can collapse distinct source code, tables, or languages. Hash collisions are rare but operational decisions should still retain the candidate IDs and representative text for audit.</p>
+<p><strong>Near deduplication.</strong> Split normalized text into word or character <em>n</em>-gram shingles. For shingle sets <code class="math-inline">A</code> and <code class="math-inline">B</code>, Jaccard similarity is <code class="math-inline">J(A,B) = \mid A \cap  B\mid  / \mid A \cup  B\mid</code>. MinHash provides a compact estimate of this similarity; locality-sensitive hashing (LSH) buckets signatures so that only plausible pairs receive an exact similarity check. LSH is candidate generation, not the final removal rule.</p>
+<p>Document-level deduplication chooses one representative from a duplicate cluster and is cheap to reason about, but it misses copied chapters, functions, or answer spans embedded in otherwise different documents. Span-level deduplication removes or masks matching regions and retains unique context, but boundary errors can damage syntax and make provenance harder. Many systems use document-level removal first, then span-level checks for long or high-risk material.</p>
+<p>Thresholds should be calibrated on labeled pairs stratified by language, source, length, and format. Short documents need special handling because a few common shingles can produce high similarity. Review both false negatives and false positives near the threshold. Whitelist or downweight evidence from license headers, legal clauses, navigation templates, generated API clients, and common code idioms so legitimate repetition is not erased merely because it is conventional.</p>
+<p>Cross-split deduplication is asymmetric: freeze validation and test sets, search training candidates against them, and remove or quarantine the training copy. Run it after every material normalization, filtering, or dataset refresh because transformations can reveal matches that raw hashes missed. Also deduplicate within validation so a repeated example does not make uncertainty estimates look better than they are.</p>
+<h2 id="filtering-and-provenance">Filtering and provenance</h2>
+<ul>
+<li><strong>Language identification:</strong> use document- and span-level labels with confidence scores; code-switching, short text, transliteration, and code require an unknown or mixed class rather than a forced label.</li>
+<li><strong>Heuristic quality filters:</strong> reject parse failures, extreme symbol ratios, repeated lines, truncation, implausible language statistics, or too little natural text. Record each rule separately so one broad reject flag does not hide regressions.</li>
+<li><strong>Learned quality classifiers:</strong> rank or gate documents using labeled quality data, but audit calibration by language and domain. A classifier trained on polished prose can incorrectly suppress dialects, forums, code, or specialist writing.</li>
+<li><strong>Boilerplate and SEO filtering:</strong> remove menus, cookie banners, link farms, keyword stuffing, scraped snippets, and templated page chrome while retaining the main content and its structure.</li>
+<li><strong>PII detection and redaction:</strong> combine deterministic detectors for structured identifiers with contextual models for names, addresses, and secrets. Prefer reversible audit metadata without retaining the sensitive value in ordinary logs.</li>
+<li><strong>Malware and unsafe-code filtering:</strong> scan archives and code for payloads, credentials, exploit instructions, obfuscation, and suspicious binaries. Detection can tag, quarantine, redact, or restrict access; treating all security-related code as malware would destroy legitimate defensive material.</li>
+<li><strong>Licensing and source metadata:</strong> keep source URI, acquisition time, publisher, declared license, terms snapshot, jurisdiction or policy class, and every transformation version beside a stable content ID.</li>
+<li><strong>Removal requests and traceability:</strong> maintain a lineage graph from source artifact to normalized document, duplicate representative, shard, and dataset release. A tombstone or denylist must be reapplied when a dataset is rebuilt so removed content does not return from a mirror or duplicate cluster.</li>
+</ul>
+<p>Filters change the data distribution. Compare accepted and rejected token counts by source, language, domain, and rule; sample false positives from every high-volume rejection path. Provenance is useful only if it survives normalization, deduplication, sharding, and recovery.</p>
+<h2 id="data-mixture-mathematics">Data-mixture mathematics</h2>
+<p>Let source <code>i</code> contain <code class="math-inline">N_{i}</code> usable tokens and raw proportion <code>p_i = N_i / Σ_j N_j</code>. The sampling probability <code>q_i</code> is a training decision, not a property of the corpus. A common temperature rule is:</p>
+<div class="math-display">q_i(τ) = p_i^(1/τ) / Σ_j p_j^(1/τ)
+</div>
+<p>At <code class="math-inline">\tau  = 1</code>, sampling follows raw proportions. For <code class="math-inline">\tau  \gt  1</code>, the distribution flattens and smaller sources are upsampled; for <code class="math-inline">\tau  \lt  1</code>, it concentrates on large sources. If total training budget is <code class="math-inline">T</code> tokens, expected exposure is <code class="math-inline">E_{i} = \text{Tq}_{i}</code> and effective epochs are <code>e_i = E_i/N_i</code>. These are expected values: finite shards, without-replacement windows, and packing can perturb the realized totals.</p>
+<h3 id="effective-epoch-example">Effective-epoch numerical example</h3>
+<p>Suppose the cleaned pool contains 800B web tokens, 150B code tokens, and 50B book tokens: raw proportions 0.80, 0.15, and 0.05. With <code class="math-inline">\tau  = 2</code>, weights are proportional to their square roots and normalize to approximately 0.594, 0.257, and 0.149. For a 1T-token run:</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Usable tokens <code class="math-inline">N_{i}</code></th>
+<th>Sampling weight <code>q_i</code></th>
+<th>Expected tokens <code>Tq_i</code></th>
+<th>Effective epochs <code>Tq_i/N_i</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Web</td>
+<td>800B</td>
+<td>59.4%</td>
+<td>594B</td>
+<td>0.74</td>
+</tr>
+<tr>
+<td>Code</td>
+<td>150B</td>
+<td>25.7%</td>
+<td>257B</td>
+<td>1.71</td>
+</tr>
+<tr>
+<td>Books</td>
+<td>50B</td>
+<td>14.9%</td>
+<td>149B</td>
+<td>2.97</td>
+</tr>
+</tbody>
+</table>
+<p>The books source is only 5% of raw tokens but supplies almost 15% of training tokens and is seen about three times. Upsampling changes both balance and repeated exposure; track unique tokens, effective epochs, and duplicate clusters, not only requested mixture weights. Token budgets should also be checked against the compute-optimal assumptions in <a href="scaling-laws.html">Scaling Laws and Compute-Optimal Training</a>.</p>
+<p>During domain adaptation, a mixture can reserve probability <code class="math-inline">\alpha</code> for domain data and <code class="math-inline">1-\alpha</code> for general replay. General replay reduces forgetting but spends target-domain compute. Select <code class="math-inline">\alpha</code> from target gains, broad-regression limits, and exposure caps rather than from domain loss alone.</p>
+<h2 id="adaptive-mixture-methods">Adaptive mixture methods</h2>
+<ul>
+<li><strong>Hand-tuned mixtures:</strong> begin with quality, coverage, legal constraints, and exposure caps; run ablations around a small number of interpretable weights. They are simple to audit but expensive to tune at full scale.</li>
+<li><strong>Proxy-model evaluation:</strong> train smaller models or short runs on candidate mixtures and compare held-out slice loss plus downstream tasks. Proxies reduce search cost only when rankings transfer to the target scale, tokenizer, and training horizon.</li>
+<li><strong>Robust optimization and DoReMi-style weighting:</strong> estimate per-domain excess loss relative to a reference and increase weight on domains where the learner underperforms, subject to smoothing or minimum/maximum weights. This targets balanced improvement rather than matching corpus size.</li>
+</ul>
+<p>Optimizing only validation loss from a narrow proxy can reward a small, benchmark-like domain, amplify noisy or irreducible groups, or sacrifice capabilities absent from the proxy suite. Keep independent evaluations, provenance constraints, diversity floors, exposure ceilings, and full-scale confirmation. The evaluation contract belongs with <a href="evaluation.html">LLM Evaluation and Benchmark Design</a>, not inside the mixture optimizer.</p>
+<h2 id="benchmark-contamination">Benchmark contamination</h2>
+<p>Contamination is not identical to ordinary corpus deduplication: the protected benchmark and its lineage are the reference, and matches may appear in prompts, answers, explanations, or derived material.</p>
+<ul>
+<li><strong>Exact matching:</strong> compare raw and canonical hashes for benchmark prompts, reference answers, and official solutions.</li>
+<li><strong>Normalized <em>n</em>-grams:</strong> normalize punctuation, whitespace, markup, and stable boilerplate, then search for distinctive overlapping token or character windows.</li>
+<li><strong>Fuzzy matching:</strong> use edit distance, shingle Jaccard, MinHash/LSH, or longest-common-subsequence evidence to find lightly edited copies.</li>
+<li><strong>Semantic overlap:</strong> retrieve embedding-near candidates, then verify whether they reproduce the task or answer rather than merely share a topic. Semantic similarity alone is insufficient evidence for removal.</li>
+<li><strong>Temporal holdouts:</strong> use tasks created after the training cutoff and verify timestamps and source histories. A late benchmark can still contain older public questions.</li>
+</ul>
+<p>Search beyond the benchmark file itself: worked solutions, explanations, answer keys, forum discussions, code repositories, screenshots recovered by OCR, paraphrases, and translated copies can leak the solution signal. For generated benchmarks, trace seed tasks and generator context as well.</p>
+<p>False positives are common for short questions, standard definitions, common code, and canonical mathematical statements. An audit should version the detector and protected set, retain match type and offsets, rank candidates by distinctiveness, manually review a stratified sample and every high-impact cluster, quarantine uncertain cases, and report contamination rates both before and after adjudication. Evaluation results should disclose the policy rather than claiming a binary “clean” dataset.</p>
+<h2 id="curricula">Curricula</h2>
+<table>
+<thead>
+<tr>
+<th>Curriculum</th>
+<th>Schedule</th>
+<th>Potential benefit</th>
+<th>Failure mode</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Quality</td>
+<td>Start with highly filtered data, then broaden; or reserve the cleanest data for late training</td>
+<td>Stable early signal or a clean final phase</td>
+<td>Classifier bias narrows coverage; late distribution shift destabilizes loss</td>
+</tr>
+<tr>
+<td>Domain</td>
+<td>Change general, language, code, or specialist ratios over time</td>
+<td>Foundation first, specialization later</td>
+<td>Forgetting if general replay falls too quickly</td>
+</tr>
+<tr>
+<td>Difficulty</td>
+<td>Move from short/common patterns to rarer or more compositional examples</td>
+<td>May improve learning efficiency</td>
+<td>Difficulty scores can proxy length, language, or model familiarity</td>
+</tr>
+<tr>
+<td>Sequence length</td>
+<td>Increase packed length in stages</td>
+<td>Lower early compute and later long-context exposure</td>
+<td>Changes memory, positional behavior, packing, and tokens per step</td>
+</tr>
+</tbody>
+</table>
+<p>A curriculum changes the optimization problem, not just the input queue. Coordinate phase boundaries with learning-rate schedules, the global token batch, gradient accumulation, and checkpointing. Increasing sequence length at a fixed example batch increases tokens per update; reducing the example batch can instead change gradient noise. Reusing optimizer state across a sharp distribution shift preserves momentum and variance estimates from the old phase, while resetting it discards useful history. Treat either choice as an experiment and log it in the run manifest.</p>
+<h2 id="mixtures-and-continued-pretraining">Continued-pretraining mixtures</h2>
+<p>A small high-quality or underrepresented domain can be upweighted, but repeated epochs increase memorization and overfitting risk. Continued pretraining can use:</p>
+<ul>
+<li>pure domain continuation for maximum specialization;</li>
+<li>domain plus general replay to reduce forgetting;</li>
+<li>curricula that alter quality, difficulty, sequence length, or domain ratio;</li>
+<li>upsampling of rare high-value sources with exposure monitoring.</li>
+</ul>
+<p>Evaluate both target-domain gains and general-capability regression. A lower domain loss is insufficient if broad capabilities collapse.</p>
+<h2 id="gpt-lab-data-path">GPT-Lab data path</h2>
+<p>The source notes describe:</p>
+<pre><code class="language-text">Parquet shards → ShardManager → row-group assignment by rank
+→ lazy tokenization → token-budgeted deque → packed fixed-length batches
+</code></pre>
+<p>Row groups are independently readable and form a natural sharding unit. With world size <code class="math-inline">W</code>, rank <code>r</code> can consume groups <code>r, r+W, r+2W, ...</code>. This avoids duplicate row-group consumption only if world size and shard order remain stable.</p>
+<p>Trade-offs:</p>
+<ul>
+<li>small row groups increase metadata and scheduling overhead;</li>
+<li>large row groups reduce balancing granularity;</li>
+<li>equal row-group counts do not imply equal token counts;</li>
+<li>Parquet decode and tokenization can become CPU bottlenecks.</li>
+</ul>
+<h3 id="token-budgeted-buffering">Token-budgeted buffering</h3>
+<p>A critical GPT-Lab failure was a quantity intended as a token budget being interpreted as a document count. The loader could queue far too many documents before the first batch. The corrected invariant tracks actual buffered tokens and stops refill at a bounded budget.</p>
+<p>This is a strong interview example because it is a unit/semantic error, not a complex algorithmic bug. Useful safeguards are named units, assertions, queue-memory telemetry, and tests with extreme document lengths.</p>
+<h2 id="packing-documents">Packing documents</h2>
+<p>Packing produces a stream such as:</p>
+<pre><code class="language-text">[BOS] document A [BOS] document B [BOS] document C ...
+</code></pre>
+<p>It avoids padding and improves useful-token utilization. However, a BOS marker alone does not isolate documents: ordinary causal attention still lets tokens in document B attend to A when they share one sequence row.</p>
+<p>Stronger isolation options include block-diagonal masks, segment-aware masks, position reset, one document per row, or BOS-aligned packing. These trade data efficiency and kernel simplicity against semantic isolation.</p>
+<h2 id="global-token-batch">Global token batch</h2>
+<div class="math-display">tokens/update = microbatch × sequence length × accumulation steps × data-parallel world size
+</div>
+<p>This formula assumes each rank receives distinct examples. If rank sharding is wrong, the nominal global batch overstates data diversity.</p>
+<h2 id="recovery-semantics">Recovery semantics</h2>
+<p>Checkpointing the model and optimizer can be exact, while data replay remains approximate. Exact replay may require:</p>
+<ul>
+<li>shard, row-group, and document offsets;</li>
+<li>buffered and partially consumed token sequences;</li>
+<li>all relevant RNG states;</li>
+<li>stable shard ordering and world size;</li>
+<li>deterministic workers and tokenization.</li>
+</ul>
+<p>Changing world size changes row-group ownership. State this limitation explicitly rather than claiming bit-exact recovery.</p>
+<h2 id="production-observability">Production observability</h2>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Useful breakdown</th>
+<th>What it detects</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tokens accepted and rejected</td>
+<td>Reason, source, language, domain, pipeline version</td>
+<td>Filter drift, classifier outages, accidental source loss</td>
+</tr>
+<tr>
+<td>Source exposure</td>
+<td>Requested versus realized tokens and effective epochs</td>
+<td>Mixture, sampler, exhaustion, and replay errors</td>
+</tr>
+<tr>
+<td>Duplicate rates</td>
+<td>Exact, normalized, near, span, within/cross split</td>
+<td>Normalization regressions and memorization risk</td>
+</tr>
+<tr>
+<td>Rank imbalance</td>
+<td>Documents, non-padding tokens, batches, queue depth per rank</td>
+<td>Stragglers and duplicated or skipped partitions</td>
+</tr>
+<tr>
+<td>Data-wait time</td>
+<td>Read, decode, tokenize, collate, collective wait</td>
+<td>GPU starvation and misplaced optimization effort</td>
+</tr>
+<tr>
+<td>Shard manifests</td>
+<td>Content hashes, row counts, token counts, schema, build and mixture IDs</td>
+<td>Silent shard replacement, truncation, or incompatible rebuilds</td>
+</tr>
+</tbody>
+</table>
+<p>Dashboards need immutable manifests underneath them. For every checkpoint, record dataset release, shard order, sampler configuration, tokenizer, filter and dedup versions, RNG state, world size, worker count, curriculum phase, and consumed-token counters. This connects data behavior to the failure and throughput analysis in <a href="distributed-training.html">Distributed LLM Training</a>.</p>
+<p>Reproducibility has limits: remote sources change, parsers and classifiers evolve, asynchronous workers race, and a changed world size repartitions data. If queued or partially packed examples are not checkpointed, recovery repeats or skips some tokens. Report the replay tolerance that is actually guaranteed—statistical, document-exact, or token-exact—rather than treating a matching model checkpoint as proof of identical data consumption.</p>
+<h2 id="implementation-failure-modes">Implementation failure modes</h2>
+<ul>
+<li><strong>Normalization-order bug:</strong> hashes are computed before boilerplate removal, so copied articles appear unique. Version the canonicalization DAG and test known equivalent pairs.</li>
+<li><strong>LSH treated as truth:</strong> every bucket collision is deleted without exact scoring or representative selection. Re-score candidates and retain cluster evidence.</li>
+<li><strong>Cross-split direction reversed:</strong> a validation item is removed while its training copy remains. Freeze protected splits and make removal asymmetric.</li>
+<li><strong>Filter feedback loop:</strong> a learned quality model prefers text resembling its narrow labels, and retraining on accepted data amplifies the bias. Audit rejected slices and keep independent labels.</li>
+<li><strong>PII leaked through logs:</strong> redacted documents are safe but rejection traces contain the original secret. Store locations and detector categories, not sensitive payloads.</li>
+<li><strong>Requested weights mistaken for realized weights:</strong> exhausted shards, retries, or packing alter exposure. Count emitted non-padding tokens by source after packing.</li>
+<li><strong>Effective epochs hidden:</strong> a small source is repeatedly sampled until it memorizes. Set exposure caps and alert on unique-token reuse.</li>
+<li><strong>Contamination detector overclaims:</strong> semantic retrieval flags topical similarity as leakage. Require match evidence and manual adjudication for ambiguous cases.</li>
+<li><strong>Resume changes the data stream:</strong> only model and optimizer are restored, or world size changes. Persist loader state or document the bounded replay/skipping behavior.</li>
+<li><strong>Equal rows assumed balanced:</strong> ranks get equal row groups but unequal tokenization cost and token counts. Measure tokens and wait time per rank.</li>
+</ul>
+<h2 id="validation-checklist">Validation checklist</h2>
+<ul>
+<li>language/domain distributions before and after filtering;</li>
+<li>duplicate rates and train-validation leakage after normalization;</li>
+<li>benchmark overlap;</li>
+<li>tokens per source and repeated exposure;</li>
+<li>token fertility and sequence-length distributions;</li>
+<li>packing efficiency and cross-document attention semantics;</li>
+<li>unique examples per rank;</li>
+<li>data-wait time and GPU starvation;</li>
+<li>provenance and access-control metadata.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Design exact and near-deduplication for a multilingual web-and-code corpus. Which normalization, shingle, LSH, and threshold choices would you validate?</li>
+<li>When should span-level deduplication replace document removal, and how would you avoid deleting license headers, legal language, or common code?</li>
+<li>Given source sizes, a temperature, and a total token budget, compute sampling probabilities, expected tokens, and effective epochs.</li>
+<li>Design a general-replay mixture for domain continuation. Which target gains and broad regressions determine the replay ratio?</li>
+<li>Explain DoReMi-style reweighting and why a small proxy model with one validation loss can choose a harmful mixture.</li>
+<li>Audit a benchmark for prompt, solution, explanation, paraphrase, and translated-copy contamination while controlling false positives.</li>
+<li>Design a sequence-length curriculum without accidentally changing the global token batch or invalidating optimizer assumptions.</li>
+<li>Design a streaming dataset for eight GPUs and explain why row-group balance is not token balance.</li>
+<li>Compare packing with padding and block-diagonal masking.</li>
+<li>A resumed run has matching model weights but different loss for 200 steps. Diagnose the loader, shard manifest, RNG, worker, and world-size state.</li>
+<li>Which production metrics distinguish a slow parser, tokenizer starvation, mixture drift, duplicate ranks, and an over-aggressive quality filter?</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="tokenization.html">Tokenization and Vocabulary Design</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="scaling-laws.html">Scaling Laws and Compute-Optimal Training</a></li>
+<li><a href="synthetic-data.html">Synthetic Data Generation and Filtering</a></li>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+<li><a href="distributed-training.html">Distributed LLM Training</a></li>
+</ul>
+</section>

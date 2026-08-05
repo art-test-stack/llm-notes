@@ -1,0 +1,142 @@
+<section class="chapter-content" data-topic="parallelism">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to derive the local tensor shapes and collectives for every major parallelism dimension, compare pipeline schedules, construct topology-aware process groups, and explain why production systems combine several dimensions.</p>
+<h2 id="data-parallelism-as-the-baseline">Data parallelism as the baseline</h2>
+<p>Data parallelism (DP) replicates the model and partitions the batch. It raises aggregate throughput but does not reduce model-state memory per rank unless combined with sharded data parallelism. Model-parallel methods instead partition computation or state that cannot fit efficiently on one device. See <a href="distributed-training.html">Distributed LLM Training</a> for gradient synchronization, FSDP, and optimizer sharding.</p>
+
+<h2 id="tensor-parallelism">Tensor parallelism</h2>
+<p>Let <code>X ∈ R[B,S,H]</code>, flatten the token axes as <code class="math-inline">T = B\cdot S</code>, and let a linear layer have <code>W ∈ R[H,O]</code>, so <code class="math-inline">Y = XW \in  \mathbb{R}^{B,S,O}</code>. For tensor-parallel degree <code>p</code>, assume the partitioned dimension is divisible by <code>p</code>.</p>
+<h3 id="column-parallel-linear">Column-parallel linear</h3>
+<p>Partition the output columns: <code class="math-inline">W = [W_{0} \ldots  W_{p-1}]</code>, with <code>Wᵢ ∈ R[H,O/p]</code>. Rank <code>i</code> receives replicated <code>Xᵢ ∈ R[B,S,H]</code> and computes <code class="math-inline">Y_{i} = X_{i}W_{i} \in  \mathbb{R}^{B,S,O/p}</code>. Concatenation gives <code class="math-inline">Y = \text{concat}(Y_{0},\ldots ,Y_{p-1})</code>.</p>
+<ul>
+<li>Keep <code>Yᵢ</code> sharded when the next operation is compatible, as in the first MLP projection or QKV projection.</li>
+<li>Use an <strong>all-gather</strong> only when every rank needs full <code>Y ∈ R[B,S,O]</code>.</li>
+<li>In backward, each rank produces a partial <code>dXᵢ ∈ R[B,S,H]</code>; summing these contributions requires an <strong>all-reduce</strong>, or a <strong>reduce-scatter</strong> over tokens when sequence parallelism wants <code>dX</code> sharded.</li>
+</ul>
+<h3 id="row-parallel-linear">Row-parallel linear</h3>
+<p>Partition the reduction dimension: <code class="math-inline">X = [X_{0} \ldots  X_{p-1}]</code> with <code>Xᵢ ∈ R[B,S,H/p]</code>, and partition rows of <code class="math-inline">W</code> so <code>Wᵢ ∈ R[H/p,O]</code>. Each rank computes a full-width partial <code class="math-inline">Z_{i} = X_{i}W_{i} \in  \mathbb{R}^{B,S,O}</code>, and <code class="math-inline">Y = \sum _{i} Z_{i} + b</code>.</p>
+<ul>
+<li>An <strong>all-reduce</strong> of <code>Zᵢ</code> gives replicated <code>Y ∈ R[B,S,O]</code>.</li>
+<li>A <strong>reduce-scatter</strong> over the flattened token axis instead gives each rank <code>Yᵢ ∈ R[T/p,O]</code>. This is the usual handoff to sequence-parallel residual, dropout, and normalization work.</li>
+<li>The backward pass naturally produces sharded <code>dXᵢ ∈ R[B,S,H/p]</code>; no gather is needed if it feeds the preceding column-parallel layer.</li>
+</ul>
+<p>A column-parallel layer followed by a row-parallel layer therefore keeps the large intermediate sharded and normally pays one reduction at the pair’s output, rather than gathering between the two matrix multiplies.</p>
+<h3 id="attention-and-mlp-sharding">Attention-head and MLP sharding</h3>
+<p>Keep query and KV head counts distinct. With <code>Q:[B,H_q,S,D_h]</code> and <code>K,V:[B,H_kv,S,D_h]</code>, MHA has <code class="math-inline">H_{q}=H_{\text{kv}}</code>, GQA has <code class="math-inline">H_{q}\gt H_{\text{kv}}\gt 1</code>, and MQA has <code class="math-inline">H_{\text{kv}}=1</code>. For <code class="math-inline">TP=8</code>:</p>
+<table>
+<thead><tr><th>Case</th><th>Global heads</th><th>Local heads</th><th>KV placement</th></tr></thead>
+<tbody>
+<tr><td>MHA</td><td><code class="math-inline">(H_{q},H_{\text{kv}})=(32,32)</code></td><td>Q/K/V each have 4 heads</td><td>shard all heads</td></tr>
+<tr><td>GQA</td><td><code>(32,8)</code></td><td>Q has 4; K/V each have 1</td><td>shard when <code>H_kv % TP = 0</code></td></tr>
+<tr><td>MQA</td><td><code>(32,1)</code></td><td>Q has 4; K/V retain 1</td><td>replicate the single KV head</td></tr>
+</tbody></table>
+<p>If <code class="math-inline">TP\gt H_{\text{kv}}</code> or <code>H_kv % TP != 0</code>, the implementation must replicate KV heads, use uneven or padded ownership, or choose a smaller KV-sharding group. It must not silently assign K/V <code>H_q/TP</code> heads. The output projection remains row-parallel and reduces partial <code>R[B,S,H]</code> results.</p>
+<p>For an MLP with intermediate width <code class="math-inline">F</code>, make the gate/up projections column-parallel: <code>Wupᵢ ∈ R[H,F/p]</code> and local activation <code>Aᵢ ∈ R[B,S,F/p]</code>. The down projection is row-parallel with <code>Wdownᵢ ∈ R[F/p,H]</code>, followed by one all-reduce or reduce-scatter. SwiGLU shards both gate and value projections on the same <code>F/p</code> axis.</p>
+<h3 id="vocabulary-parallelism">Vocabulary parallelism</h3>
+<p>Shard an embedding or tied LM-head matrix <code>E ∈ R[V,H]</code> by vocabulary rows: rank <code>i</code> owns <code>Eᵢ ∈ R[V/p,H]</code> and global row offset <code>i·V/p</code>. Input lookup masks tokens outside the local range and all-reduces the selected embeddings. At output, each rank computes local logits <code>Lᵢ ∈ R[T,V/p]</code>. Vocabulary-parallel cross-entropy uses all-reduces for the per-token maximum, exponential sum, and target logit; it does not all-gather <code>R[T,V]</code> logits. Gather only when an API truly needs the full vocabulary distribution.</p>
+<h3 id="sequence-parallel-elementwise">Sequence-parallel elementwise work</h3>
+<p>Tensor parallelism otherwise replicates <code>R[T,H]</code> activations around residual, dropout, and normalization operations. Sequence parallelism removes that replication: a row-parallel output reduce-scatters to <code>R[T/p,H]</code>, LayerNorm/RMSNorm and dropout run locally because every owned token still has all <code class="math-inline">H</code> features, and an all-gather reconstructs <code>R[T,H]</code> before a column-parallel input. Use rank-aware deterministic RNG for dropout so recomputation reproduces the same mask. This paired reduce-scatter/all-gather has communication volume comparable to an all-reduce while saving replicated activation memory.</p>
+
+<h2 id="pipeline-parallelism">Pipeline parallelism</h2>
+<p>Pipeline parallelism (PP) assigns consecutive layer ranges to <code class="math-inline">P</code> stages and splits a training batch into <code class="math-inline">M</code> microbatches. Activations move forward between adjacent stages and activation gradients move backward. With equal stage times and unit-cost slots, a non-interleaved schedule has roughly <code>P−1</code> empty fill/drain slots, so its idealized bubble fraction is <code>(P−1)/(M+P−1)</code>. Larger <code class="math-inline">M</code> amortizes the bubble, but very small microbatches can reduce kernel efficiency.</p>
+<table>
+<thead><tr><th>Schedule</th><th>Order</th><th>Bubble and memory behavior</th></tr></thead>
+<tbody>
+<tr><td>GPipe</td><td>Run all <code class="math-inline">M</code> forwards, then all <code class="math-inline">M</code> backwards.</td><td>Simple; the same ideal fill/drain fraction, but up to <code class="math-inline">O(M)</code> saved activation sets per stage without recomputation.</td></tr>
+<tr><td>1F1B</td><td>After warmup, alternate one forward and one backward; then drain.</td><td>Similar ideal bubble fraction to GPipe, but only warmup-distance activations remain live, bounded by <code class="math-inline">O(P)</code> rather than <code class="math-inline">O(M)</code>.</td></tr>
+<tr><td>Interleaved 1F1B</td><td>Give each physical rank <code>v</code> non-contiguous virtual stages and alternate finer-grained chunks.</td><td>An optimistic balanced-stage approximation is <code>(P−1)/(M·v+P−1)</code>; more stage-boundary transfers and stricter ordering are the price.</td></tr>
+</tbody>
+</table>
+<p>The approximation hides unequal forward/backward times, communication, weight-gradient work, and pipeline flushes. Global batch size is commonly <code>DP·M·microbatch_size</code>; choose <code>M ≫ P</code> when possible, then measure rather than trusting the formula.</p>
+<p>Activation memory depends on the number of in-flight forwards, tensor shapes at stage boundaries, and whether activations are recomputed. GPipe maximizes the live set; 1F1B releases a microbatch after its backward pass; activation checkpointing trades extra compute for another reduction. Balance stages by measured latency and memory, not layer count alone: embeddings, LM heads, attention at long context, and MoE layers have different costs. A slow stage sets the pipeline clock and creates bubbles even in steady state.</p>
+
+<h2 id="context-and-sequence-parallelism">Context and sequence parallelism</h2>
+<p><strong>Sequence parallelism</strong> above is a TP companion for cheap token-wise operations: each rank holds <code>T/p</code> tokens but all hidden features, and collectives occur at TP-layer boundaries. <strong>Context parallelism (CP)</strong> partitions one sequence for attention itself: with CP degree <code>c</code>, rank <code>j</code> owns <code>Qⱼ,Kⱼ,Vⱼ ∈ R[B,S/c,nₕ,dₕ]</code>. It reduces long-context activation storage approximately by <code>c</code>, but every query block must still attend to the permitted key/value blocks.</p>
+<h3 id="ring-attention">Ring attention and KV exchange</h3>
+<ol>
+<li>Each CP rank computes attention between its fixed local <code>Qⱼ</code> and current <code>K,V</code> block.</li>
+<li>It sends that KV block to the next rank and receives another from the previous rank, normally with double-buffered point-to-point communication overlapped with the attention kernel.</li>
+<li>After <code>c</code> steps, every query block has seen every allowed KV block; only KV moves, while Q and the output remain owned by the original rank.</li>
+</ol>
+<p>The ranks never need to materialize the full score matrix. For one query row, maintain online-softmax state: running maximum <code>m</code>, denominator <code>ℓ</code>, and unnormalized output <code>o</code>. For a new score block <code>s</code>, set <code class="math-inline">m' = \operatorname{max}(m,\operatorname{max}(s))</code>, <code class="math-inline">\ell ' = \operatorname{exp}(m-m')\ell  + \sum  \operatorname{exp}(s-m')</code>, and <code class="math-inline">o' = \operatorname{exp}(m-m')o + \sum  \operatorname{exp}(s-m')V</code>. The final result is <code>o/ℓ</code>. These partial statistics make block order irrelevant up to floating-point effects and pair naturally with fused attention <a href="compile-kernels.html">kernels</a>.</p>
+<p>A naive causal partition is imbalanced: early query blocks can skip most future KV blocks while late blocks do nearly full work. Zig-zag token assignment, striped blocks, or a causal-aware ring can give each rank a mix of early and late queries. The main savings are roughly <code>1/c</code> for sequence-sized activations and local KV residency; communication grows with KV traffic, and compute remains quadratic unless the attention pattern itself is sparse. See <a href="long-context.html">Long Context</a> for complementary memory and algorithm choices.</p>
+
+<h2 id="expert-parallelism">Expert parallelism</h2>
+<p>Expert parallelism (EP) distributes MoE experts across an expert group. If a group has <code>e</code> ranks and <code class="math-inline">N</code> experts, rank <code>r</code> commonly owns <code>N/e</code> experts. For each MoE layer:</p>
+<ol>
+<li>The router chooses top-<code>k</code> expert destinations for local tokens.</li>
+<li>Tokens are grouped by destination. Ranks exchange per-peer counts, then use an all-to-all with <strong>variable split sizes</strong> (all-to-all-v semantics) because routing is data-dependent.</li>
+<li>Each rank sorts received tokens by local expert, runs the expert MLPs, weights their outputs by router scores, and performs the reverse all-to-all to return results to the token-owning ranks.</li>
+</ol>
+<p>Padding every peer to a fixed capacity simplifies kernels but wastes bandwidth; variable splits avoid padding at the cost of count exchange and irregular buffers. Capacity limits, token dropping, and auxiliary balancing losses bound the worst skew. In the usual forward pass, dispatch and combine are two all-to-all phases. Training backward communicates the corresponding activation gradients in reverse, adding collective work; fused or custom-autograd implementations may expose a different API-call count. Expert groups should therefore be kept small and placed on high-bisection-bandwidth links, and communication should be described by phase rather than a universal call count.</p>
+<p>EP composes with TP by sharding each expert’s matrices across a TP group; it composes with DP by replicating the full expert set across expert-DP groups and reducing each expert’s gradients only across its replicas. Dense parameters may have a larger data-replica group that spans both DP and EP coordinates because they are replicated across the expert lanes. See <a href="moe.html">Mixture-of-Experts Models</a> for routing and capacity details.</p>
+
+<h2 id="hybrid-process-group-construction">Hybrid process-group construction</h2>
+<p>A conceptual five-dimensional mesh has world size <code>DP × TP × PP × CP × EP</code>. Give every rank coordinates <code>(d,t,p,c,e)</code>. A process group varies one coordinate while holding the others fixed: TP groups vary <code>t</code>, PP groups vary <code>p</code>, CP groups vary <code>c</code>, EP groups vary <code>e</code>, and DP groups vary <code>d</code>. Frameworks sometimes fold EP into the data-parallel axis rather than expose an independent Cartesian dimension; state that convention before quoting a “DP degree.”</p>
+<p>Rank numbering is a performance decision. Put the most communication-sensitive coordinate in the fastest-varying bits. TP all-reduces/reduce-scatters are frequent and latency-sensitive, so TP should almost always remain inside one NVLink/NVSwitch domain. MoE all-to-all and CP KV exchange are also high-volume and should remain within a node when the product fits. PP point-to-point transfers and bucketed DP gradient reductions are the usual candidates for crossing nodes. Never assume adjacent global ranks are physically adjacent: construct groups from an explicit rank-to-device/topology map.</p>
+
+<h2 id="checkpoint-and-layout-portability">Checkpoint portability</h2>
+<p>A portable checkpoint describes logical tensors independently of the live rank layout. For every shard, record the global shape, dtype, partition axis, shard offset and extent, plus the model configuration and logical parameter name. Reconstruct or stream the global tensor, then repartition it for the destination layout.</p>
+<ul>
+<li><strong>Changing TP:</strong> concatenate old column/row/vocabulary shards along their recorded axes and slice them for the new TP degree. Replicated biases and normalization weights must not be concatenated.</li>
+<li><strong>Changing PP:</strong> parameter ownership moves to the rank holding the layer’s new stage; layer names, not source rank numbers, determine placement.</li>
+<li><strong>Tied weights:</strong> record aliasing between embeddings and the LM head. Restore one logical value and re-establish the tie instead of silently loading divergent copies.</li>
+<li><strong>Optimizer state:</strong> reshard every parameter-aligned moment, master weight, and step counter consistently. Loading weights alone is not a valid training resume.</li>
+</ul>
+<p>Validate a migration on a small model with parameter checksums and a forward/backward comparison. A set of rank files can be internally complete yet unusable at a different TP or PP degree if global shapes or offsets are missing.</p>
+
+<h2 id="worked-64-gpu-design">Worked design: 64 GPUs across 8 nodes</h2>
+<p>Suppose an MoE Transformer has 64 layers, <code class="math-inline">H=8192</code>, MLP width <code class="math-inline">F=28672</code>, 64 attention heads, vocabulary <code class="math-inline">V=128000</code>, 16 experts, and sequence length <code class="math-inline">S=32768</code>. Each node has 8 strongly connected GPUs; nodes use a high-speed fabric. Choose <code class="math-inline">DP=2, TP=4, PP=2, CP=2, EP=2</code>, whose product is 64.</p>
+<p>Use coordinates <code>(d,p,c,e,t)</code> and the row-major mapping <code>rank = ((((d·2)+p)·2+c)·2+e)·4+t</code>. Thus <code class="math-inline">\text{node} = ((d\cdot 2+p)\cdot 2+c)</code>, while <code>e∈{0,1}</code> and <code>t∈{0,1,2,3}</code> select the eight GPUs inside that node.</p>
+<table>
+<thead><tr><th>Axis/group</th><th>Size and ownership</th><th>Communication and placement</th></tr></thead>
+<tbody>
+<tr><td>TP</td><td>4 ranks; fixed <code>d,p,c,e</code>, vary <code>t</code>. A dense <code>[8192,28672]</code> column shard is <code>[8192,7168]</code>; 16 attention heads per rank.</td><td>Per-block all-reduce or reduce-scatter/all-gather; entirely inside one node.</td></tr>
+<tr><td>EP</td><td>2 ranks; fixed <code>d,p,c,t</code>, vary <code>e</code>. Each EP lane owns 8 of 16 experts, and each owned expert is TP-sharded across four <code>t</code> ranks.</td><td>Variable-split dispatch and return all-to-all; entirely inside one node.</td></tr>
+<tr><td>PP</td><td>2 stages; fixed <code>d,c,e,t</code>, vary <code>p</code>. Stage 0 owns layers 0–31; stage 1 owns layers 32–63 plus the LM head.</td><td>Forward activations and backward gradients cross nodes. Use 1F1B with, for example, <code class="math-inline">M=16</code>: ideal bubble ≈ <code>1/(16+1)=5.9%</code>.</td></tr>
+<tr><td>CP</td><td>2 ranks; fixed <code>d,p,e,t</code>, vary <code>c</code>. Each owns 16,384 contiguous or load-balanced token positions.</td><td>KV ring crosses a node boundary at every attention layer; overlap send/receive with attention.</td></tr>
+<tr><td>DP</td><td>2 expert replicas; fixed <code>p,c,e,t</code>, vary <code>d</code>. Expert optimizer state may be sharded across these replicas.</td><td>Bucketed gradient reduce-scatter/all-gather crosses nodes. Dense weights are also replicated across <code>e</code>, so their effective dense-data group spans <code>(d,e)</code> and has size 4.</td></tr>
+<tr><td>Vocabulary</td><td>Each TP rank owns <code class="math-inline">128000/4 = 32000</code> rows of the tied embedding/LM head, with an explicit global row offset.</td><td>Parallel embedding lookup and vocabulary-parallel cross-entropy avoid full-logit gathering.</td></tr>
+</tbody>
+</table>
+<p>The mapping deliberately spends all eight local GPUs on <code>TP×EP</code>, keeping the most frequent dense collectives and MoE all-to-all on the node fabric. The expected first bottleneck is the inter-node CP KV ring at <code class="math-inline">S=32768</code>; next are MoE imbalance and the stage boundary if one half contains more MoE or long-context work. DP communication is larger but less frequent and can overlap with backpropagation. If profiling shows CP dominates, a reasonable remap is to keep <code>TP×CP</code> inside each node and move EP across nodes—but only if the network handles the resulting irregular all-to-all better. Stage cuts should then be adjusted from measured latency, not fixed at 32 layers.</p>
+
+<h2 id="selection-framework">Selection framework</h2>
+<ol>
+<li>Does model and optimizer state fit per GPU? If not, start with DP sharding, TP, PP, or EP for the state that dominates.</li>
+<li>Do activations fit at the target sequence and microbatch? If not, add checkpointing, sequence parallelism, CP, or PP.</li>
+<li>Which tensor dimensions divide cleanly: heads, hidden width, MLP width, vocabulary, experts, layers, and sequence?</li>
+<li>What collective runs at each layer, each MoE layer, each stage boundary, and each optimizer step?</li>
+<li>Can the most frequent collectives remain on NVLink/NVSwitch, and what must cross the network?</li>
+<li>Is the objective capacity, throughput, or latency? Training layouts do not automatically make good <a href="distributed-inference.html">distributed inference</a> layouts.</li>
+</ol>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>TP degree incompatible with query or KV head count, hidden width, MLP width, or vocabulary size;</li>
+<li>confusing elementwise sequence parallelism with attention-level context parallelism;</li>
+<li>too few microbatches, large fill/drain bubbles, or excessive GPipe activation memory;</li>
+<li>pipeline stages balanced by layer count but not by measured time;</li>
+<li>causal CP assigning most attention work to the last rank;</li>
+<li>MoE all-to-all dominated by routing skew or padded capacity;</li>
+<li>topology-unaware rank numbering that sends TP traffic across nodes;</li>
+<li>checkpoint shards without global shapes, offsets, aliases, or optimizer metadata;</li>
+<li>assuming more GPUs produce linear speedup.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Derive local forward and backward shapes for a column-parallel then row-parallel MLP.</li>
+<li>Compare GPipe, 1F1B, and interleaved 1F1B for <code class="math-inline">P=8, M=32</code>.</li>
+<li>Derive the online-softmax update used while KV blocks rotate around a CP ring.</li>
+<li>Explain why expert dispatch needs variable split sizes and a reverse all-to-all.</li>
+<li>Construct rank coordinates and process groups for a topology with two kinds of links.</li>
+<li>Describe how to reshard tied weights and optimizer moments when TP and PP both change.</li>
+</ol>
+<h2 id="related-html-notes">Related HTML notes</h2>
+<ul>
+<li><a href="distributed-training.html">Distributed LLM Training</a></li>
+<li><a href="moe.html">Mixture-of-Experts Models</a></li>
+<li><a href="distributed-inference.html">Distributed LLM Inference</a></li>
+<li><a href="long-context.html">Long Context</a></li>
+<li><a href="compile-kernels.html">Compilation and GPU Kernels</a></li>
+</ul>
+</section>

@@ -1,0 +1,172 @@
+<section class="chapter-content" data-topic="tool-calling">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to distinguish structured generation from reliable execution, define a typed tool contract, validate and authorize arguments, handle deadlines and retries, and evaluate tool selection, argument quality, execution, and final task success separately.</p>
+<h2 id="the-execution-boundary">The execution boundary</h2>
+<p>A language model should not directly perform external side effects. It emits a proposed action that an orchestration layer validates and executes:</p>
+<pre><code class="language-text">user request → model proposes tool + arguments
+→ schema validation → authorization/policy check
+→ execution with deadline → result validation
+→ model receives observation → final response or next action
+</code></pre>
+<p>The tool interface is a software contract. It should specify:</p>
+<ul>
+<li>stable name and purpose;</li>
+<li>typed arguments and required fields;</li>
+<li>units, ranges, enumerations, and defaults;</li>
+<li>output schema;</li>
+<li>possible error classes;</li>
+<li>timeout and rate-limit behavior;</li>
+<li>whether the operation has side effects;</li>
+<li>idempotency and authorization requirements.</li>
+</ul>
+<h2 id="structured-generation-methods">Structured-generation methods</h2>
+<p>Structured generation is a spectrum. Some methods merely ask the model to follow a format; others remove invalid next tokens during decoding. The stronger methods can guarantee syntax, but none guarantees that the selected tool, values, permissions, or real-world action are correct.</p>
+<table>
+<thead><tr><th>Method</th><th>Mechanism</th><th>Guarantee and failure mode</th><th>Cost and best use</th></tr></thead>
+<tbody>
+<tr><td><strong>Prompt-only JSON</strong></td><td>Instructions and examples ask for JSON.</td><td>No syntactic guarantee: prose, truncation, bad quoting, and schema drift remain possible.</td><td>No decoding integration and low engineering cost; suitable for tolerant, low-risk prototypes.</td></tr>
+<tr><td><strong>Repair loop</strong></td><td>Parse or validate, then return the error and ask the model to regenerate or patch the object.</td><td>Often recovers from local mistakes, but has bounded-retry failure cases and can change already-correct values.</td><td>Adds one or more model round trips, tail latency, and token cost. Keep the original proposal and validate every repair.</td></tr>
+<tr><td><strong>JSON mode</strong></td><td>The serving system restricts output to valid JSON syntax.</td><td>Guarantees a parseable JSON value, not conformance to a particular schema or semantic correctness.</td><td>Usually modest overhead; useful when any JSON object is acceptable.</td></tr>
+<tr><td><strong>Grammar-constrained decoding</strong></td><td>A context-free grammar tracks a parser state and masks tokens that cannot continue a valid string.</td><td>Guarantees membership in the grammar when token-to-text boundary handling is correct. It can express nested JSON structure and many schema shapes.</td><td>Per-token grammar-state updates and masking add decode latency; tight constraints may improve completion length but can force a wrong valid value.</td></tr>
+<tr><td><strong>Finite-state automaton</strong></td><td>A regular-language recognizer advances over emitted bytes or token strings and exposes valid transitions.</td><td>Fast for enums, fixed formats, and bounded patterns, but a plain finite-state machine cannot naturally represent arbitrary recursive nesting without bounding or extra state.</td><td>Compact states and precomputed token transitions can make masking cheap; state explosion is possible for large unions and enumerations.</td></tr>
+<tr><td><strong>Parser-guided decoding</strong></td><td>An incremental parser consumes the prefix and reports terminals valid at the current parse stack.</td><td>Supports recursive and context-free structures and can surface precise parse state. Semantic predicates still need a validator.</td><td>More general but more stateful than a finite-state mask; caching parser states and token transitions matters for throughput.</td></tr>
+</tbody>
+</table>
+<h3 id="schema-to-grammar-compilation">Schema-to-grammar compilation</h3>
+<p>A compiler can translate each supported schema construct into grammar productions: object properties become keyed productions, required fields determine admissible object forms, arrays recurse into item productions, and unions or enums become alternatives. The decoder then:</p>
+<ol>
+<li>keeps the current automaton or parser state for the generated prefix;</li>
+<li>maps vocabulary tokens to the bytes or characters they would append;</li>
+<li>masks tokens whose entire expansion has no valid transition;</li>
+<li>samples from the remaining logits and advances the state;</li>
+<li>allows end-of-sequence only from an accepting state.</li>
+</ol>
+<p>Compilation is not automatically complete. Unsupported regular expressions, unrestricted recursion, duplicate keys, whitespace, token fragments that span grammar terminals, and tokenizer-specific escapes need explicit semantics. Cache compiled grammars by schema version and tokenizer. Dense masking over the full vocabulary can be expensive; precomputed valid-token sets, sparse masks, and state caches trade memory for lower per-token latency. Narrow masks can also distort the model distribution: they prevent invalid surface forms but do not teach the model which valid alternative is intended.</p>
+<h2 id="schema-semantics">Schema semantics</h2>
+<p>The contract must say more than “returns JSON.” A production schema should make the following cases explicit:</p>
+<table>
+<thead><tr><th>Construct</th><th>Contract question</th><th>Implementation note</th></tr></thead>
+<tbody>
+<tr><td>Required and optional fields</td><td>Must the caller supply the value, may it be omitted, or may it explicitly be <code>null</code>?</td><td>Omitted, defaulted, and null are different states. Do not silently invent a consequential missing value.</td></tr>
+<tr><td>Unions</td><td>Which alternative applies, and is there a discriminator?</td><td>Prefer tagged unions such as <code>{"kind":"email",...}</code>; overlapping untagged shapes create validation and decoding ambiguity.</td></tr>
+<tr><td>Enums</td><td>Is the value a closed machine identifier or user-facing text?</td><td>Use stable identifiers. Adding an enum value can break exhaustive consumers even if parsing still succeeds.</td></tr>
+<tr><td>Recursive structures</td><td>What depth and size are allowed?</td><td>Grammar recursion needs runtime depth, node-count, and payload limits to prevent unbounded generation or parser work.</td></tr>
+<tr><td>Numeric ranges</td><td>Are bounds inclusive, and what precision is valid?</td><td>A grammar may constrain lexical shape; validate numeric value, precision, overflow, and domain range after parsing.</td></tr>
+<tr><td>Units</td><td>Is <code>duration</code> milliseconds, seconds, or an ISO duration?</td><td>Encode units in field names or a typed value such as <code>{"value":5,"unit":"minutes"}</code>; normalize only at the boundary.</td></tr>
+<tr><td>Cross-field constraints</td><td>Must <code class="math-inline">\text{start} \lt  \text{end}</code>, or must one field be present only for a given mode?</td><td>These are usually semantic validation rules, not token-level grammar rules. Return a path-specific, non-secret error.</td></tr>
+<tr><td>Backward-compatible schema versioning</td><td>Which producer and consumer versions interoperate?</td><td>Prefer additive optional fields, stable meanings, tolerant readers, and explicit version negotiation. Rename or type-change via a new version; keep old handlers during migration.</td></tr>
+</tbody>
+</table>
+<p>JSON schemas, grammars, or constrained decoding can force syntactically valid output. This improves parseability, but syntax is not semantics. A valid date can be in the past, a valid user ID can refer to the wrong tenant, and a valid file path can exceed authorization.</p>
+<p>Any syntax guarantee is mode- and provider-specific and applies only when the documented decoding mode completes successfully. Truncation, invalid or premature EOS, refusal or error paths, transport interruption, and unsupported modes can leave no complete value, so parsing and error handling remain mandatory. Grammar membership additionally assumes correct grammar compilation, incremental parser state, complete handling of tokenizer byte sequences—including tokens spanning terminals—EOS only in an accepting state, and no abort before acceptance. Even then, membership proves neither semantic correctness nor authorization; tests should cover valid completion, premature truncation, invalid EOS, and terminal-spanning tokens.</p>
+<p>Validation therefore remains layered: parse and schema shape; ranges, units, and cross-field invariants; live resource state; tenant authorization; then user confirmation for sensitive side effects. A valid date can be in the past, and a valid user ID can name the wrong tenant.</p>
+<h2 id="tool-selection-pipeline">Tool-selection and training pipeline</h2>
+<ol>
+<li><strong>Tool-needed decision:</strong> classify among answer directly, ask a clarification, retrieve knowledge, or call a tool. Include “no tool” examples so availability does not become a reason to call.</li>
+<li><strong>Catalogue retrieval:</strong> for a large catalogue, retrieve a small candidate set using the request, conversation state, permissions, and tool metadata. Measure recall before blaming the ranker; a missing candidate cannot be selected later. This is a specialised <a href="rag.html">retrieval</a> problem.</li>
+<li><strong>Tool ranking:</strong> compare candidate purpose, preconditions, side effects, cost, and freshness. Train with hard negatives: tools sharing verbs or entities but differing in scope, tenant, or side-effect semantics.</li>
+<li><strong>Argument generation:</strong> generate only from user-provided, trusted contextual, or explicitly defaultable values; record each argument's provenance.</li>
+<li><strong>Clarification:</strong> if a required consequential parameter is absent or ambiguous, ask a targeted question instead of guessing. Ask only for values the system cannot safely resolve.</li>
+<li><strong>Multi-tool plan:</strong> represent dependencies between calls, run only independent read-only calls in parallel, and revalidate later steps against observations.</li>
+</ol>
+<p>Ambiguous overlapping tools need more than polished descriptions. Define discriminating examples and counterexamples, canonical routing rules, and an abstain/clarify option. During supervised fine-tuning, mix tool-needed negatives, single-tool calls, missing-parameter dialogues, overlapping-tool contrasts, and multi-step trajectories. Preference or reinforcement training should reward final task success and correct abstention while penalising invalid, unnecessary, unauthorised, or duplicate calls. Avoid training only on successful oracle traces: models must also learn recovery from timeouts, stale results, and partial failure. Bounded orchestration and plan-state design are covered in <a href="agents.html">Agents, Orchestration and Agent Evaluation</a>.</p>
+<h2 id="execution-protocol">Execution protocol</h2>
+<p>Keep proposal, approval, and execution as distinct states. A robust protocol is:</p>
+<pre><code class="language-text">1. proposed call       model emits tool, arguments, schema version, and intent
+2. validation          parse; check shape, units, ranges, invariants, and freshness
+3. authorization       bind the authenticated principal and tenant; check this operation/resource
+4. confirmation        show the consequential action and resolved values when policy requires it
+5. idempotency key     orchestrator binds a stable key to principal + operation + canonical arguments
+6. execution           trusted adapter calls the dependency under a deadline
+7. observation         record typed status, result/error, provenance, and operation ID
+8. retry/compensation  retry only eligible failures with the same key, or compensate completed steps
+9. final acknowledgement report confirmed outcome, partial outcome, or unresolved state without guessing
+</code></pre>
+<p>Authorization happens immediately before execution, not once at conversation start: permissions and resource ownership can change. Confirmation is not authorization; a user may confirm an operation they are not permitted to perform. The model never supplies trusted identity, tenant, policy decisions, or secrets as ordinary arguments.</p>
+<h2 id="transactional-side-effects">Transactional side effects</h2>
+<p><strong>At-least-once delivery</strong> retries until acknowledged and may duplicate an operation. <strong>At-most-once delivery</strong> suppresses retries or duplicates but may lose an operation after an ambiguous failure. Exactly-once effects require cooperation from the destination—typically a durable idempotency record and atomic effect—not merely a client retry policy.</p>
+<p>Use the same idempotency key on duplicate retries, and require the provider to return the original result for that key. A key must be scoped to the authenticated principal and canonical operation; trusting a model-invented key permits collisions or replay. For high-impact actions, use two-phase confirmation: first resolve and display the exact proposal, then execute only after fresh confirmation without allowing the model to mutate the confirmed arguments.</p>
+<h3 id="transactional-sequence-example">Example: transfer with an ambiguous timeout</h3>
+<pre><code class="language-text">propose transfer €40 from account A to merchant M
+→ validate currency, positive amount, balance rule, and recipient identity
+→ authorize principal for account A
+→ display “Send €40.00 to M?” and receive confirmation
+→ persist operation op_731 + idempotency key k_731 + canonical request
+→ execute transfer(k_731) → client times out before seeing the response
+→ query operation(k_731), rather than issuing a new transfer
+→ if COMMITTED: acknowledge the original receipt; do not retry the effect
+→ if NOT_FOUND and deadline remains: retry transfer with k_731
+→ if PARTIAL: expose completed steps and run the predeclared compensating action if safe
+→ report committed, compensated, partially completed, or unresolved—never infer success
+</code></pre>
+<p>Multi-tool workflows are usually sagas rather than database transactions. Predefine compensating actions such as cancelling a reservation, but recognise that compensation is a new fallible business action, not a perfect rollback. Preserve partial-success details and ask the user how to proceed when completed effects cannot be reversed.</p>
+<h2 id="stateful-asynchronous-tools">Stateful and asynchronous tools</h2>
+<p>Long-running tools return a job handle instead of holding an LLM request open. The orchestrator, not free-form model memory, owns the job state:</p>
+<pre><code class="language-text">submit_export(arguments, idempotency_key, deadline)
+→ {job_id: "job_42", status: "queued", version: 1}
+→ persist job handle, owner/tenant, creation time, and end-to-end deadline
+→ poll get_job("job_42", after_version=1) with bounded backoff
+→ {status: "running", progress: {completed: 63, total: 100}, version: 7}
+→ user requests cancel → authorize → cancel_job("job_42")
+→ poll until terminal {cancelled | succeeded | failed | timed_out}
+→ on succeeded, fetch typed result and validate it before acknowledgement
+</code></pre>
+<p>Progress is advisory unless the API defines exact semantics; it must not be treated as committed output. Propagate cancellation to child work where supported and distinguish a client wait timeout from job failure—the job may still be running. Eventual consistency means a read immediately after a write can be stale. Include observation timestamps, monotonic versions or ETags, and source provenance; reject out-of-order observations and re-read authoritative state before a dependent side effect. Polling should honour provider hints, cap backoff, stop at the end-to-end deadline, and resume from a persisted handle after process restart. Event streams or webhooks can reduce polling, but still need authentication, deduplication, ordering rules, and reconciliation.</p>
+<h2 id="timeouts-and-retries">Timeouts and retries</h2>
+<p>Each call needs a deadline inside the remaining end-to-end budget and explicit error classes. Retry only transient failures, use bounded exponential backoff with jitter, respect provider rate-limit hints, and stop on validation, authorization, or confirmed application errors. Reads are usually safer to retry than writes; side-effect retries require an idempotency contract and an ambiguity-resolution query.</p>
+<h2 id="security-boundaries">Security boundaries</h2>
+<p>Tool descriptions, arguments, and outputs cross trust boundaries. Apply the controls below together; prompt wording is not an authorization mechanism. See the broader threat model in <a href="security.html">LLM Security, Prompt Injection and Data Leakage</a>.</p>
+<ul>
+<li><strong>Tool-output prompt injection:</strong> treat results—including retrieved documents and error strings—as untrusted data, delimit them from instructions, preserve provenance, validate their schema, and prevent them from granting tools or changing policy.</li>
+<li><strong>Argument injection:</strong> use typed adapter calls rather than shell or query concatenation; allow-list operations, canonicalise identifiers, validate paths/URLs, and keep untrusted text in data positions.</li>
+<li><strong>Secret handling:</strong> inject credentials inside the trusted adapter from a secret store. Never place secrets in model context, schemas, tool output, repair prompts, or logs; redact dependency errors.</li>
+<li><strong>Least privilege:</strong> issue short-lived, narrowly scoped credentials per tool and operation. Separate read tools from write tools and constrain network, filesystem, process, and spend capabilities.</li>
+<li><strong>Tenant authorization:</strong> derive principal and tenant from authenticated orchestration state, enforce resource-level access on every call, and include tenant in caches and idempotency scopes.</li>
+<li><strong>Sandbox boundaries:</strong> run risky interpreters, browsers, and file tools in isolated processes with explicit mounts, network egress rules, CPU/memory/time limits, and audited outputs. A sandbox limits impact; it does not make malicious output trustworthy.</li>
+</ul>
+<h2 id="evaluation">Evaluation datasets and layered matrix</h2>
+<p>Build versioned datasets from hand-written contracts, anonymised production traces, incidents, and generated perturbations. Include direct-answer negatives, answerable and unanswerable requests, required-parameter omissions, paraphrases, equivalent units and timestamps, confusing catalogue neighbours, malformed outputs, permission changes, duplicate deliveries, timeouts before and after commit, partial failures, stale observations, injected tool output, and long-running jobs. Label valid alternative traces rather than one exact string, split by tool family and scenario template to limit leakage, and retain hidden adversarial and temporal holdouts. Evaluate deterministic adapters with fixed fixtures and model policy over repeated seeded trials.</p>
+<table>
+<thead><tr><th>Layer</th><th>Dataset slice / oracle</th><th>Primary metrics</th><th>Key failure question</th></tr></thead>
+<tbody>
+<tr><td>Need and abstention</td><td>Direct-answer, tool-required, unsupported, and missing-information requests</td><td>Tool-needed precision/recall/F1; clarification precision/recall; unnecessary-call rate</td><td>Did it call only when useful, or clarify when a required value was truly missing?</td></tr>
+<tr><td>Catalogue retrieval</td><td>Large catalogues with renamed tools, permission-filtered tools, and hard overlapping negatives</td><td>Recall@k, MRR, permission-filter recall, catalogue latency</td><td>Was the correct allowed tool available to the ranker?</td></tr>
+<tr><td>Selection and planning</td><td>Single-tool, ambiguous-tool, and multi-tool dependency scenarios</td><td>Top-1 tool accuracy, plan edge accuracy, valid-order rate, ambiguity abstention</td><td>Did it select the correct tool and respect dependencies?</td></tr>
+<tr><td>Arguments and structure</td><td>Canonical calls plus accepted equivalents for units, dates, optional fields, and union variants</td><td>Parse/schema-valid rate, invalid-call rate, field F1, semantic-equivalence accuracy, constraint-violation rate</td><td>Are the arguments semantically right, not merely an exact string match?</td></tr>
+<tr><td>Policy and side effects</td><td>Cross-tenant, least-privilege, confirmation, retry, replay, and partial-commit cases</td><td>Unauthorized-execution rate, confirmation integrity, duplicate-effect rate, side-effect correctness, partial-success accuracy</td><td>Was exactly the authorised, confirmed effect attempted and truthfully reported?</td></tr>
+<tr><td>Execution and recovery</td><td>Transient/permanent errors, ambiguous timeouts, compensation, cancellation, and stale/out-of-order observations</td><td>Recovery success, unsafe-retry rate, compensation success, cancellation latency, stale-observation error rate</td><td>Did it distinguish retry, compensate, wait, clarify, and stop correctly?</td></tr>
+<tr><td>End to end</td><td>Multi-turn tasks with real or high-fidelity sandboxed adapters</td><td>Task success, user-correction turns, total latency/cost, unnecessary/repeated calls, final-acknowledgement accuracy</td><td>Was the user goal achieved without hidden unsafe or wasteful actions?</td></tr>
+</tbody>
+</table>
+<p>Report micro and macro results plus slices by tool, side-effect severity, catalogue size, schema construct, language, tenant, and failure type, with confidence intervals and paired comparisons. End-to-end task success can hide unsafe extra actions; exact argument match can reject equally valid representations. Keep layer metrics as release gates and use the experimental guidance in <a href="evaluation.html">LLM Evaluation and Benchmark Design</a>.</p>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>hallucinated tool names;</li>
+<li>syntactically valid but semantically wrong arguments;</li>
+<li>units omitted or confused;</li>
+<li>retries duplicate a side effect;</li>
+<li>timeout at one layer exceeds the global deadline;</li>
+<li>tool result trusted as an instruction;</li>
+<li>exception details expose credentials or internal data;</li>
+<li>model claims success after execution failure;</li>
+<li>a large tool catalog creates routing ambiguity.</li>
+</ul>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Design a schema for a calendar-event tool.</li>
+<li>Compare JSON mode, finite-state masking, and parser-guided decoding.</li>
+<li>Explain why schema-constrained JSON is not enough.</li>
+<li>Make an email-send operation safe under retry.</li>
+<li>Design cancellation and stale-observation handling for an asynchronous export.</li>
+<li>Design error classes and recovery behavior for a retrieval API.</li>
+<li>Evaluate a tool-using model beyond final-answer quality.</li>
+<li>Explain where authorization belongs.</li>
+</ol>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="agents.html">Agents, Orchestration and Agent Evaluation</a></li>
+<li><a href="security.html">LLM Security, Prompt Injection and Data Leakage</a></li>
+<li><a href="rag.html">Retrieval-Augmented Generation</a></li>
+<li><a href="evaluation.html">LLM Evaluation and Benchmark Design</a></li>
+</ul>
+</section>

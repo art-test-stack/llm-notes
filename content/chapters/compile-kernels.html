@@ -1,0 +1,179 @@
+<section class="chapter-content" data-topic="compile-kernels">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to separate algorithmic complexity from hardware execution, explain <code>torch.compile</code> and graph breaks, reason about GPU memory hierarchy and arithmetic intensity, describe FlashAttention's IO-aware schedule, and design correct benchmarks for backend dispatch.</p>
+<h2 id="roofline-reasoning">Roofline reasoning</h2>
+<p>The roofline model compares a device's peak compute rate <code class="math-inline">P</code> (FLOP/s) with peak memory bandwidth <code class="math-inline">B</code> (byte/s). For arithmetic intensity <code class="math-inline">I = FLOPs / HBM \text{bytes}</code>, the optimistic performance ceiling is <code>min(P, B × I)</code>. The ridge point is <code>P / B</code> FLOP/byte:</p>
+<ul>
+<li>below the ridge, HBM traffic sets the ceiling, so the workload is bandwidth-bound;</li>
+<li>above the ridge, arithmetic throughput sets the ceiling, so it is compute-bound;</li>
+<li>for tiny kernels, neither roof may be reached because Python, dispatch, or GPU launch latency dominates.</li>
+</ul>
+<p><strong>Numerical example.</strong> Suppose a GPU sustains at most 90 TFLOP/s and 3 TB/s of HBM bandwidth. Its ridge point is <code class="math-inline">90 / 3 = 30 FLOP/\text{byte}</code>. A kernel doing 12 TFLOP while moving 2 TB has intensity <code>6 FLOP/byte</code>, so its bandwidth roof is <code class="math-inline">3 \times  6 = 18 TFLOP/s</code>, below the 90-TFLOP compute roof. The compute-time floor is <code class="math-inline">12 / 90 = 0.133 s</code>; the memory-time floor is <code class="math-inline">2 / 3 = 0.667 s</code>. It is bandwidth-bound, and removing HBM traffic can help far more than removing arithmetic. If the same work is split into thousands of micro-kernels whose useful work lasts less than a launch, it can instead be launch-latency-bound.</p>
+<p>This is a bound, not a prediction: instruction mix, cache hit rate, imperfect coalescing, occupancy, synchronization, and unsupported tensor-core shapes lower the achieved rate.</p>
+<h2 id="gpu-execution-model">GPU execution model</h2>
+<p>A CUDA kernel launches a grid of blocks. Each block contains threads; hardware schedules threads in warps (normally 32 lanes) onto streaming multiprocessors (SMs). Threads in a block can synchronize and exchange values through shared memory. Blocks are independent and may execute in any order.</p>
+<table>
+<thead><tr><th>Resource</th><th>Scope and performance role</th></tr></thead>
+<tbody>
+<tr><td>Registers</td><td>Private per thread, fastest storage. High register use per thread can reduce the number of resident warps or spill values into local memory.</td></tr>
+<tr><td>Shared memory</td><td>On-chip, shared by a block. It enables tiling and reuse, but allocation per block limits residency. Simultaneous accesses to one bank serialize unless they are a supported broadcast.</td></tr>
+<tr><td>L2</td><td>Device-wide cache that can reuse data across SMs and reduce HBM transactions.</td></tr>
+<tr><td>HBM</td><td>Large off-chip memory. It has high aggregate bandwidth but much higher latency than on-chip storage.</td></tr>
+</tbody>
+</table>
+<p><strong>Occupancy</strong> is the fraction of the hardware's maximum active warps resident on an SM. Block size, registers per thread, shared memory per block, and architectural limits determine it. More occupancy can hide memory latency, but maximum occupancy is not the goal if a lower-occupancy kernel gets more reuse or does less work. Register pressure is therefore a fusion constraint, not merely a compiler statistic.</p>
+<p><strong>Memory coalescing</strong> means adjacent warp lanes access adjacent, suitably aligned addresses so hardware can serve them with few memory transactions. A transposed or strided access can multiply transactions. In shared memory, choose layouts or padding that spread simultaneous lane accesses across banks; otherwise bank conflicts serialize the warp.</p>
+<h2 id="pytorch-compilation-stack">PyTorch compilation stack</h2>
+<ol>
+<li><strong>TorchDynamo capture.</strong> Dynamo intercepts Python frames, symbolically executes Python bytecode, and records supported tensor work as one or more FX graphs while preserving eager Python semantics around them.</li>
+<li><strong>Guards.</strong> Capture emits predicates on facts assumed by the graph: Python object identity or type, tensor dtype/device/rank, sizes and strides, aliasing, global state, and sometimes value or shape relationships. At a later call, passing guards reuses the compiled specialization; failing guards sends the call through capture again.</li>
+<li><strong>Graph breaks.</strong> When Dynamo cannot safely represent an operation, it closes the current graph, runs that portion in Python/eager mode, and resumes capture afterward. This is correct but loses optimization scope and adds dispatch boundaries.</li>
+<li><strong>Functionalization and AOTAutograd.</strong> The captured region is expressed in a functional form: mutations and view/in-place relationships are rewritten into explicit, compiler-visible operations where possible. AOTAutograd traces ahead of time through autograd, decomposes composite operators, and produces compiler-friendly forward and backward graphs plus the saved values connecting them. In inference there is no backward graph.</li>
+<li><strong>Inductor optimization.</strong> Inductor schedules loops, propagates layouts, fuses compatible producer/consumer operations, plans buffers, and selects or generates implementations.</li>
+<li><strong>Lowering.</strong> GPU pointwise/reduction/fused regions commonly become Triton kernels; library-quality matrix operations may dispatch to tuned CUDA libraries or generated CUDA/C++ code. CPU regions use a CPU lowering instead.</li>
+<li><strong>Cache and execution.</strong> Generated artifacts are cached using code, guards/specialization, compiler configuration, and target information. In-memory and persistent caches can avoid repeated code generation, but the first call still includes capture/compile work unless an artifact is reusable.</li>
+</ol>
+<p><strong>Dynamic shapes.</strong> A symbolic dimension lets one compiled graph cover a range of sizes, with guards such as divisibility or bounds. It is not “no specialization”: a new rank, stride pattern, branch outcome, or violated symbolic constraint can still fail a guard. PyTorch may first specialize and then generalize a dimension after observing variation. Too many distinct specializations cause recompilation churn; forcing everything dynamic can also prevent aggressive optimization. Measure the actual production shape distribution.</p>
+<h3 id="graph-break-diagnosis">Graph-break diagnosis</h3>
+<p>Typical causes are Python side effects (I/O, global or container updates), tensor-data-dependent Python control flow, unsupported operators or custom extensions, tensor-to-Python conversions such as <code>.item()</code>, and mutations whose aliasing cannot be functionalized safely. Shape-dependent Python branches and incompatible strides often appear as guard failures and recompilations rather than an explicit break. Tensor in-place operations are not automatically fatal—functionalization can handle many of them—but observable Python mutation is much harder.</p>
+<p>Use <code>torch._dynamo.explain(fn)(*args)</code> to inspect captured graphs, break locations, reasons, operations, and guards. Run with focused logs such as:</p>
+<pre><code class="language-bash">TORCH_LOGS="graph_breaks,recompiles,guards,dynamic" python workload.py
+</code></pre>
+<p><code>graph_breaks</code> identifies the unsupported boundary; <code>recompiles</code> reports which guard failed; <code>guards</code> shows the assumptions; and <code>dynamic</code> helps explain symbolic-shape decisions. Temporarily use <code>fullgraph=True</code> to fail at the first break instead of silently producing multiple graphs. Reduce the input to the reported frame, then decide whether to tensorize the control flow, move side effects outside the compiled function, add operator support, or accept the break. Do not “fix” a break by changing semantics.</p>
+<h2 id="kernel-fusion">Kernel fusion</h2>
+<p>Separate kernels write intermediates to HBM, launch again, and read them back. Fusion can remove those round trips, pay fewer launches, and reuse values in registers or shared memory. Examples:</p>
+<ul>
+<li><strong>RMSNorm:</strong> load a row once, accumulate the sum of squares, normalize, multiply by the weight, and write once instead of materializing squared or normalized intermediates.</li>
+<li><strong>Activation:</strong> combine bias, GELU/SiLU, gating, dropout, or residual addition when their semantics and layouts permit.</li>
+<li><strong>Optimizer:</strong> update momentum, variance, weight decay, and parameters in one pass rather than streaming every state tensor through several launches.</li>
+<li><strong>Attention:</strong> fuse score scaling, masking, softmax, dropout, and value accumulation inside a tiled schedule instead of storing the score and probability matrices.</li>
+</ul>
+<p>Fusion stops helping when a large live set raises register pressure enough to spill or reduce occupancy, when shared-memory use reduces resident blocks, when required synchronization grows, or when variable shapes/layouts prevent one good schedule. Fusion can also duplicate work or block calls to a better vendor kernel. A larger fused kernel is not automatically faster.</p>
+<h2 id="flashattention">FlashAttention</h2>
+<p>For each Q tile, FlashAttention streams K and V tiles into registers/shared memory, computes one score tile, applies scale and masks, and immediately accumulates its contribution to the output. It never writes the full <code>[query length, key length]</code> score or probability matrices to HBM.</p>
+<h3 id="online-softmax">Online-softmax state</h3>
+<p>For one query row, after processing some key tiles, keep three states: running maximum <code>m</code>, normalization sum <code class="math-inline">l = \sum  \operatorname{exp}(\text{score} - m)</code>, and unnormalized value numerator <code class="math-inline">p = \sum  \operatorname{exp}(\text{score} - m) \times  v</code>. For the next tile, compute its local maximum <code>m_b</code>, local sum <code>l_b</code>, and local numerator <code>p_b</code>. Then:</p>
+<div class="math-display">m_new = max(m, m_b)
+l_new = exp(m - m_new) * l + exp(m_b - m_new) * l_b
+p_new = exp(m - m_new) * p + exp(m_b - m_new) * p_b
+output = p_new / l_new
+</div>
+<p>The exponentials rescale both the previous partial result and the new tile into the new maximum's coordinate system. This is the same stable softmax that would subtract the global row maximum; tiles can therefore arrive incrementally without materializing all scores. If an implementation stores a normalized partial output instead of <code>p</code>, it equivalently rescales that output by the old sum and maximum before mixing in the new tile.</p>
+<p>Causal masking is applied to each score tile before its maximum and sum: future positions behave as <code class="math-inline">-\infty</code>, and boundary tiles use per-element masks. Padding and fully masked rows need explicitly defined semantics to avoid <code class="math-inline">-\infty  - -\infty</code> and NaNs.</p>
+<p>In backward, implementations commonly save compact per-row softmax statistics and recompute score/probability tiles from Q and K rather than saving an <code class="math-inline">O(T^{2})</code> matrix. This spends extra arithmetic to remove large activation reads and writes.</p>
+<p>FlashAttention remains exact dense attention up to floating-point ordering. It still forms every valid Q–K interaction and applies every probability to V, so the main arithmetic remains <code class="math-inline">O(T^{2}d)</code>. Its advantage is IO: the two dense <code class="math-inline">O(T^{2})</code> HBM materializations disappear, while K/V tiles are reused on chip during each scheduled Q tile. Q/K/V may still be reread across tiles, so the claim is reduced HBM traffic—not linear-time dense attention.</p>
+<h2 id="triton-custom-kernel-design">Triton and custom-kernel design</h2>
+<p>A Triton program instance is selected by <code>tl.program_id(axis)</code> and usually owns a tile rather than one scalar. The grid maps program IDs to rows or multidimensional tiles; block shapes determine vector width, locality, number of warps, register use, and masked tail work.</p>
+<pre><code class="language-python">@triton.jit
+def rmsnorm_fwd(x, weight, y, n_cols: tl.constexpr,
+                BLOCK: tl.constexpr):
+    row = tl.program_id(0)
+    cols = tl.arange(0, BLOCK)
+    mask = cols &lt; n_cols
+    x_row = x + row * n_cols
+    v = tl.load(x_row + cols, mask=mask, other=0.0).to(tl.float32)
+    mean_square = tl.sum(v * v, axis=0) / n_cols
+    inv_rms = tl.rsqrt(mean_square + 1e-6)
+    w = tl.load(weight + cols, mask=mask, other=0.0)
+    tl.store(y + row * n_cols + cols, v * inv_rms * w, mask=mask)
+
+# grid = (number_of_rows,); autotune BLOCK and num_warps
+</code></pre>
+<p>This structure uses contiguous offsets so lanes issue vectorized/coalesced loads. Masks make a power-of-two block safe for tail columns. Real kernels must state layout, alignment, contiguity, dtype, and maximum-size assumptions; otherwise a “fast path” needs a checked fallback or stride-aware addressing.</p>
+<p>Autotune a small candidate set of block shapes and warp counts on representative sizes, not the benchmark case alone. Reductions should accumulate in an appropriate higher precision, subtract a maximum for exponentials, define empty/all-masked behavior, and match the reference's rounding contract. Training support also means a backward kernel or a composition whose autograd is correct; validate gradients, saved tensors, non-contiguous layouts, and higher-order-gradient expectations before replacing a native operator.</p>
+<h2 id="cuda-graphs-and-inference">CUDA graphs and inference</h2>
+<p>CUDA Graphs record a warmed-up sequence of GPU work and replay it with very low CPU launch overhead. Capture requires capture-safe operations, fixed control flow, and no forbidden synchronization or allocation inside the captured region. Replays expect the same kernel topology, compatible shapes, and stable device memory addresses, so applications usually allocate static input/output buffers, copy new data into them, and keep model/KV-cache storage at fixed addresses.</p>
+<p>This works well for repeated inference shapes but conflicts with unrestricted dynamic batching. Common compromises are padding to a small set of shape/batch buckets, keeping one graph per bucket, or using eager execution for rare shapes. Bucket proliferation consumes memory and warm-up time; request arrivals may also make waiting to fill a graph-compatible batch worse than the launch time saved. See <a href="inference.html">LLM Inference Optimization</a> and <a href="serving.html">LLM Serving and Request Scheduling</a>.</p>
+<h2 id="backend-abstraction-the implementation project">Backend abstraction: the implementation project</h2>
+<p>The the implementation project contribution uses a backend registry/configuration layer to select SDPA or optional FlashAttention implementations while preserving fallback behavior. Dispatch is a capability decision for the current call, not merely a preference string or successful import. A robust decision order is:</p>
+<ol>
+<li>detect device and compute capability;</li>
+<li>check whether the optional package and required symbols loaded successfully;</li>
+<li>validate dtype, head dimension, shape, stride, and layout support;</li>
+<li>validate attention semantics: causal versus arbitrary mask, padding behavior, dropout, and scale;</li>
+<li>validate head mapping for MHA, MQA, or GQA, including divisibility of query heads by key/value heads;</li>
+<li>select a path compatible with training/eval mode and backward requirements;</li>
+<li>otherwise choose a deterministic, documented fallback whose semantics match.</li>
+</ol>
+<p>The support matrix must account for:</p>
+<ul>
+<li>optional imports and package availability;</li>
+<li>CPU/MPS/unsupported CUDA behavior;</li>
+<li>compute capability and supported dtypes;</li>
+<li>Q/K/V layout and contiguity;</li>
+<li>causal and padding-mask semantics;</li>
+<li>GQA/MQA head counts;</li>
+<li>dropout and training/eval behavior;</li>
+<li>numerical tolerance;</li>
+<li>deterministic fallback and error messages.</li>
+</ul>
+<p>Optional dependency failures should be caught narrowly: a missing package can fall back, while an internal runtime error in a selected backend should not be mislabeled as “not installed.” The fallback order must be stable and observable in logs/tests so two identical calls do not silently choose different numerical kernels. An installed backend is not necessarily usable for the current tensor/device configuration.</p>
+<h2 id="benchmarking-and-profiling">Benchmarking and profiling</h2>
+<p>First prove which path ran, then measure it. A benchmark should record:</p>
+<ul>
+<li>GPU and software versions;</li>
+<li>dtype and accumulation policy;</li>
+<li>batch, heads, head dimension, query/key lengths;</li>
+<li>causal/padding mask pattern;</li>
+<li>warm-up policy and synchronization points;</li>
+<li>forward and backward separately;</li>
+<li>median plus p90/p95/p99 tail latency, not only a mean;</li>
+<li>peak allocated/reserved memory;</li>
+<li>numerical difference from a trusted reference.</li>
+</ul>
+<p>Warm up until compilation, autotuning, allocator growth, lazy library initialization, and caches have settled. Report first-call latency separately from steady-state latency: compilation may be acceptable for a long-lived service but disastrous for a one-shot job. CUDA launches are asynchronous, so plain CPU wall time is wrong unless both boundaries synchronize. Prefer CUDA events recorded on the same stream for GPU elapsed time, then synchronize the ending event before reading it; use an end-to-end wall clock separately when CPU dispatch and queueing are part of the question.</p>
+<p>Benchmark realistic shape and mask distributions, randomized in a controlled order, with enough repetitions to expose tails. Inspect traces in PyTorch Profiler for operator-to-kernel mapping, shapes, CPU launch gaps, and allocation activity. Use Nsight Systems for the CPU/GPU timeline and Nsight Compute for kernel-level memory transactions, occupancy, register spills, achieved bandwidth, and instruction mix. Profiler overhead perturbs timing, so profile representative iterations but time uninstrumented runs.</p>
+<p>Look explicitly for kernel fallback: an expected fused/Flash path may silently become a math kernel because of dtype, shape, mask, or layout. Likewise, a new <code>contiguous()</code>, allocation, or layout conversion can erase the kernel gain. Compare output and gradients against a trusted implementation with dtype-appropriate tolerances; include NaN/Inf, masking, and deterministic behavior rather than checking only average error.</p>
+<h3 id="correctness-checklist">Correctness checklist</h3>
+<ul>
+<li>□ Compare eager/reference and optimized forward outputs over representative and edge shapes.</li>
+<li>□ Compare backward gradients for every differentiable input; run a higher-precision or finite-difference check on a small case.</li>
+<li>□ Cover dtypes, devices, non-contiguous layouts, tail sizes, empty dimensions, and odd head dimensions the contract allows.</li>
+<li>□ Cover causal, padding, fully masked, and GQA/MQA semantics in both training and eval.</li>
+<li>□ Check NaN/Inf behavior, accumulation precision, tolerances, dropout state, and deterministic-mode expectations.</li>
+<li>□ Force every dispatch branch, including missing optional dependency and deterministic fallback.</li>
+</ul>
+<h3 id="benchmark-checklist">Benchmark checklist</h3>
+<ul>
+<li>□ Pin hardware/software versions, clocks or power policy when possible, seed, dtype, and complete shape distribution.</li>
+<li>□ Verify the chosen backend/kernel in logs or a trace before accepting its timing.</li>
+<li>□ Separate cold first call, compilation/autotuning, warm-up, and steady-state replay.</li>
+<li>□ Use CUDA events for device time or synchronize both wall-clock boundaries; never time queued asynchronous work.</li>
+<li>□ Report median and tails with repetition count, plus forward/backward and batch-versus-token latency as relevant.</li>
+<li>□ Record peak allocated/reserved memory and inspect unexpected allocations or layout conversions.</li>
+<li>□ Profile a representative case with PyTorch Profiler/Nsight, then collect final latency without profiler overhead.</li>
+<li>□ Re-run numerical-equivalence checks on the exact configurations included in performance claims.</li>
+</ul>
+<h2 id="optimizer-systems-link">Optimizer systems link</h2>
+<p>Optimizers such as Shampoo, SOAP, or Muon can introduce matrix statistics, decompositions, or distributed synchronization. The mathematical update may look attractive while kernel coverage, communication, and state memory determine practical viability. Fused AdamW is often strong because it maps cleanly to mature kernels.</p>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+<li>timing asynchronous CUDA without synchronization;</li>
+<li>including compile time in some variants but not others;</li>
+<li>graph recompilation on every new shape;</li>
+<li>silent fallback to eager or math kernels;</li>
+<li>layout conversion erasing kernel gains;</li>
+<li>comparing different numerical semantics;</li>
+<li>backend selected solely because import succeeded;</li>
+<li>claiming Hopper performance without testing Hopper hardware;</li>
+<li>optimizing before proving correctness.</li>
+</ul>
+<h2 id="project-honesty-boundary">Project honesty boundary</h2>
+<p>For the implementation project, claim the backend abstraction, compatibility logic, tests, and conceptual understanding that were actually implemented. Do not claim production speedup without measured benchmarks. The PR remained unmerged, and FlashAttention-3 was not personally validated end-to-end on Hopper.</p>
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Explain compute-bound versus bandwidth-bound.</li>
+<li>Describe a graph break and how to diagnose recompilation.</li>
+<li>Explain FlashAttention without saying it reduces dense FLOPs to linear.</li>
+<li>Design backend-equivalence tests.</li>
+<li>Benchmark attention fairly across sequence lengths and masks.</li>
+<li>Explain why a fused kernel may lose from register pressure.</li>
+</ol>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="inference.html">LLM Inference Optimization</a></li>
+<li><a href="distributed-training.html">Distributed LLM Training</a></li>
+<li><a href="serving.html">LLM Serving and Request Scheduling</a></li>
+<li><a href="quantization.html">Quantization, Pruning and Distillation</a></li>
+</ul>
+</section>

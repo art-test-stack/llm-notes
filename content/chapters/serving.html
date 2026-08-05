@@ -1,0 +1,225 @@
+<section class="chapter-content" data-topic="serving">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to trace a request through admission, prefill, decode, preemption, and cleanup; compare scheduling policies against explicit SLOs; explain the full lifecycle of a paged-KV block table; and design benchmarks, autoscaling, and recovery for a production serving fleet.</p>
+<h2 id="request-state-machine">Request state machine</h2>
+<pre><code class="language-text">Queued → Admitted → Prefilling → Decoding → Completed
+   │          │          │            │
+   ├──────────┴──────────┴────────────┼→ Cancelled
+   └──────────────────────────────────┼→ Failed
+                                      │
+                         Preempted ←──┘
+                            │   ├→ Prefilling (recompute)
+                            │   └→ Decoding (KV retained)
+                            └→ Swapped → Decoding
+</code></pre>
+<table>
+<thead><tr><th>State</th><th>Owned resources</th><th>Normal next state</th><th>Scheduler responsibility</th></tr></thead>
+<tbody>
+<tr><td>Queued</td><td>Request metadata and tokens, but no device KV</td><td>Admitted</td><td>Order by policy, estimate token and KV demand, enforce tenant quotas and SLO-aware admission.</td></tr>
+<tr><td>Admitted</td><td>Reserved sequence slot and enough block budget to begin</td><td>Prefilling</td><td>Bind a compatible model/adapter worker and decide whether a cached prefix can be attached.</td></tr>
+<tr><td>Prefilling</td><td>Growing prompt KV and possibly shared prefix blocks</td><td>Decoding</td><td>Choose a prompt chunk that fits the iteration token budget without starving active decodes.</td></tr>
+<tr><td>Decoding</td><td>KV for all processed tokens plus sampler state</td><td>Decoding or Completed</td><td>Grant usually one token per iteration, stream it, test stop conditions, and reserve the next KV slot.</td></tr>
+<tr><td>Preempted</td><td>Metadata; device KV may be retained or released</td><td>Prefilling, Decoding, or Swapped</td><td>Record an exact resume point. Resume from retained KV, recompute a released prefix, or wait for swapped blocks.</td></tr>
+<tr><td>Swapped</td><td>KV block image in CPU or remote memory</td><td>Decoding</td><td>Restore and validate every block before making the request runnable; never decode against a partial transfer.</td></tr>
+<tr><td>Completed</td><td>Final usage and trace metadata only</td><td>Terminal</td><td>Publish final stream event, decrement block refcounts, release private blocks, and retain only eligible reusable prefixes.</td></tr>
+<tr><td>Cancelled</td><td>Cleanup record until acknowledgements finish</td><td>Terminal</td><td>Stop future scheduling immediately, cancel transfers, free KV safely, and close the stream.</td></tr>
+<tr><td>Failed</td><td>Error and cleanup record</td><td>Terminal or explicit retry</td><td>Classify retryability, avoid silent duplicate streams, release resources, and expose the failed stage.</td></tr>
+</tbody>
+</table>
+<p>Transitions are committed by the scheduler, not inferred from kernel completion alone. For example, a prefill kernel can finish while the request remains <em>Prefilling</em> because more prompt chunks remain. Cancellation and failure can occur from every non-terminal state.</p>
+<h3 id="scheduler-iteration">What happens at each scheduler iteration</h3>
+<ol>
+<li>Ingest arrivals, cancellations, completed transfers, and worker failures; finalize completed sequences and release their references.</li>
+<li>Refresh estimates: free KV blocks, runnable tokens, deadlines, waiting age, per-tenant debt, prefix hits, and adapter residency.</li>
+<li>Protect already-streaming work by budgeting decode tokens first, subject to priority and deadline rules.</li>
+<li>Choose queued admissions only when their model/adapter and conservative KV reservation fit; attach compatible cached prefixes.</li>
+<li>Fill the remaining token budget with bounded prefill chunks, rather than allowing one long prompt to monopolize the iteration.</li>
+<li>If the batch still cannot fit, delay admission or select a documented pressure response: evict reusable cache, preempt, recompute, swap, or reject.</li>
+<li>Build model-compatible batches, allocate or restore blocks transactionally, dispatch kernels, then commit state and stream outputs only after success.</li>
+</ol>
+<h2 id="static-versus-continuous-batching">Static versus continuous batching</h2>
+<p>Static batching waits for a fixed group and runs it together. It is simple but suffers when requests have unequal lengths: completed requests leave wasted slots.</p>
+<p>Continuous batching dynamically inserts new requests and removes completed ones between decoding iterations. It improves utilization and throughput but makes scheduling, cache ownership, and per-request state more complex.</p>
+<h2 id="scheduling-policies">Scheduling policies</h2>
+<p>No policy is best without an objective. The scheduler must balance TTFT, TPOT, deadlines, throughput, fairness, cache locality, and uncertain output lengths.</p>
+<table>
+<thead><tr><th>Policy</th><th>Decision rule</th><th>Strength</th><th>Failure mode and mitigation</th></tr></thead>
+<tbody>
+<tr><td>FCFS</td><td>Oldest admitted request runs first.</td><td>Simple, predictable, and naturally fair by arrival time.</td><td>A long prefill causes head-of-line blocking; cap its chunk size.</td></tr>
+<tr><td>Priority scheduling</td><td>Serve the highest service class or explicit priority first.</td><td>Protects interactive or paid traffic during bursts.</td><td>Low classes can starve; combine strict priority with quotas and aging.</td></tr>
+<tr><td>Aging and fairness</td><td>Increase effective priority with wait time; use per-tenant weighted fair queues or token deficits.</td><td>Bounds starvation and prevents one tenant from consuming all capacity.</td><td>Can hurt premium SLOs if weights and age boosts are too aggressive.</td></tr>
+<tr><td>Shortest-job approximation</td><td>Prefer estimated remaining tokens or prompt chunks, using requested maximum, historical route statistics, or a learned estimator.</td><td>Reduces mean completion time and lets short chats escape long jobs.</td><td>Output length is unknown and estimates can be gamed; age old or underestimated jobs.</td></tr>
+<tr><td>Deadline-aware</td><td>Prefer least slack: deadline minus predicted queue, prefill, and decode time.</td><td>Maximizes requests meeting explicit deadlines.</td><td>Hopeless work wastes capacity; reject early or demote when the deadline is infeasible.</td></tr>
+<tr><td>SLO-aware admission</td><td>Admit only if predicted TTFT/TPOT and memory stay inside policy under conservative demand.</td><td>Preserves goodput instead of accepting work that makes every request late.</td><td>Estimator error can underutilize or overload; calibrate online and reserve headroom.</td></tr>
+<tr><td>Decode prioritization</td><td>Give active decodes their one-token steps before new prefill work.</td><td>Keeps streaming TPOT stable and limits user-visible stalls.</td><td>Heavy decode occupancy can starve new TTFT; reserve a bounded prefill budget.</td></tr>
+<tr><td>Chunked-prefill scheduling</td><td>Split prompts into token-budgeted chunks and interleave them with decode steps.</td><td>Controls head-of-line blocking while still progressing long prompts.</td><td>Small chunks add launch/scheduling overhead; tune chunk size from saturation tests.</td></tr>
+</tbody>
+</table>
+<p>A practical policy is hierarchical: enforce tenant quotas, reject infeasible SLOs, prioritize due decodes, age waiters within each class, and fill leftover tokens with prefill chunks. Batch compatibility remains a hard constraint after ranking.</p>
+<h3 id="mixed-scheduling-scenario">Detailed mixed scheduling scenario</h3>
+<p>Assume each iteration can process 2,048 token positions. Three chats—D1, D2, and D3—are already decoding and each needs one position per step. A 32k-token document request P arrives first, then two short 256-token prompts S1 and S2 arrive. P has batch priority 1; the interactive requests have priority 2. The scheduler uses decode-first service, 1,024-token prefill chunks, aging, and an 80 ms TPOT SLO.</p>
+<table>
+<thead><tr><th>Iteration</th><th>Runnable state</th><th>Decision</th><th>Reason and transition</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>D1–D3 Decoding; P Queued</td><td>Schedule 3 decode positions, admit P, and prefill P tokens 0–1,023.</td><td>Decodes meet TPOT first; P moves Queued → Admitted → Prefilling. Its first logical KV blocks are allocated.</td></tr>
+<tr><td>1</td><td>D1–D3 Decoding; P Prefilling; S1/S2 Queued</td><td>Schedule 3 decodes, admit S1/S2, prefill both 256-token prompts, then give the remaining 1,533 positions to a bounded P chunk only up to the configured 1,024.</td><td>Priority and shortest-job approximation give S1/S2 low TTFT. Unused budget is intentional when the chunk cap protects latency variance.</td></tr>
+<tr><td>2</td><td>D1–D3, S1, S2 Decoding; P Prefilling</td><td>Schedule 5 decode positions, then another 1,024-token P chunk.</td><td>S1/S2 stream immediately. P advances without blocking active streams.</td></tr>
+<tr><td>3–10</td><td>Short requests finish over time; P Prefilling</td><td>Release completed short-request blocks after final stream acknowledgements; keep decoding survivors before each P chunk.</td><td>Freed blocks return to the allocator. P’s age raises its effective rank, but it still cannot consume the decode reserve.</td></tr>
+<tr><td>Pressure event</td><td>A burst leaves only two free KV blocks</td><td>Stop new admissions, evict unreferenced reusable prefixes, and continue due decodes. Do not evict live shared blocks.</td><td>If still short, preempt P at a committed chunk boundary and recompute it later; short active streams retain stable TPOT.</td></tr>
+<tr><td>Resume</td><td>Chats complete and memory returns</td><td>Age-boost P, make its next chunk runnable, reconstruct any released P KV from its token boundary, finish prefill, then move P to Decoding.</td><td>Recompute costs latency but preserves exact tokens and block ownership; the transition is Preempted → Prefilling → Decoding.</td></tr>
+</tbody>
+</table>
+<p>FCFS would have allowed P to dominate the queue; strict shortest-job-first could starve P indefinitely; strict decode-first could starve all new prompts. The hybrid policy makes those trade-offs explicit and measurable.</p>
+<h2 id="paged-kv-allocator">Paged-KV allocator</h2>
+<p>Paged attention stores keys and values in fixed-size physical blocks. If a block holds <var>B</var> token positions, logical token <var>t</var> maps to logical block <code>floor(t/B)</code> and offset <code>t mod B</code>; the per-sequence block table maps that logical block to a physical block ID.</p>
+<ul>
+<li><strong>Block size:</strong> smaller blocks reduce waste and make eviction granular but enlarge block tables and allocator/kernel overhead. Larger blocks improve locality but waste more tail space.</li>
+<li><strong>Internal fragmentation:</strong> only the last block is normally partial. Waste is between zero and <var>B − 1</var> token slots per live sequence, plus padding imposed by the kernel.</li>
+<li><strong>Refcounts:</strong> each physical block records live sequence references and reusable-cache ownership. A block returns to the free list only at refcount zero and after in-flight kernels or transfers release it.</li>
+<li><strong>Prefix sharing:</strong> exact token prefixes may reference the same immutable full blocks when model version, adapter, tokenizer/chat template, positional semantics, and relevant inference settings match.</li>
+<li><strong>Copy-on-write:</strong> a shared partial tail cannot be appended in place. Allocate a private block, copy the valid entries, update only the writer’s table, then decrement the old reference.</li>
+<li><strong>Isolation:</strong> block handles are scoped to worker, model version, and tenant policy; generation counters prevent stale IDs from resolving to reallocated memory. Kernels receive validated per-request tables, never raw cross-tenant cache keys.</li>
+</ul>
+<h3 id="block-table-lifecycle">Block-table lifecycle</h3>
+<ol>
+<li><strong>Create:</strong> on admission, create an empty table under the request identity. A prefix lookup may attach physical blocks 41 and 87, incrementing each refcount from 1 to 2.</li>
+<li><strong>Grow:</strong> prefill needs another logical block. Reserve physical block 12 first, run the kernel, and publish <code>L2 → P12</code> only after success. A failed kernel rolls back the reservation without exposing a half-written block.</li>
+<li><strong>Fork/share:</strong> two samples can share immutable full blocks. Their block tables point to the same physical IDs and increment refcounts.</li>
+<li><strong>Copy on write:</strong> one sample appends into a shared partial block. It copies valid KV to P19, changes only its last table entry to P19, and decrements the shared block.</li>
+<li><strong>Preempt or swap:</strong> freeze the table at a committed token index. Recompute discards private block references; swapping serializes block contents plus model/version and position metadata, then frees device references after transfer acknowledgement.</li>
+<li><strong>Finish:</strong> remove the request table and decrement every reference. Eligible full prefix blocks may remain under a cache-owned reference; private and ineligible blocks return to the free list.</li>
+<li><strong>Evict:</strong> select an unpinned reusable prefix, remove its cache index entry first, wait for lookup readers, decrement its cache references, and recycle only zero-refcount blocks. Live request references remain valid.</li>
+</ol>
+<p>The table is correctness- and security-critical: a valid tensor shape does not prove that a physical block belongs to the right token position, model, adapter, or tenant.</p>
+<h2 id="memory-pressure">Memory-pressure responses</h2>
+<table>
+<thead><tr><th>Response</th><th>Latency and capacity cost</th><th>Correctness requirements</th><th>Best fit</th></tr></thead>
+<tbody>
+<tr><td>Reject</td><td>Lowest system cost; caller receives overload immediately.</td><td>Return an explicit retryable status before generating output; preserve idempotency metadata.</td><td>Infeasible deadlines, hard tenant quotas, or no safe headroom.</td></tr>
+<tr><td>Delay admission</td><td>Adds queueing and TTFT but leaves live KV untouched.</td><td>Bound queue age/size, honor cancellation, and include queue delay in reported latency.</td><td>Short bursts likely to clear before the SLO expires.</td></tr>
+<tr><td>Recompute</td><td>Saves memory and transfer bandwidth but repeats prefill compute.</td><td>Resume from exact tokens, model/adapter version, RNG/sampler state, and committed position; never reconstruct from rendered text.</td><td>Compute is cheaper than moving KV or the preempted prefix is short.</td></tr>
+<tr><td>CPU swap</td><td>Consumes host memory and PCIe/NVLink bandwidth; restoration stalls the request.</td><td>Transfer blocks atomically with checksums/version metadata; do not free device KV until the copy is acknowledged.</td><td>Long KV worth preserving and adequate host bandwidth exists.</td></tr>
+<tr><td>Remote KV transfer</td><td>Highest latency and network cost; can free an unhealthy worker or cross pools.</td><td>Authenticate and encrypt transfer, validate layout/version, and handle partial copies as unusable.</td><td>Disaggregated serving, worker evacuation, or scarce local host memory.</td></tr>
+<tr><td>Evict reusable prefixes</td><td>Immediate capacity with future cache-miss and prefill cost.</td><td>Evict only cache ownership; refcounted blocks used by live requests stay resident.</td><td>First pressure response when cache entries are cold and unpinned.</td></tr>
+</tbody>
+</table>
+<p>A common order is: stop admission, reclaim completed/private allocations, evict cold reusable prefixes, then choose recompute or swap for preemptible requests. Reject before risking OOM. Cost policies may differ, but no policy may expose stale, cross-request, or partially transferred KV.</p>
+<h3 id="worker-cache-pressure-recovery">Worker and cache-pressure recovery sequence</h3>
+<ol>
+<li>A decode worker reports a high-watermark alarm and misses health probes while it owns 20 live streams and several reusable prefixes.</li>
+<li>The router marks it <em>draining/unhealthy</em>: no new admissions. The scheduler stops dispatch after the last acknowledged token boundary and propagates cancellations separately.</li>
+<li>Cold, zero-live-reference prefix entries are evicted first. Cache index entries are invalidated before their cache refcounts are released.</li>
+<li>For recoverable live requests, the control plane snapshots request tokens, committed output index, sampler/RNG state, block-table metadata, model/adapter version, and the last acknowledged stream sequence number.</li>
+<li>Long KV states are transferred to a compatible worker if the source remains responsive; each destination validates all blocks before publishing the new table. Short states are recomputed from tokens when that is faster.</li>
+<li>If transfer is partial or the worker dies, discard the incomplete destination table. Recompute only requests whose API contract permits a resumable retry; otherwise terminate with an explicit partial-stream failure.</li>
+<li>The router resumes at the next sequence number, suppresses duplicate tokens already acknowledged, and keeps the old worker quarantined until its leases expire. Metrics record recovery path, lost work, and SLO impact.</li>
+</ol>
+<h2 id="prefill-decode-disaggregation">Prefill/decode disaggregation</h2>
+<p>Disaggregation specializes workers: prefill workers favor high compute throughput on wide prompt batches, while decode workers favor memory bandwidth, low iteration jitter, and stable streaming. A router sends the prompt to a compatible prefill pool, then hands its KV and request state to a decode pool.</p>
+<ul>
+<li><strong>KV transfer:</strong> move or expose KV blocks with layout, dtype, model/version, adapter, position, and integrity metadata. The destination publishes the request only when every block is ready.</li>
+<li><strong>Routing:</strong> choose pools with matching model and adapter residency, enough destination memory, predicted transfer time, and end-to-end SLO slack.</li>
+<li><strong>Queue coupling:</strong> prefill admission must account for downstream decode capacity. Otherwise prefills complete faster than decode can drain, filling transfer buffers and KV memory.</li>
+<li><strong>Fault recovery:</strong> retain tokens and a committed handoff record until decode acknowledges ownership. Retry prefill or transfer only under a request contract that prevents duplicate streamed output.</li>
+</ul>
+<p>Disaggregation loses when prompts are short, outputs are short, transfer latency rivals compute, the interconnect is congested, model/adapter diversity destroys locality, traffic is too small to fill specialized pools, or separate pools strand capacity. Colocation is often better for small balanced workloads.</p>
+<h2 id="multi-model-adapter-serving">Multi-model and multi-adapter serving</h2>
+<ul>
+<li><strong>Compatible batching:</strong> a kernel batch normally shares base model, weights/version, tensor layout, KV dtype, and execution path. Requests with different LoRA adapters can batch only when the runtime’s multi-adapter kernel supports it; otherwise group by adapter.</li>
+<li><strong>LoRA adapter cache:</strong> keep hot adapters in device memory and colder adapters in CPU/storage tiers. Track bytes, load latency, frequency, recency, pinning, and in-flight references rather than treating every adapter as equal.</li>
+<li><strong>Model-version routing:</strong> make the version part of the route and cache key. Sticky routing can preserve prefix and adapter locality; canaries need explicit weights and isolated metrics. Never silently continue a sequence on different weights.</li>
+<li><strong>Loading and eviction:</strong> coalesce concurrent loads for the same adapter, verify identity/checksum, then atomically publish it. Evict only adapters with no in-flight users; otherwise route elsewhere or delay admission. Reserve memory so adapter loading cannot consume the live-KV safety margin.</li>
+</ul>
+<h2 id="benchmark-methodology">Benchmark methodology</h2>
+<h3 id="open-closed-loop">Open-loop versus closed-loop load</h3>
+<p>An <strong>open-loop</strong> generator schedules arrivals independently of completions, commonly with Poisson arrivals or a replayed production trace. It exposes queue growth and overload because slow responses do not reduce offered load. A <strong>closed-loop</strong> generator sends the next request only after a client’s previous request completes; it models interactive users but self-throttles under latency and can conceal saturation. Report both offered and achieved rates.</p>
+<h3 id="open-loop-design">Concrete open-loop benchmark design</h3>
+<ol>
+<li>Build a deterministic request corpus with production-like correlations among prompt length, output limit, actual output length, model/adapter, priority, cacheable prefix, and cancellation rate. Include short chat, medium retrieval, and long-document tails; do not use one fixed length.</li>
+<li>Warm every replica through model loading, graph/kernel compilation, allocator growth, and a declared adapter/prefix-cache state. Measure both cold-start separately and steady-state after warm-up.</li>
+<li>For each offered rate, generate arrivals from a fixed-seed Poisson process for at least 10 minutes after warm-up. Timestamp arrivals at the generator before queueing and consume streams without artificial backpressure.</li>
+<li>Sweep from light load through saturation—for example 20%, 40%, 60%, 80%, 90%, 100%, 110%, and 130% of a pilot capacity—without changing prompt/output distributions between points.</li>
+<li>Record request-level TTFT, TPOT, end-to-end latency, status, deadline, tokens, queue time, prefix hit, preemptions, swaps, worker, model/adapter, and cancellation. Record allocator, queue, transfer, and GPU metrics at the same time.</li>
+<li>Plot offered request/s and token/s against achieved throughput, p50/p95/p99 TTFT and TPOT, queue depth, rejection/error rate, and goodput. Saturation is where queues/tails grow without proportional completed throughput—not merely where GPU utilization reaches 100%.</li>
+</ol>
+<h3 id="metrics">Latency and capacity metrics</h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TTFT</td>
+<td>arrival to first output token; queueing plus prefill</td>
+</tr>
+<tr>
+<td>Inter-token latency / TPOT</td>
+<td>delay between streamed tokens</td>
+</tr>
+<tr>
+<td>End-to-end latency</td>
+<td>arrival to completed response</td>
+</tr>
+<tr>
+<td>Tokens/s and requests/s</td>
+<td>raw capacity</td>
+</tr>
+<tr>
+<td>Goodput</td>
+<td>completed requests or output tokens per second satisfying all declared SLOs; late successes do not count</td>
+</tr>
+<tr>
+<td>Cache occupancy</td>
+<td>active KV memory and fragmentation</td>
+</tr>
+<tr>
+<td>p95/p99 latency</td>
+<td>tail behavior under contention</td>
+</tr>
+</tbody>
+</table>
+<p>Report p50 for the typical experience, p95 for common tail contention, and p99 for rare stalls. Define whether TPOT is the mean per request or a percentile over token gaps, and report timeouts/cancellations separately rather than deleting them. High GPU utilization is diagnostic, not the final objective.</p>
+<h2 id="production-operation">Production operation</h2>
+<h3 id="autoscaling">Autoscaling</h3>
+<p>Scale from demand signals that lead user-visible latency: queued prefill tokens, active decode sequences, predicted KV bytes, deadline slack, adapter/model demand, and goodput—not GPU utilization alone. Use separate signals for prefill and decode pools. Scale out early enough to cover model and adapter load time; cap admission while new replicas warm. Scale in only after a stabilization window and drain replicas before removal.</p>
+<h3 id="health-draining-retries">Health checks, draining, and retries</h3>
+<ul>
+<li><strong>Health checks:</strong> distinguish liveness from readiness. Readiness requires loaded weights, allocator headroom, responsive scheduler iterations, healthy collective/network links, and no incompatible version state.</li>
+<li><strong>Replica draining:</strong> stop new admissions, allow bounded active work to finish, migrate or recompute eligible requests, expire cache leases, and force termination only after a deadline. Keep the route registered for existing stream ownership until handoff completes.</li>
+<li><strong>Streaming retries:</strong> before the first token, a retry can be transparent if request idempotency is preserved. After tokens are visible, retry only with sequence-numbered resumability or return an explicit partial failure; a fresh blind retry can duplicate or diverge text.</li>
+<li><strong>Partial failures:</strong> treat incomplete KV transfers, one failed tensor-parallel rank, sampler failure, and broken client streams as distinct stages. Quarantine suspect resources and make the whole distributed step fail atomically.</li>
+<li><strong>Cancellation:</strong> propagate from gateway to queue, scheduler, kernels where supported, transfer tasks, and stream writer. Release blocks only after in-flight users acknowledge; measure cancellation-to-release lag.</li>
+</ul>
+<h3 id="trace-observability">Trace-level observability</h3>
+<p>Give each request one trace across gateway, admission, queue, tokenizer, prefix lookup, adapter/model load, every prefill chunk, decode iterations, KV allocation/swap/transfer, sampling, and streaming. Spans should carry request/tenant pseudonymous IDs, model and adapter versions, priority, state transitions, logical token counts, queue reason, worker, batch size, block counts, cache outcome, preemption/retry count, stream sequence number, and SLO slack. Do not record raw prompts, generated text, credentials, or cross-tenant cache keys by default.</p>
+<h2 id="failure-modes">Failure modes and review checklist</h2>
+<ul>
+<li>head-of-line blocking by long prefills;</li>
+<li>fragmentation or block-table corruption;</li>
+<li>burst admission causing OOM;</li>
+<li>starvation of low-priority or long requests;</li>
+<li>prefix reuse across incompatible model/adapters;</li>
+<li>queueing hidden from benchmark reports;</li>
+<li>peak throughput measured with unrealistic equal lengths;</li>
+<li>retrying streamed requests without idempotent semantics.</li>
+<li>prefill/decode queues scaled independently until completed KV has nowhere to go;</li>
+<li>adapter eviction while an in-flight batch still references its weights;</li>
+<li>autoscaling on utilization after queueing and goodput have already collapsed.</li>
+</ul>
+<h2 id="peer-programming-scenario">Peer-programming scenario</h2>
+<p>Extend the mixed scenario above to one 64k-token document and 100 short chats. Specify the arrival model, TTFT/TPOT SLOs, per-iteration token budget, chunk size, aging rule, KV block size and high-watermark action. Then explain exactly when the document moves through Prefilling, Preempted, Swapped or recomputed, and Decoding. A strong answer defines the objective and correctness boundary before choosing a policy.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><a href="inference.html">LLM Inference: Prefill, Decode and KV Cache</a></li>
+</ul>
+<h2 id="natural-next-topics">Natural next topics</h2>
+<ul>
+<li><a href="distributed-inference.html">Distributed LLM Inference</a></li>
+<li><a href="speculative-decoding.html">Speculative Decoding and Inference Acceleration</a></li>
+<li><a href="quantization.html">Quantization, Pruning and Distillation</a></li>
+<li><a href="security.html">AI Security</a> — tenant isolation, cache-key confidentiality, authenticated KV transfer, and safe tracing.</li>
+</ul>
+</section>

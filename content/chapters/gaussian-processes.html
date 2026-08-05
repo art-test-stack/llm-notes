@@ -1,0 +1,225 @@
+<section class="chapter-content" data-topic="gaussian-processes">
+<p>A Gaussian process (GP) is a probability distribution over functions. It combines a prior encoded by a kernel with observed data to produce predictions and input-dependent uncertainty. Exact inference is analytic for Gaussian regression likelihoods; the main costs are dense linear algebra and choosing a kernel whose assumptions match the problem.</p>
+<table>
+<thead><tr><th>Field</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Track</td><td>Probabilistic modelling</td></tr>
+<tr><td>Core use</td><td>Regression, uncertainty quantification, structured prediction</td></tr>
+<tr><td>Key assumption</td><td>Function values have jointly Gaussian finite-dimensional marginals</td></tr>
+<tr><td>Exact-regression cost</td><td><code class="math-inline">O(n^{3})</code> time and <code class="math-inline">O(n^{2})</code> storage</td></tr>
+</tbody>
+</table>
+
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to define a GP as a function-space prior, design and combine kernels, derive the exact regression posterior, implement it stably with Cholesky solves, explain marginal-likelihood model selection, compare exact and sparse inference, and evaluate both prediction error and uncertainty calibration.</p>
+
+<h2 id="function-space-prior">1. Function-space prior</h2>
+<p>A GP is written</p>
+<div class="math-display">f ~ GP(m, k)
+m(x)     = E[f(x)]
+k(x, x&#x27;) = Cov(f(x), f(x&#x27;))
+</div>
+<p>The <strong>mean function</strong> is the prior expected output at each input. A zero mean is common after centering the targets, but a parametric trend can be placed in <code>m(x)</code> when domain knowledge supports it. The <strong>kernel</strong>, or covariance function, controls which inputs should have correlated function values, how smooth sampled functions are, and how uncertainty changes away from data.</p>
+<p>The definition is finite-dimensional: for every set of inputs <code class="math-inline">X = (x_{1}, \ldots , x_{n})</code>,</p>
+<div class="math-display">f_X = [f(x₁), …, f(xₙ)]ᵀ ~ N(m_X, K_XX)
+(m_X)ᵢ = m(xᵢ),        (K_XX)ᵢⱼ = k(xᵢ, xⱼ).
+</div>
+<p>These Gaussian marginals must be mutually consistent as input sets grow or shrink. A valid real-valued kernel is symmetric and <strong>positive semidefinite</strong> (PSD):</p>
+<pre><code class="language-text">for every X and every a ∈ Rⁿ,     aᵀ K_XX a ≥ 0.
+</code></pre>
+<p>This condition makes every Gram matrix a valid covariance matrix. Strict positive definiteness is not required; repeated inputs, finite-dimensional feature maps, or structured kernels can yield singular covariance matrices. Observation noise or a small numerical jitter often makes the matrix factorable.</p>
+<blockquote><p><strong>Function-space view.</strong> A GP does not maintain a finite vector containing the whole random function. It specifies compatible probability distributions for any finite set of evaluations needed by an algorithm.</p></blockquote>
+
+<h2 id="kernel-design">2. Kernel design</h2>
+<p>Write <code>r = ‖x − x'‖</code>. The following kernels are common building blocks; amplitudes and length scales are learned or assigned priors.</p>
+<table>
+<thead><tr><th>Kernel</th><th>Form</th><th>Inductive bias</th></tr></thead>
+<tbody>
+<tr><td>RBF / squared exponential</td><td><code class="math-inline">\sigma _f^{2} \operatorname{exp}(-r^{2}/(2\ell ^{2}))</code></td><td>Stationary, very smooth functions; correlations decay on scale <code>ℓ</code>.</td></tr>
+<tr><td>Matérn</td><td><code class="math-inline">\sigma _f^{2} 2^{1-\nu }/Γ(\nu ) (\sqrt{2\nu }r/\ell )^\nu  K_\nu (\sqrt{2\nu }r/\ell )</code></td><td>Finite, controllable roughness; the process has <code>k</code> mean-square derivatives when <code class="math-inline">\nu  \gt  k</code>.</td></tr>
+<tr><td>Linear</td><td><code class="math-inline">\sigma _b^{2} + \sigma _v^{2}(x-c)^{\top}(x'-c)</code></td><td>Bayesian linear functions around center <code>c</code>; non-stationary covariance.</td></tr>
+<tr><td>Periodic</td><td><code class="math-inline">\sigma _f^{2} \operatorname{exp}(-2 \operatorname{sin}^{2}(\pi \mid x-x'\mid /p)/\ell ^{2})</code></td><td>Exact repetition with period <code>p</code> and smoothness controlled by <code>ℓ</code>.</td></tr>
+<tr><td>Rational quadratic</td><td><code class="math-inline">\sigma _f^{2}(1 + r^{2}/(2\alpha \ell ^{2}))^{-\alpha }</code></td><td>A scale mixture of RBF kernels; variation can occur across several length scales.</td></tr>
+</tbody>
+</table>
+<p>Automatic relevance determination (ARD) replaces one length scale by <code>ℓ_d</code> per input dimension. It can expose irrelevant dimensions, but weak data can make the additional hyperparameters poorly identified.</p>
+
+<h3 id="kernel-composition">Sums, products, and inductive bias</h3>
+<p>PSD kernels are closed under non-negative scaling, sums, and products:</p>
+<div class="math-display">k_sum(x,x&#x27;)  = k₁(x,x&#x27;) + k₂(x,x&#x27;)
+k_prod(x,x&#x27;) = k₁(x,x&#x27;) k₂(x,x&#x27;)
+</div>
+<p>A kernel sum has a <strong>constructive representation</strong>: if independent latent GPs are explicitly posited, their sum has covariance <code class="math-inline">k_{1}+k_{2}</code>. The latent components are <strong>not uniquely identifiable from the summed covariance alone</strong>; posterior component attribution follows the chosen prior decomposition. A product requires both similarity notions to hold, creating interactions. For example, <code>linear + periodic</code> models a chosen trend-plus-cycle decomposition, while <code>periodic × RBF</code> models a cycle that changes gradually over time.</p>
+
+<h2 id="gp-regression">3. GP regression</h2>
+<h3 id="observation-model">Observation-noise model</h3>
+<p>For training inputs <code class="math-inline">X = (x_{1},\ldots ,x_{n})</code>, assume independent Gaussian observation noise:</p>
+<div class="math-display">f ~ GP(m, k)
+yᵢ = f(xᵢ) + εᵢ,       εᵢ ~ N(0, σ_n²)
+</div>
+<p>Let <code class="math-inline">r = y - m_{X}</code>, <code class="math-inline">K = K_{XX}</code>, <code class="math-inline">K_{y} = K + \sigma _n^{2}I</code>, <code class="math-inline">K_\cdot  = K_{X},X\cdot</code>, and <code class="math-inline">K_\cdot \cdot  = K_{X}^{\ast},X\cdot</code>. Here <code>K_*</code> has shape <code>n × n_*</code>.</p>
+
+<h3 id="joint-gaussian">Joint Gaussian distribution</h3>
+<p>Closure of Gaussians under affine transformations gives the joint prior over noisy training targets and latent test values:</p>
+<div class="math-display">[ y  ]     [ m_X ]   [ K_y    K_*  ]
+[ f_*]  ~ N([ m_* ], [ K_*ᵀ  K_** ]).
+</div>
+
+<h3 id="posterior-derivation">Posterior mean and covariance: derivation</h3>
+<p>For a partitioned Gaussian <code>[a; b]</code> with mean <code class="math-inline">{}[\mu _a; \mu _b]</code> and covariance blocks <code class="math-inline">\sum _\text{aa}</code>, <code class="math-inline">\sum _\text{ab}</code>, <code class="math-inline">\sum _\text{ba}</code>, and <code class="math-inline">\sum _\text{bb}</code>, complete the square in the joint log density with respect to <code>b</code>. The terms depending on <code>b</code> become</p>
+<div class="math-display">−1/2 (b − μ_b − Σ_ba Σ_aa⁻¹(a−μ_a))ᵀ
+     (Σ_bb − Σ_ba Σ_aa⁻¹Σ_ab)⁻¹
+     (b − μ_b − Σ_ba Σ_aa⁻¹(a−μ_a)) + constant.
+</div>
+<p>Therefore the conditional is Gaussian. Substituting <code class="math-inline">a=y</code>, <code class="math-inline">b=f_\cdot</code>, <code class="math-inline">\sum _\text{aa}=K_{y}</code>, and <code class="math-inline">\sum _\text{ba}=K_\cdot ^{\top}</code> yields</p>
+<div class="math-display">f_* | X, y, X_* ~ N(μ_*, Σ_*)
+
+μ_* = m_* + K_*ᵀ K_y⁻¹(y − m_X)
+Σ_* = K_** − K_*ᵀ K_y⁻¹K_*.
+</div>
+<p>The posterior mean is the prior mean plus a data-dependent linear combination of kernel evaluations. The covariance is the prior covariance minus uncertainty resolved by observing <code>y</code>; for fixed hyperparameters it depends on input locations, not observed target values.</p>
+<h3 id="predictive-distribution">Predictive distribution</h3>
+<p>For a future noisy observation <code class="math-inline">y_\cdot  = f_\cdot  + \varepsilon _\cdot</code>, independent noise adds back onto the diagonal:</p>
+<div class="math-display">y_* | X, y, X_* ~ N(μ_*, Σ_* + σ_n²I).
+</div>
+<p>Distinguish the latent-function posterior from the observation predictive distribution. The latter is wider because it includes irreducible measurement noise.</p>
+
+<h3 id="worked-example">Worked two-point numerical example</h3>
+<p>Take <code class="math-inline">x=[0,1]</code>, <code class="math-inline">y=[1,-1]</code>, zero mean, unit signal variance, noise variance <code class="math-inline">\sigma _n^{2}=0.1</code>, and an RBF length scale chosen so <code class="math-inline">k(0,1)=0.5</code>. At <code class="math-inline">x_\cdot =0.5</code>, both cross-covariances are <code class="math-inline">a=2^{-1/4}\approx 0.8409</code>:</p>
+<div class="math-display">K_y = [1.1  0.5]       K_y⁻¹ = 1/0.96 [ 1.1  −0.5]
+      [0.5  1.1]                        [−0.5   1.1]
+
+k_* = [a, a]ᵀ,        k_** = 1.
+</div>
+<p>The solve gives <code class="math-inline">K_{y}^{-1}y=[1.6667,-1.6667]^{\top}</code>. Symmetry makes the midpoint posterior mean zero:</p>
+<div class="math-display">μ_* = [a, a] [1.6667, −1.6667]ᵀ = 0.
+
+Var(f_* | y) = 1 − [a,a] K_y⁻¹ [a,a]ᵀ
+             = 1 − a²(1.25)
+             ≈ 0.1161.
+
+Var(y_* | y) = 0.1161 + 0.1 = 0.2161.
+</div>
+<p>Thus the latent prediction is approximately <code>N(0, 0.1161)</code>, with a 95% Gaussian interval <code>0 ± 0.668</code>. A new noisy measurement has the wider predictive distribution <code>N(0, 0.2161)</code>, with interval <code>0 ± 0.911</code>. The zero mean is not “no information”: it reflects opposing observations, while the reduced variance records information about the midpoint.</p>
+
+<h2 id="marginal-likelihood">4. Marginal likelihood</h2>
+<p>Integrating out the latent training values gives <code>y ~ N(m_X, K_y)</code>. The log marginal likelihood for kernel and noise hyperparameters <code class="math-inline">\theta</code> is</p>
+<div class="math-display">log p(y | X, θ)
+  = −1/2 rᵀK_y⁻¹r       data fit
+    −1/2 log|K_y|        complexity / volume penalty
+    −n/2 log(2π).        normalization
+</div>
+<p>The <strong>data-fit term</strong> rewards covariance structures under which the residual vector is plausible. The <strong>log-determinant term</strong> penalizes models that spread probability mass over too large a range of possible datasets. Their balance is an automatic Occam effect: a flexible kernel is favored only when its improved fit compensates for its larger covariance volume.</p>
+<p>Model selection can compare kernel families or tune amplitudes, length scales, periodicities, noise, and mean-function parameters by maximizing this objective (type-II maximum likelihood / empirical Bayes). Gradients follow</p>
+<div class="math-display">∂ log p(y|θ)/∂θ_j
+  = 1/2 tr[(ααᵀ − K_y⁻¹) ∂K_y/∂θ_j],    α = K_y⁻¹r.
+</div>
+<p>Use positive transforms or log parameters for constrained quantities, multiple restarts for a non-convex objective, and held-out evaluation when comparing many choices. Marginal likelihood is evidence conditional on the candidate model family; it cannot rescue a misspecified kernel, and point-estimating hyperparameters understates uncertainty relative to integrating them out.</p>
+
+<h3 id="conditioning">Numerical conditioning</h3>
+<p>Very small noise, duplicated or nearly duplicated inputs, extreme length scales, and mixed feature units can make <code class="math-inline">K_{y}</code> ill-conditioned. Symptoms include failed factorization, unstable gradients, tiny negative variances from roundoff, and implausible likelihood values. Standardize inputs and targets, constrain hyperparameters sensibly, use adequate precision, and add the smallest justified jitter.</p>
+
+<h2 id="numerical-implementation">5. Numerical implementation</h2>
+<p>Never form <code>K_y⁻¹</code> explicitly. Compute a Cholesky factorization <code class="math-inline">K_{y} + \delta I = LL^{\top}</code>, with lower-triangular <code class="math-inline">L</code>, then use triangular solves:</p>
+<div class="math-display">L v = y − m_X                  forward solve
+Lᵀ α = v                       backward solve
+μ_* = m_* + K_*ᵀ α
+
+L V = K_*                      one solve per test column
+Σ_* = K_** − VᵀV
+
+log|K_y| = 2 Σᵢ log Lᵢᵢ.
+</div>
+<p><strong>Jitter</strong> is a small diagonal value <code class="math-inline">\delta</code> used for numerical stability, distinct from modeled observation noise <code class="math-inline">\sigma _n^{2}</code>. Scale it relative to the kernel diagonal and report it if it is large enough to affect inference.</p>
+<p>Dense factorization costs <code class="math-inline">O(n^{3})</code> time and the kernel/factor requires <code class="math-inline">O(n^{2})</code> storage. After factorization, posterior-mean evaluation uses solves and matrix-vector products; full test covariance can itself be expensive. Cache the factor and <code class="math-inline">\alpha</code>, batch test inputs, and request marginal variances instead of a full covariance when that is all the application needs.</p>
+
+<h2 id="sparse-gaussian-processes">6. Sparse Gaussian processes</h2>
+<p>Exact GPs condition on all <code>n</code> observations. Sparse methods summarize the function using <code>m ≪ n</code> <strong>inducing variables</strong> <code class="math-inline">u=f(Z)</code> at learned or selected inducing inputs <code class="math-inline">Z</code>. The approximation routes dependence between training and test values through <code>u</code>.</p>
+<p>In a variational sparse GP, choose <code>q(u)=N(m_u,S_u)</code> and retain the exact conditional <code>p(f|u)</code>. Optimize the evidence lower bound (ELBO):</p>
+<div class="math-display">log p(y) ≥ Σᵢ E_q(fᵢ)[log p(yᵢ|fᵢ)] − KL[q(u) || p(u)].
+</div>
+<p>The sum over observations supports mini-batches and stochastic optimization. Typical dense-inducing costs are <code class="math-inline">O(\text{nm}^{2} + m^{3})</code> for a full pass, with storage around <code class="math-inline">O(\text{nm} + m^{2})</code>; mini-batching removes the need to process or store all <code>n</code> cross-covariances at once.</p>
+<table>
+<thead><tr><th>Aspect</th><th>Exact GP</th><th>Variational sparse GP</th></tr></thead>
+<tbody>
+<tr><td>Representation</td><td>All training observations</td><td><code>m</code> inducing variables</td></tr>
+<tr><td>Regression inference</td><td>Exact for fixed hyperparameters</td><td>Approximate posterior</td></tr>
+<tr><td>Training scale</td><td><code class="math-inline">O(n^{3})</code> time, <code class="math-inline">O(n^{2})</code> memory</td><td>Roughly <code class="math-inline">O(\text{nm}^{2})</code> per full pass; mini-batchable</td></tr>
+<tr><td>Strength</td><td>Reliable baseline and uncertainty for moderate <code>n</code></td><td>Large datasets and non-Gaussian likelihoods</td></tr>
+<tr><td>Trade-off</td><td>Becomes infeasible as <code>n</code> grows</td><td>Quality depends on <code>m</code>, inducing locations, variational family, and optimization</td></tr>
+</tbody>
+</table>
+<p>Too few inducing points can oversmooth the mean and underestimate or distort uncertainty. More points improve fidelity but increase cost. Compare against exact inference on a manageable subset, inspect sensitivity to <code>m</code>, and evaluate calibration rather than selecting an approximation only by RMSE.</p>
+
+<h2 id="classification">7. Classification</h2>
+<p>For binary classification, place a GP prior on latent logits and use a sigmoid or probit likelihood:</p>
+<div class="math-display">f ~ GP(m,k),       p(yᵢ=1 | fᵢ) = sigmoid(fᵢ).
+</div>
+<p>The Bernoulli likelihood is non-Gaussian, so the posterior <code>p(f|y)</code> and evidence are not analytic.</p>
+<ul>
+<li><strong>Laplace approximation:</strong> find the posterior mode and use a Gaussian whose covariance is the inverse negative Hessian there. It is often practical but captures only local curvature and can be poor for skewed posteriors.</li>
+<li><strong>Variational approximation:</strong> optimize a tractable <code>q(f)</code> or inducing-variable <code>q(u)</code> against an ELBO. It scales to mini-batches but its family and objective can bias uncertainty.</li>
+</ul>
+<p>A predictive class probability integrates over latent uncertainty:</p>
+<div class="math-display">p(y_*=1 | data) = ∫ sigmoid(f_*) p(f_* | data) df_*.
+</div>
+<p>This is not generally <code class="math-inline">\operatorname{sigmoid}(E[f_\cdot ])</code>. Use analytic probit identities when applicable, numerical quadrature, or Monte Carlo. Assess predictive probabilities with NLL, Brier score, reliability diagrams, and calibration under shift; approximate inference can be accurate in labels yet overconfident.</p>
+
+<h2 id="multi-output-and-structured-gps">8. Multi-output and structured GPs</h2>
+<h3 id="coregionalization">Coregionalization</h3>
+<p>Multi-output GPs couple tasks or sensors. A linear model of coregionalization uses</p>
+<div class="math-display">k((x,p),(x&#x27;,q)) = Σᵣ Bᵣ[p,q] kᵣ(x,x&#x27;),
+</div>
+<p>where each PSD matrix <code>Bᵣ</code> describes output correlations and each <code>kᵣ</code> describes an input-space pattern. Shared structure can transfer information, but a wrong coupling can cause negative transfer.</p>
+
+<h3 id="structured-kernels">Spatiotemporal, derivative, and physics-informed structure</h3>
+<ul>
+<li><strong>Spatiotemporal kernels:</strong> an additive or product kernel over space and time expresses separate or interacting correlations. Separable products can enable Kronecker or state-space computations on suitable grids.</li>
+<li><strong>Derivative observations:</strong> differentiation is linear, so derivatives of a sufficiently smooth GP remain jointly Gaussian. For example, <code>Cov(∂f(x)/∂x_d, f(x')) = ∂k(x,x')/∂x_d</code>, and derivative-derivative covariance uses derivatives with respect to both arguments.</li>
+<li><strong>Physics-informed kernels:</strong> transform latent GPs through known linear operators, use Green's functions, or design kernels whose samples satisfy boundary conditions, symmetries, conservation laws, or differential equations.</li>
+</ul>
+<p>Kernel differentiability must match the desired operators: an RBF supports derivatives of every order, while a rough Matérn kernel may not. Hard physics constraints can improve data efficiency but become harmful when the assumed equation or boundary conditions are wrong; soft residual likelihoods allow model discrepancy.</p>
+
+<h2 id="connection-to-neural-networks">9. Connection to neural networks</h2>
+<ul>
+<li><strong>Infinite-width limits:</strong> under suitable independent weight priors and scaling, a neural network's outputs converge in distribution to a GP as hidden widths go to infinity. The architecture, activation, and initialization induce the corresponding neural-network GP kernel.</li>
+<li><strong>Neural tangent kernel (NTK):</strong> in an infinite-width regime, gradient descent can be described by kernel dynamics around initialization. The NNGP describes a prior over functions; the NTK describes linearized training dynamics. Neither automatically captures finite-network representation learning.</li>
+<li><strong>Deep-kernel learning:</strong> a neural feature map <code class="math-inline">h_\phi (x)</code> feeds a GP kernel, <code class="math-inline">k_\theta (h_\phi (x),h_\phi (x'))</code>. It combines learned representations with GP predictions, but joint marginal-likelihood training can overfit features and produce misleading uncertainty without regularization and held-out calibration checks.</li>
+</ul>
+
+<h2 id="evaluation">10. Evaluation</h2>
+<p>A GP should be judged as a predictive distribution, not only as a point predictor.</p>
+<table>
+<thead><tr><th>Measure</th><th>What it tests</th><th>Main caveat</th></tr></thead>
+<tbody>
+<tr><td>Negative log-likelihood (NLL)</td><td>Joint quality of predictive location and scale; heavily penalizes confident errors</td><td>Can be dominated by a few outliers and depends on the likelihood model</td></tr>
+<tr><td>RMSE</td><td>Accuracy of the predictive mean</td><td>Ignores uncertainty entirely</td></tr>
+<tr><td>Interval coverage</td><td>Whether nominal <code>q%</code> intervals contain about <code>q%</code> of outcomes</td><td>Coverage without sharpness can reward uselessly wide intervals</td></tr>
+<tr><td>Calibration</td><td>Agreement between predictive probabilities/quantiles and empirical frequencies</td><td>Aggregate calibration can hide errors by region or subgroup</td></tr>
+</tbody>
+</table>
+<p>For regression, inspect coverage at several levels, interval width, standardized residuals, and probability-integral-transform values. Report metrics both globally and by input region. Hyperparameter uncertainty, approximate inference, and selection on the test set can all make intervals too narrow.</p>
+
+<h3 id="extrapolation-and-misspecification">Extrapolation and kernel misspecification</h3>
+<p>Far from observations, a stationary GP usually reverts toward its prior mean and variance. That is coherent under the model but may be poor extrapolation: an RBF does not infer an ongoing linear trend unless the mean or kernel represents one, and a periodic kernel may continue a cycle forever. Test interpolation and extrapolation separately using splits that reflect deployment geometry, such as future-time or held-out-region splits rather than random splits.</p>
+<p>Kernel misspecification can produce smooth, confident, wrong predictions. Stress-test plausible kernel families, inspect residual structure, evaluate under covariate shift, and compare posterior intervals with empirical errors. Good in-distribution marginal likelihood does not guarantee calibrated out-of-distribution uncertainty.</p>
+
+<h2 id="review-questions">Review questions</h2>
+<ol>
+<li>Starting from the joint Gaussian over <code>[y;f_*]</code>, derive the posterior mean and covariance.</li>
+<li>Explain why predictive observation variance adds <code class="math-inline">\sigma _n^{2}</code> but latent-function variance does not.</li>
+<li>Interpret each term in the log marginal likelihood and explain its Occam effect.</li>
+<li>Describe a stable Cholesky implementation without forming a matrix inverse.</li>
+<li>Compare exact and variational sparse GPs in cost, accuracy, and calibration.</li>
+<li>Design a kernel for a signal with a long-term trend and a slowly changing seasonal component.</li>
+<li>Explain why RMSE alone cannot validate a GP's uncertainty.</li>
+</ol>
+
+<h2 id="related-topics">Related topics</h2>
+<ul>
+<li><a href="probabilistic-modelling.html">Probabilistic Modelling</a></li>
+<li><a href="uncertainty-quantification.html">Uncertainty Quantification</a></li>
+<li><a href="bayesian-variational-inference.html">Bayesian Variational Inference</a></li>
+<li><a href="stochastic-processes-sdes.html">Stochastic Processes and SDEs</a></li>
+</ul>
+</section>
