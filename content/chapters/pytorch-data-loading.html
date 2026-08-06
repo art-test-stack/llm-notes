@@ -1,0 +1,254 @@
+<section class="chapter-content" data-topic="pytorch-data-loading">
+<h2 id="learning-objectives">Learning objectives</h2>
+<p>You should be able to separate dataset access, sample ordering, automatic batching, and collation; choose between map-style and iterable-style datasets; place stateful sequence packing at the correct layer; and reason about worker replication, memory, prefetch, distributed ownership, and restart behavior.</p>
+
+<h2 id="the-four-layer-data-loading-model">The four-layer data-loading model</h2>
+<table>
+<thead><tr><th>Layer</th><th>Responsibility</th><th>Typical interface</th></tr></thead>
+<tbody>
+<tr><td>Dataset</td><td>Produce one logical sample</td><td><code>Dataset</code> or <code>IterableDataset</code></td></tr>
+<tr><td>Sampler</td><td>Choose dataset keys and their order</td><td><code>Sampler</code></td></tr>
+<tr><td>Batch selection</td><td>Group sample requests into one loader item</td><td><code>batch_size</code> or <code>batch_sampler</code></td></tr>
+<tr><td>Collation</td><td>Combine already-fetched samples into a batch structure</td><td><code>collate_fn</code></td></tr>
+</tbody>
+</table>
+<p>For a map-style dataset, the conceptual execution is:</p>
+<pre><code class="language-python">for indices in batch_sampler:
+    samples = [dataset[index] for index in indices]
+    yield collate_fn(samples)
+</code></pre>
+<p>For an iterable-style dataset, order and selection come from the iterable:</p>
+<pre><code class="language-python">dataset_iter = iter(dataset)
+for dummy_indices in internal_batch_sampler:
+    samples = [next(dataset_iter) for _ in dummy_indices]
+    yield collate_fn(samples)
+</code></pre>
+<p>The second sketch does not make a user-provided batch sampler compatible with an iterable dataset. The dummy values are not used as dataset keys; only their count determines how many successive samples are read for automatic batching.</p>
+
+<h2 id="map-style-and-iterable-style-datasets">Map-style and iterable-style datasets</h2>
+<p>A map-style dataset implements a stable key-to-sample mapping, commonly <code>dataset[index]</code>, and usually a length. It is the natural choice when random access is meaningful and cheap, the index space is finite, and index-based shuffling or weighted sampling is required.</p>
+<pre><code class="language-python">class IndexedDataset(torch.utils.data.Dataset):
+    def __len__(self):
+        return len(self.records)
+
+    def __getitem__(self, index):
+        return decode(self.records[index])
+</code></pre>
+<p>An iterable dataset implements a sample stream. It fits sequential files, remote cursors, generated data, simulations, compressed archives, and effectively infinite corpora.</p>
+<pre><code class="language-python">class StreamDataset(torch.utils.data.IterableDataset):
+    def __iter__(self):
+        for record in open_stream():
+            yield transform(record)
+</code></pre>
+<p>The iterable gains control over chunk reading and dynamic sample production, but must also define shuffling, distributed ownership, worker partitioning, epoch boundaries, and restart state. See <a href="pretraining-data.html">pretraining data</a> for corpus construction and <a href="distributed-training.html">distributed training</a> for rank-level ownership.</p>
+
+<h2 id="samplers-automatic-batching-and-the-dummy-index-pattern">Samplers, automatic batching, and the dummy-index pattern</h2>
+<p>A sampler yields keys that the loader can pass to a map-style dataset. A batch sampler yields groups of such keys. An iterable dataset has no key lookup contract, so it cannot honor a request to fetch specific indices.</p>
+<table>
+<thead><tr><th>Dataset type</th><th>Order controlled by</th><th>Custom sampler</th><th>Automatic <code>batch_size</code></th></tr></thead>
+<tbody>
+<tr><td>Map style</td><td>sampler</td><td>supported</td><td>supported</td></tr>
+<tr><td>Iterable style</td><td><code>__iter__()</code></td><td>not supported</td><td>supported through repeated <code>next()</code></td></tr>
+</tbody>
+</table>
+<p>In pseudocode such as <code>[next(dataset_iter) for _ in indices]</code>, the underscore signals that the values are intentionally ignored. A group with four dummy entries means four successive calls to <code>next()</code>, not four random-access requests.</p>
+
+<h2 id="collation-and-batch-shapes">Collation and batch shapes</h2>
+<p>A collator receives a list of samples that have already been read. The default collator recursively groups corresponding fields, converts compatible numerical leaves to tensors, and usually creates the leading batch dimension.</p>
+<pre><code class="language-python">samples = [
+    (image_0, 4),
+    (image_1, 7),
+    (image_2, 1),
+]
+
+images = torch.stack([image for image, _ in samples], dim=0)
+labels = torch.tensor([label for _, label in samples])
+</code></pre>
+<p>If each image has shape <code>[C,H,W]</code>, stacking produces <code>[B,C,H,W]</code>. Stacking inserts a new axis and requires identical shapes. Concatenation extends an existing axis; concatenating the same images along dimension zero would produce <code>[B*C,H,W]</code>, which no longer represents a batch axis.</p>
+<p>Custom collation is appropriate when supplied samples require padding, masks, field-specific conversions, or a custom output type:</p>
+<pre><code class="language-python">from torch.nn.utils.rnn import pad_sequence
+
+def sequence_collate(samples):
+    sequences, labels = zip(*samples)
+    input_ids = pad_sequence(sequences, batch_first=True, padding_value=0)
+    return {
+        "input_ids": input_ids,
+        "attention_mask": input_ids.ne(0),
+        "labels": torch.tensor(labels),
+    }
+</code></pre>
+
+<h2 id="stateful-packing-and-buffer-ownership">Stateful packing and buffer ownership</h2>
+<p>Language-model documents have variable lengths, while training commonly requires fixed sequences of <code>T+1</code> tokens that become <code>T</code> inputs and shifted targets. This requires state across source documents.</p>
+<p>The packing buffer should normally belong to an iterable dataset or packing iterator, not to the collator. The collator is called only after the loader has fetched a fixed list of samples. It may pad or rearrange them, but it has no source iterator from which to request an arbitrary number of extra documents. It must also return one loader item per invocation, whereas a set of variable-length documents may contain zero, one, or many complete fixed-length sequences.</p>
+<pre><code class="language-text">document stream
+  → tokenize documents
+  → worker-local packing iterator and bounded buffer
+  → fixed T+1 token samples
+  → DataLoader collects B samples
+  → collate_fn stacks [B,T+1] and shifts
+</code></pre>
+<p>A one-document tail is enough for simple concatenation. A larger bounded buffer is useful for approximate shuffling, best-fit packing, or length-aware selection. Size the buffer in tokens or bytes rather than document count, because document lengths may differ by orders of magnitude.</p>
+
+<h2 id="reference-causal-language-model-pipeline">Reference causal language-model pipeline</h2>
+<pre><code class="language-python">from collections import deque
+from collections.abc import Callable, Iterator, Sequence
+from typing import NamedTuple
+
+import torch
+from torch import Tensor
+from torch.utils.data import DataLoader, IterableDataset, get_worker_info
+
+
+class PackedSample(NamedTuple):
+    tokens: Tensor
+
+
+class CausalBatch(NamedTuple):
+    input_ids: Tensor
+    labels: Tensor
+
+
+class TextDataset(IterableDataset):
+    def __init__(
+        self,
+        texts: Sequence[str],
+        tokenizer: Callable[[str], Sequence[int]],
+        bos_token_id: int | None = None,
+    ):
+        super().__init__()
+        self.texts = texts
+        self.tokenizer = tokenizer
+        self.bos_token_id = bos_token_id
+
+    def __iter__(self) -> Iterator[Tensor]:
+        worker = get_worker_info()
+        worker_id = 0 if worker is None else worker.id
+        num_workers = 1 if worker is None else worker.num_workers
+
+        for index in range(worker_id, len(self.texts), num_workers):
+            tokens = torch.as_tensor(
+                self.tokenizer(self.texts[index]),
+                dtype=torch.long,
+            ).flatten()
+            if self.bos_token_id is not None:
+                bos = torch.tensor([self.bos_token_id], dtype=torch.long)
+                tokens = torch.cat((bos, tokens))
+            if tokens.numel():
+                yield tokens
+
+
+class PackedDataset(IterableDataset):
+    def __init__(self, documents, seq_len: int, buffer_tokens: int):
+        super().__init__()
+        self.documents = documents
+        self.seq_len = seq_len
+        self.buffer_tokens = buffer_tokens
+
+    def __iter__(self) -> Iterator[PackedSample]:
+        source = iter(self.documents)
+        pending = deque()
+        buffered_tokens = 0
+        sample_length = self.seq_len + 1
+        exhausted = False
+
+        def refill():
+            nonlocal buffered_tokens, exhausted
+            while buffered_tokens &lt; self.buffer_tokens and not exhausted:
+                try:
+                    tokens = next(source)
+                except StopIteration:
+                    exhausted = True
+                    break
+                pending.append(tokens)
+                buffered_tokens += tokens.numel()
+
+        while True:
+            refill()
+            if buffered_tokens &lt; sample_length:
+                return
+
+            packed = torch.empty(sample_length, dtype=torch.long)
+            position = 0
+            while position &lt; sample_length:
+                tokens = pending[0]
+                take = min(tokens.numel(), sample_length - position)
+                packed[position : position + take].copy_(tokens[:take])
+                position += take
+                buffered_tokens -= take
+                if take == tokens.numel():
+                    pending.popleft()
+                else:
+                    pending[0] = tokens[take:]
+            yield PackedSample(packed)
+
+
+def causal_collate(samples: list[PackedSample]) -> CausalBatch:
+    tokens = torch.stack([sample.tokens for sample in samples], dim=0)
+    return CausalBatch(
+        input_ids=tokens[:, :-1].contiguous(),
+        labels=tokens[:, 1:].contiguous(),
+    )
+
+
+def build_loader(texts, tokenizer, batch_size: int, seq_len: int):
+    documents = TextDataset(texts, tokenizer)
+    packed = PackedDataset(
+        documents,
+        seq_len=seq_len,
+        buffer_tokens=16 * batch_size * (seq_len + 1),
+    )
+    return DataLoader(
+        packed,
+        batch_size=batch_size,
+        collate_fn=causal_collate,
+        num_workers=0,
+        drop_last=True,
+    )
+</code></pre>
+<p>The example makes ownership explicit. Production systems may tokenize in groups, stream Parquet row groups, emit already-batched samples, maintain exact source offsets, or use pinned staging buffers. Those optimizations should preserve the same semantic boundaries.</p>
+
+<h2 id="multiprocess-worker-replication">Multiprocess worker replication</h2>
+<p>With zero workers, dataset access and collation execute in the training process. With positive <code>num_workers</code>, each worker has its own dataset replica and prepares samples or batches for the parent process.</p>
+<p>An iterable dataset replica must be configured differently in every worker or all workers may traverse the same records. Worker identity is available inside <code>__iter__()</code>. In distributed training, combine rank and worker identity:</p>
+<pre><code class="language-python">consumer_id = rank * num_workers + worker_id
+num_consumers = world_size * num_workers
+</code></pre>
+<p>Assign file shards or row groups by this global consumer identity. Coarse sharding reduces repeated opens and avoids turning sequential storage into random I/O. Worker launch methods differ across platforms: spawn-like methods serialize dataset state into new interpreters, while fork-like methods begin with inherited copy-on-write memory. Dataset classes, collators, and worker functions should therefore be top-level definitions, and executable entry-point code should be protected by the standard main guard.</p>
+
+<h2 id="why-large-parent-python-objects-multiply-memory">Why large parent Python objects multiply memory</h2>
+<p>A dataset that constructs a very large Python list of filenames in the parent process can consume roughly that metadata size again in every worker. Under serialization-based worker creation, each worker reconstructs its own object graph. Under copy-on-write creation, memory pages initially appear shared, but traversing ordinary Python objects can update reference-count metadata and make touched pages private.</p>
+<p>A Python list of strings is especially costly because it contains pointers to separately allocated, reference-counted string objects. Prefer compact buffers such as numeric arrays, tensors, Arrow arrays, memory-mapped offsets, or file-backed indexes. An object-typed array still stores Python-object references and does not solve the underlying issue.</p>
+<pre><code class="language-text">approximate host-memory pressure =
+    parent metadata
+  + workers × touched Python-object metadata
+  + workers × local packing buffers
+  + workers × prefetched batches
+</code></pre>
+<p>For streaming datasets, keep lightweight paths and configuration in the constructor, then open files and materialize row groups inside each worker. A buffer configured as ten million tokens is a per-worker budget, not a loader-wide budget.</p>
+
+<h2 id="prefetch-pinning-and-restart-semantics">Prefetch, pinning, and restart semantics</h2>
+<ul>
+<li><code>prefetch_factor</code> is the number of batches prepared ahead by each worker, so queue memory scales with worker count.</li>
+<li><code>persistent_workers=True</code> avoids worker restart costs across iterations but retains dataset replicas, buffers, and file handles.</li>
+<li>For iterable datasets, <code>drop_last</code> applies to the final incomplete batch of each worker replica, not to one globally merged tail.</li>
+<li>Returning CUDA tensors from loader workers creates difficult multiprocessing and device-sharing semantics. Prefer CPU tensors, <code>pin_memory=True</code>, and a non-blocking transfer in the training process.</li>
+<li>Prefetch weakens simple checkpoint semantics because workers may have consumed source records beyond the last batch observed by the trainer.</li>
+</ul>
+<p>Exact restart for a packed stream can require source shard and row-group positions, offsets within a group, unconsumed document tails, shuffle-buffer contents, random states, and worker-specific prefetched progress. A deterministic single-worker path is often preferable when exact reproducibility matters more than maximum throughput.</p>
+
+<h2 id="design-and-debugging-checklist">Design and debugging checklist</h2>
+<ol>
+<li>Begin with <code>num_workers=0</code> to expose clear stack traces and establish correctness.</li>
+<li>State whether one dataset sample is a document, a fixed token sequence, or an already-formed batch.</li>
+<li>For map style, define the key space and sampler semantics. For iterable style, define stream ownership and exhaustion.</li>
+<li>Keep collation limited to combining supplied samples.</li>
+<li>Place variable-input packing in an upstream iterator with a bounded token or byte budget.</li>
+<li>Log rank, worker ID, first shard, and first sample identifier to detect duplication.</li>
+<li>Count unique examples across ranks and workers.</li>
+<li>Multiply every buffer and prefetch budget by total workers across all ranks.</li>
+<li>Measure input wait before increasing workers; multiprocessing overhead can exceed cheap loading work.</li>
+<li>Test exhaustion, incomplete batches, persistent-worker reuse, and resume after partial-document consumption.</li>
+</ol>
+<p>Data loading is part of model correctness, not only performance. A fast pipeline that duplicates samples, changes document-boundary targets, loses data on every worker tail, or resumes from an ambiguous state can silently change the training objective.</p>
+</section>
