@@ -12,7 +12,7 @@ private source repository
             │ explicit allowlist + manual review
             ▼
 public llm-notes repository
-├── 39 substantive HTML chapter fragments
+├── 40 substantive HTML chapter fragments
 ├── 1,395 preserved canonical TeX expressions
 ├── 146 reviewed promotions of formula-like code spans
 ├── build-time KaTeX → static HTML + accessible MathML
@@ -73,7 +73,7 @@ The importer accepts the private workflow artifact ZIP or its extracted director
 topics.json
 manifest.json
 chapters/
-  <39 topic-id>.html
+  <40 topic-id>.html
 ```
 
 ```bash

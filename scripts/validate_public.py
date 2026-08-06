@@ -162,7 +162,7 @@ def main() -> None:
     scan_repository_with_optional_policy(ROOT)
     subprocess.run([sys.executable, str(ROOT / "scripts/build_site.py")], check=True)
 
-    assert len(topics) == 39 and len(glossary) >= 50
+    assert len(topics) == 40 and len(glossary) >= 50
     assert chapter_manifest["chapter_count"] == len(topics)
     assert chapter_manifest["total_characters"] >= 500_000
     assert chapter_manifest["total_math_expressions"] >= 1_000

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "chapter_count": 39,
-  "total_characters": 687261,
+  "chapter_count": 40,
+  "total_characters": 700089,
   "total_math_expressions": 1395,
   "chapters": [
     {
@@ -59,6 +59,14 @@
       "characters": 17566,
       "sections": 16,
       "math_expressions": 15
+    },
+    {
+      "id": "pytorch-data-loading",
+      "file": "chapters/pytorch-data-loading.html",
+      "sha256": "abfb4206e1b61ebf36c6c625cf780eb3e69882a60b048add1990eea1c750d02e",
+      "characters": 12828,
+      "sections": 11,
+      "math_expressions": 0
     },
     {
       "id": "parallelism",
