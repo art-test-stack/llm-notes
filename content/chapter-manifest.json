@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "chapter_count": 40,
-  "total_characters": 700089,
+  "total_characters": 702546,
   "total_math_expressions": 1395,
   "chapters": [
     {
@@ -63,9 +63,9 @@
     {
       "id": "pytorch-data-loading",
       "file": "chapters/pytorch-data-loading.html",
-      "sha256": "abfb4206e1b61ebf36c6c625cf780eb3e69882a60b048add1990eea1c750d02e",
-      "characters": 12828,
-      "sections": 11,
+      "sha256": "652318e3cdcf87f43c92dcd3902f0d74a1f92b0189eb8d4d84f4932e7281dcdc",
+      "characters": 15285,
+      "sections": 12,
       "math_expressions": 0
     },
     {
