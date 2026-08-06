@@ -13,6 +13,7 @@ from pathlib import Path
 
 from app_assets import APP, CSS, FILTER, SVG, SW
 from icons import ICON_180, ICON_192, ICON_512
+from syntax_highlight import SYNTAX_CSS, highlight_python_blocks
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTENT = ROOT / "content"
@@ -40,7 +41,7 @@ def load(name: str):
 
 def page(title: str, body: str, depth: int = 0) -> str:
     prefix = "../" * depth
-    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#172554"><title>{esc(title)} · LLM Notes</title><link rel="manifest" href="{prefix}manifest.webmanifest"><link rel="apple-touch-icon" href="{prefix}icons/apple-touch-icon.png"><link rel="stylesheet" href="{prefix}assets/katex/katex.min.css"><link rel="stylesheet" href="{prefix}assets/styles.css"></head><body><header class="topbar"><a class="brand" href="{prefix}index.html">LLM Notes</a><nav><a href="{prefix}topics/index.html">Topics</a><a href="{prefix}glossary/index.html">Glossary</a><a href="{prefix}privacy.html">Privacy</a></nav></header>{body}<footer><p>Static public notes. No analytics, polling, push, or background synchronization.</p><p><button class="link-button" data-download>Download all notes for offline use</button> <span class="status" data-status></span></p></footer><script src="{prefix}assets/app.js" defer></script></body></html>'''
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#172554"><title>{esc(title)} · LLM Notes</title><link rel="manifest" href="{prefix}manifest.webmanifest"><link rel="apple-touch-icon" href="{prefix}icons/apple-touch-icon.png"><link rel="stylesheet" href="{prefix}assets/katex/katex.min.css"><link rel="stylesheet" href="{prefix}assets/styles.css"><link rel="stylesheet" href="{prefix}assets/syntax.css"></head><body><header class="topbar"><a class="brand" href="{prefix}index.html">LLM Notes</a><nav><a href="{prefix}topics/index.html">Topics</a><a href="{prefix}glossary/index.html">Glossary</a><a href="{prefix}privacy.html">Privacy</a></nav></header>{body}<footer><p>Static public notes. No analytics, polling, push, or background synchronization.</p><p><button class="link-button" data-download>Download all notes for offline use</button> <span class="status" data-status></span></p></footer><script src="{prefix}assets/app.js" defer></script></body></html>'''
 
 
 def links(ids: list[str], by_id: dict[str, dict]) -> str:
@@ -147,6 +148,7 @@ def build() -> None:
 
         for topic in topics:
             chapter = (rendered_chapters / f'{topic["id"]}.html').read_text(encoding="utf-8")
+            chapter = highlight_python_blocks(chapter)
             toc = chapter_toc(chapter)
             words = len(text_only(chapter).split())
             reading_minutes = max(1, round(words / 220))
@@ -167,10 +169,11 @@ def build() -> None:
     write(SITE / "404.html", page("Not found", '<main class="page"><h1>Page not found</h1><a class="button primary" href="index.html">Open LLM Notes</a></main>'))
 
     write(SITE / "assets/styles.css", CSS)
+    write(SITE / "assets/syntax.css", SYNTAX_CSS)
     write(SITE / "assets/app.js", APP)
     write(SITE / "assets/filter.js", FILTER)
     katex_assets = copy_katex_assets()
-    write(SITE / "service-worker.js", SW)
+    write(SITE / "service-worker.js", SW.replace('const V="v4"', 'const V="v5"', 1))
     write(SITE / "icons/icon.svg", SVG)
     (SITE / "icons").mkdir(parents=True, exist_ok=True)
     for name, data in [("apple-touch-icon.png", ICON_180), ("icon-192.png", ICON_192), ("icon-512.png", ICON_512)]:
@@ -195,7 +198,7 @@ def build() -> None:
     public_topics = [{**topic, "path": f'topics/{topic["id"]}.html'} for topic in topics]
     write(SITE / "data/topics.json", json.dumps(public_topics, ensure_ascii=False, indent=2) + "\n")
     write(SITE / "data/glossary.json", json.dumps(glossary, ensure_ascii=False, indent=2) + "\n")
-    library = ["topics/index.html", "glossary/index.html", "privacy.html", *katex_assets] + [
+    library = ["topics/index.html", "glossary/index.html", "privacy.html", "assets/syntax.css", *katex_assets] + [
         f'topics/{topic["id"]}.html' for topic in topics
     ]
     write(SITE / "precache-library.json", json.dumps(library, indent=2) + "\n")

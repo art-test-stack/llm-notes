@@ -174,7 +174,7 @@ def main() -> None:
 
     sw = (SITE / "service-worker.js").read_text(encoding="utf-8").casefold()
     assert "cache_library" in sw and "refresh_library" in sw
-    assert 'const v="v4"' in sw
+    assert 'const v="v5"' in sw
     assert "assets/katex/katex.min.css" in sw
     for marker in FORBIDDEN_BACKGROUND:
         assert marker not in sw, f"Forbidden background behavior: {marker}"
