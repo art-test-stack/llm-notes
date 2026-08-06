@@ -90,6 +90,18 @@
     ]
   },
   {
+    "id": "pytorch-data-loading",
+    "title": "PyTorch Dataset, DataLoader and Multiprocessing",
+    "track": "Systems",
+    "summary": "PyTorch data loading separates sample production, ordering, batching, and collation. Correct high-throughput pipelines also require explicit worker ownership, bounded buffers, compact metadata, and restart semantics.",
+    "prerequisites": [],
+    "connections": [
+      "pretraining-data",
+      "distributed-training",
+      "compile-kernels"
+    ]
+  },
+  {
     "id": "parallelism",
     "title": "Tensor, Pipeline, Context and Expert Parallelism",
     "track": "Systems",
