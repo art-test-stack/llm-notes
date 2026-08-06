@@ -216,6 +216,36 @@ num_consumers = world_size * num_workers
 </code></pre>
 <p>Assign file shards or row groups by this global consumer identity. Coarse sharding reduces repeated opens and avoids turning sequential storage into random I/O. Worker launch methods differ across platforms: spawn-like methods serialize dataset state into new interpreters, while fork-like methods begin with inherited copy-on-write memory. Dataset classes, collators, and worker functions should therefore be top-level definitions, and executable entry-point code should be protected by the standard main guard.</p>
 
+<h2 id="process-ownership-examples">Process ownership examples</h2>
+<p>Assume a parent process constructs a dataset and then starts a loader with two workers. The workers do not normally operate on one shared mutable Python dataset object: each process owns a replica. Under <code>fork</code>, replicas may initially map the same physical pages through copy-on-write; under <code>spawn</code> or <code>forkserver</code>, dataset state is serialized into separate interpreters.</p>
+<pre><code class="language-text">parent process
+  dataset configuration
+  sampler for a map-style dataset
+
+worker 0
+  dataset replica 0
+  iterator 0
+  packing buffer 0
+  collator replica 0
+
+worker 1
+  dataset replica 1
+  iterator 1
+  packing buffer 1
+  collator replica 1
+</code></pre>
+<table>
+<thead><tr><th>Object</th><th>Typical constructor input</th><th><code>num_workers=0</code></th><th><code>num_workers=2</code></th><th>Actually shared?</th></tr></thead>
+<tbody>
+<tr><td>Map-style dataset</td><td><code>self.paths: list[str]</code></td><td>The main process receives indices and calls <code>__getitem__</code>.</td><td>The main sampler sends indices to two dataset replicas.</td><td>No shared mutable list. Fork may initially share pages, but Python-object access can break copy-on-write; spawn creates copies.</td></tr>
+<tr><td>Streaming iterable dataset</td><td>A small tuple of shard paths and configuration</td><td>The main process opens files and iterates them.</td><td>Each worker opens its assigned shards or row groups and owns its readers and Arrow tables.</td><td>Readers and decoded rows are worker-local. The operating system may reuse file-cache pages.</td></tr>
+<tr><td>Packing dataset</td><td><code>seq_len</code>, buffer limit, source dataset</td><td>One iterator and one packing deque exist in the main process.</td><td>Each worker creates its own iterator and deque inside <code>__iter__()</code>.</td><td>No. A one-million-token buffer means up to two million buffered tokens across two workers.</td></tr>
+<tr><td>Stateful collator</td><td>Collation options or a local buffer</td><td>One collator state in the main process.</td><td>One independent collator replica and buffer per worker.</td><td>No global buffer. This is why source-consuming packing should not rely on collator state.</td></tr>
+<tr><td>Memory map or explicit shared memory</td><td>File path, shape, dtype, or shared-memory name</td><td>One wrapper maps the backing storage.</td><td>Each worker has a separate wrapper or file descriptor.</td><td>The underlying file-backed pages or explicitly shared region can be shared, although Python wrappers remain process-local.</td></tr>
+</tbody>
+</table>
+<p>For map-style loading, sample indices are selected in the parent process and dispatched to workers. For iterable loading, every worker advances its own stream, so worker and rank partitioning must prevent duplicate records. In DDP, the number of independent consumers is <code>world_size * num_workers</code>, and every packing or prefetch budget is multiplied by that count.</p>
+
 <h2 id="why-large-parent-python-objects-multiply-memory">Why large parent Python objects multiply memory</h2>
 <p>A dataset that constructs a very large Python list of filenames in the parent process can consume roughly that metadata size again in every worker. Under serialization-based worker creation, each worker reconstructs its own object graph. Under copy-on-write creation, memory pages initially appear shared, but traversing ordinary Python objects can update reference-count metadata and make touched pages private.</p>
 <p>A Python list of strings is especially costly because it contains pointers to separately allocated, reference-counted string objects. Prefer compact buffers such as numeric arrays, tensors, Arrow arrays, memory-mapped offsets, or file-backed indexes. An object-typed array still stores Python-object references and does not solve the underlying issue.</p>
