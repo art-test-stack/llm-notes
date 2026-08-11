@@ -1,0 +1,542 @@
+<section class="chapter-content" data-topic="python-applied-ai">
+<h2 id="tldr">TL;DR</h2>
+<p>Applied AI software is often ordinary Python around a model rather than model code itself. The recurring work is to transform records, maintain state, join data by identifiers, rank candidates, batch streams, validate inputs, schedule jobs, cache results, and make failure behavior explicit. The fastest route to reliable code is to choose a representation first, write the simplest correct transformation, test a tiny case, and optimize only when the input scale demands it.</p>
+<ul>
+<li><strong>Use dictionaries</strong> for keyed state, joins, grouping, counters, registries, and caches.</li>
+<li><strong>Use sets</strong> for membership and deduplication; combine a set with a list or deque when order also matters.</li>
+<li><strong>Use sorting or heaps</strong> for ranking, top-k selection, scheduling, and ordered processing.</li>
+<li><strong>Use generators</strong> when the input is a stream or when materializing everything is unnecessary.</li>
+<li><strong>Use deques</strong> for queues and rolling time windows.</li>
+<li><strong>Make edge cases explicit:</strong> empty inputs, duplicates, missing IDs, ties, malformed records, oversized items, stale state, and partial failures.</li>
+<li><strong>For AI-oriented tasks, separate the domain from the mechanics.</strong> A RAG pipeline may reduce to chunking, indexing, ranking, filtering, and joining; an agent orchestrator may reduce to a state machine plus a queue of validated actions.</li>
+</ul>
+
+<h2 id="problem-solving-loop">A practical problem-solving loop</h2>
+<p>Before reaching for a library, translate the task into four objects: <strong>input representation</strong>, <strong>state</strong>, <strong>transformation</strong>, and <strong>output invariant</strong>. This is especially useful when the domain description sounds more complicated than the code.</p>
+<pre><code class="language-text">input records
+    ↓
+choose keys / ordering / state
+    ↓
+transform one record at a time
+    ↓
+check invariants on a tiny example
+    ↓
+handle edge cases
+    ↓
+optimize only if scale requires it
+</code></pre>
+<p>For example, “aggregate model requests by tenant and keep the most recent successful response” is not fundamentally an LLM problem. It is a dictionary keyed by tenant, an ordering rule on timestamps, and a filter on status.</p>
+<pre><code class="language-python">def latest_success_by_tenant(records):
+    latest = {}
+
+    for row in records:
+        if row["status"] != "ok":
+            continue
+
+        tenant = row["tenant_id"]
+        current = latest.get(tenant)
+
+        if current is None or row["timestamp"] > current["timestamp"]:
+            latest[tenant] = row
+
+    return latest
+</code></pre>
+
+<h2 id="containers">Core containers: list, tuple, set, dict</h2>
+<table>
+<thead><tr><th>Type</th><th>Best mental model</th><th>Typical applied-AI use</th></tr></thead>
+<tbody>
+<tr><td><code>list</code></td><td>Ordered sequence; duplicates allowed</td><td>ranked candidates, events, chunks, messages, batches</td></tr>
+<tr><td><code>tuple</code></td><td>Small fixed record; often hashable</td><td>composite keys, heap entries, coordinates</td></tr>
+<tr><td><code>set</code></td><td>Unique membership</td><td>dedupe, visited nodes, allowed tools, document IDs</td></tr>
+<tr><td><code>dict</code></td><td>Key → state</td><td>grouping, joins, caches, registries, counters, sessions</td></tr>
+</tbody>
+</table>
+
+<h3 id="grouping-with-dicts">Grouping and aggregation</h3>
+<pre><code class="language-python">from collections import defaultdict
+
+scores_by_model = defaultdict(list)
+
+for row in evaluations:
+    scores_by_model[row["model"]].append(row["score"])
+
+mean_score = {
+    model: sum(scores) / len(scores)
+    for model, scores in scores_by_model.items()
+}
+</code></pre>
+
+<h3 id="join-by-id">Joining two datasets by ID</h3>
+<p>A frequent mistake is to scan one list inside a loop over another list. Build an index once when you need repeated lookup.</p>
+<pre><code class="language-python">docs_by_id = {doc["id"]: doc for doc in documents}
+
+enriched = []
+for hit in retrieval_hits:
+    doc = docs_by_id.get(hit["document_id"])
+    if doc is None:
+        continue
+
+    enriched.append({
+        **hit,
+        "source": doc["source"],
+        "text": doc["text"],
+    })
+</code></pre>
+
+<h3 id="ordered-deduplication">Deduplication while preserving order</h3>
+<pre><code class="language-python">def unique_in_order(values):
+    seen = set()
+    output = []
+
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        output.append(value)
+
+    return output
+</code></pre>
+
+<h2 id="collections">High-value standard-library tools</h2>
+<h3 id="counter">Counter</h3>
+<pre><code class="language-python">from collections import Counter
+
+labels = ["ok", "error", "ok", "timeout", "ok"]
+counts = Counter(labels)
+
+most_common = counts.most_common(2)
+# [("ok", 3), ("error", 1)]  # tie order depends on first encounter
+</code></pre>
+<p>If tie-breaking matters, encode it explicitly rather than relying on incidental order.</p>
+
+<h3 id="defaultdict">defaultdict</h3>
+<pre><code class="language-python">from collections import defaultdict
+
+errors_by_service = defaultdict(list)
+
+for event in events:
+    if event["level"] == "error":
+        errors_by_service[event["service"]].append(event)
+</code></pre>
+
+<h3 id="deque">deque</h3>
+<p>A deque provides efficient append/pop operations at both ends and is ideal for queues and rolling windows.</p>
+<pre><code class="language-python">from collections import deque
+
+def rolling_counts(timestamps, horizon=60):
+    window = deque()
+    counts = []
+
+    for t in timestamps:
+        while window and window[0] < t - horizon:
+            window.popleft()
+
+        window.append(t)
+        counts.append(len(window))
+
+    return counts
+</code></pre>
+
+<h3 id="heapq">heapq</h3>
+<p>Python heaps are min-heaps. They are useful when only a small top-k or the next minimum-priority job matters.</p>
+<pre><code class="language-python">import heapq
+
+workers = [(0, "gpu-0"), (0, "gpu-1")]
+heapq.heapify(workers)
+
+load, worker = heapq.heappop(workers)
+load += job_cost
+heapq.heappush(workers, (load, worker))
+</code></pre>
+
+<h2 id="sorting-ranking">Sorting, ranking, and deterministic ties</h2>
+<p><code>sorted</code> returns a new list; <code>list.sort</code> mutates the existing one. Python sorting is stable, which means equal keys preserve their previous relative order.</p>
+<pre><code class="language-python">ranked = sorted(
+    candidates,
+    key=lambda item: (-item["score"], item["document_id"]),
+)
+</code></pre>
+<p>The tuple key above means: highest score first, then lexicographically smallest document ID. Explicit tie-breaking is valuable in tests and reproducible pipelines.</p>
+
+<h3 id="top-k">Top-k choices</h3>
+<ul>
+<li>Small or moderate input: <code>sorted(items, key=..., reverse=True)[:k]</code> is often clearest.</li>
+<li>Large input with small <code>k</code>: <code>heapq.nlargest</code> or a bounded heap avoids sorting everything.</li>
+<li>Streaming input: maintain a heap incrementally rather than storing all candidates.</li>
+</ul>
+
+<h2 id="iterators-generators">Iterators, generators, and streaming</h2>
+<p>A generator computes values lazily. This is useful for datasets, event streams, document chunks, token-budget batching, and large files. The main trap is that an iterator can be consumed; a second pass may produce nothing.</p>
+<pre><code class="language-python">def batched(items, batch_size):
+    batch = []
+
+    for item in items:
+        batch.append(item)
+
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+
+    if batch:
+        yield batch
+</code></pre>
+
+<h3 id="token-budget-batching">Batching by a token or cost budget</h3>
+<pre><code class="language-python">def budget_batches(requests, max_tokens):
+    batch = []
+    used = 0
+
+    for request in requests:
+        cost = request["num_tokens"]
+
+        if cost > max_tokens:
+            raise ValueError("single request exceeds the budget")
+
+        if batch and used + cost > max_tokens:
+            yield batch
+            batch = []
+            used = 0
+
+        batch.append(request)
+        used += cost
+
+    if batch:
+        yield batch
+</code></pre>
+<p>Notice that the oversized-single-item policy is explicit. Other valid designs might isolate it, truncate it, or reject it upstream.</p>
+
+<h2 id="mutability">Mutability, copying, and aliasing</h2>
+<p>Many Python bugs are state-sharing bugs rather than algorithmic bugs.</p>
+<pre><code class="language-python"># Bug: every row points to the same inner list.
+rows = [[]] * 3
+rows[0].append("x")
+# [["x"], ["x"], ["x"]]
+
+# Independent lists.
+rows = [[] for _ in range(3)]
+</code></pre>
+
+<h3 id="mutable-defaults">Mutable default arguments</h3>
+<pre><code class="language-python"># Avoid this.
+def add_event(event, events=[]):
+    events.append(event)
+    return events
+
+# Prefer this.
+def add_event(event, events=None):
+    if events is None:
+        events = []
+    events.append(event)
+    return events
+</code></pre>
+<p>A shallow copy duplicates only the outer container; nested mutable objects remain shared. Use a deep copy only when independent nested state is genuinely required, because copying large structures can itself be expensive.</p>
+
+<h2 id="functions-modeling">Functions, dataclasses, and state modeling</h2>
+<p>Start with functions and simple containers. Introduce a class when the problem has persistent state or invariants that become clearer when encapsulated.</p>
+<pre><code class="language-python">from dataclasses import dataclass, field
+
+@dataclass
+class RunState:
+    run_id: str
+    status: str = "pending"
+    completed_steps: list[str] = field(default_factory=list)
+
+    def mark_done(self, step: str) -> None:
+        if step not in self.completed_steps:
+            self.completed_steps.append(step)
+</code></pre>
+<p><code>field(default_factory=list)</code> avoids the shared-mutable-default problem.</p>
+
+<h3 id="typing">Useful typing without overengineering</h3>
+<pre><code class="language-python">from collections.abc import Iterable, Iterator
+
+def valid_scores(rows: Iterable[dict]) -> Iterator[float]:
+    for row in rows:
+        score = row.get("score")
+        if isinstance(score, (int, float)):
+            yield float(score)
+</code></pre>
+<p>Types should make contracts easier to understand. They are not a substitute for runtime validation at external boundaries.</p>
+
+<h2 id="errors-validation">Validation, exceptions, and failure semantics</h2>
+<p>Validate where data crosses a trust or format boundary: parsed files, tool outputs, user input, service responses, or records from another pipeline stage.</p>
+<pre><code class="language-python">def parse_prediction(row):
+    try:
+        request_id = str(row["request_id"])
+        score = float(row["score"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("invalid prediction record") from exc
+
+    if not 0.0 <= score <= 1.0:
+        raise ValueError("score must be in [0, 1]")
+
+    return request_id, score
+</code></pre>
+<p>Avoid swallowing broad exceptions. A retryable timeout, malformed data, authorization failure, and programming bug should not silently become the same outcome.</p>
+
+<h2 id="complexity">Complexity patterns worth recognizing</h2>
+<table>
+<thead><tr><th>Operation</th><th>Typical cost</th><th>Why it matters</th></tr></thead>
+<tbody>
+<tr><td>dict/set lookup</td><td>average O(1)</td><td>replace repeated scans with indexed lookup</td></tr>
+<tr><td>scan a list</td><td>O(n)</td><td>aggregation and filtering</td></tr>
+<tr><td>sorting</td><td>O(n log n)</td><td>ranking, intervals, ordered processing</td></tr>
+<tr><td>heap push/pop</td><td>O(log k) for bounded heap size k</td><td>streaming top-k and scheduling</td></tr>
+<tr><td>nested all-pairs loop</td><td>O(n²)</td><td>sometimes unavoidable, but identify it explicitly</td></tr>
+</tbody>
+</table>
+<p>The correct first version can still be quadratic if input sizes are small. Do not complicate the design until scale makes the complexity material.</p>
+
+<h2 id="ai-patterns">Applied-AI patterns expressed as ordinary Python</h2>
+<h3 id="retrieval-example">Retrieval and cosine ranking</h3>
+<pre><code class="language-python">import math
+
+def cosine(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+
+    if na == 0 or nb == 0:
+        return 0.0
+
+    return dot / (na * nb)
+
+
+def top_documents(query, documents, k=3):
+    scored = [
+        (cosine(query, doc["embedding"]), doc["id"])
+        for doc in documents
+    ]
+    scored.sort(key=lambda pair: (-pair[0], pair[1]))
+    return [doc_id for _, doc_id in scored[:k]]
+</code></pre>
+
+<h3 id="router-example">Rule-based request routing</h3>
+<p>Before a learned router is necessary, many routing policies can be expressed deterministically.</p>
+<pre><code class="language-python">def route(request):
+    if request.get("needs_tools"):
+        return "tool-capable-model"
+
+    if request.get("context_tokens", 0) > 32_000:
+        return "long-context-model"
+
+    if request.get("latency_priority"):
+        return "fast-model"
+
+    return "default-model"
+</code></pre>
+
+<h3 id="evaluation-example">Evaluation aggregation</h3>
+<pre><code class="language-python">from collections import defaultdict
+
+stats = defaultdict(lambda: {"correct": 0, "total": 0})
+
+for row in results:
+    model = row["model"]
+    stats[model]["correct"] += int(row["prediction"] == row["target"])
+    stats[model]["total"] += 1
+
+accuracy = {
+    model: values["correct"] / values["total"]
+    for model, values in stats.items()
+    if values["total"]
+}
+</code></pre>
+
+<h3 id="timeseries-example">Time-series window construction</h3>
+<pre><code class="language-python">def windows(values, history, horizon):
+    stop = len(values) - history - horizon + 1
+
+    for start in range(max(0, stop)):
+        x = values[start : start + history]
+        y = values[start + history : start + history + horizon]
+        yield x, y
+</code></pre>
+<p>For real timestamps, decide separately how to handle gaps, duplicates, irregular intervals, and timezone normalization. Sequence index and elapsed time are not always equivalent.</p>
+
+<h3 id="agent-state-machine">Agent workflow as a state machine</h3>
+<pre><code class="language-python">ALLOWED = {
+    "pending": {"running", "cancelled"},
+    "running": {"waiting_for_tool", "completed", "failed"},
+    "waiting_for_tool": {"running", "failed"},
+    "completed": set(),
+    "failed": set(),
+    "cancelled": set(),
+}
+
+def transition(state, new_status):
+    if new_status not in ALLOWED[state["status"]]:
+        raise ValueError("invalid transition")
+
+    return {**state, "status": new_status}
+</code></pre>
+<p>The model may decide what it wants to do; deterministic Python can still own legal transitions, budgets, validation, retries, and persistence.</p>
+
+<h2 id="exercise-taxonomy">Possible applied exercise types</h2>
+<p>The domain can vary widely while the underlying Python patterns remain repetitive. The table below maps plausible applied-AI tasks to the mechanics worth recognizing.</p>
+<table>
+<thead><tr><th>Exercise type</th><th>Typical task</th><th>Core Python patterns</th></tr></thead>
+<tbody>
+<tr><td>Agent workflow orchestrator</td><td>Execute steps with dependencies, retries, statuses, and stopping conditions</td><td>state machine, dict, deque, validation</td></tr>
+<tr><td>RAG pipeline</td><td>chunk documents, retrieve candidates, filter, rerank, construct context</td><td>lists, joins, sorting, top-k, dedupe</td></tr>
+<tr><td>LLM request routing</td><td>route requests by capability, cost, latency, context size, or availability</td><td>rules, priorities, registry dicts, fallback chains</td></tr>
+<tr><td>Dataset construction</td><td>split records, group by entity, avoid leakage, produce examples</td><td>dict/set, grouping, hashing, deterministic sampling</td></tr>
+<tr><td>Data cleaning for LLMs</td><td>normalize text, remove duplicates, reject malformed examples</td><td>strings, sets, counters, validators</td></tr>
+<tr><td>LLM evaluation</td><td>aggregate outcomes by model/task, compare variants, flag regressions</td><td>grouping, counters, statistics, joins</td></tr>
+<tr><td>AI4Engineering telemetry</td><td>merge sensor records, unit-normalize fields, detect missing channels</td><td>joins, validation, time ordering, interpolation policy</td></tr>
+<tr><td>Time-series preparation</td><td>rolling windows, resampling metadata, gap detection, train/test split</td><td>deque, slicing, timestamps, grouping</td></tr>
+<tr><td>Tool-call executor</td><td>validate arguments, dispatch handlers, record results, retry safely</td><td>registry dict, exceptions, dataclasses, idempotency keys</td></tr>
+<tr><td>Streaming batcher</td><td>group requests by count, tokens, cost, or deadline</td><td>generator, accumulator, queue</td></tr>
+<tr><td>Cache implementation</td><td>LRU/TTL cache for retrieval, tools, embeddings, or responses</td><td>OrderedDict/deque, timestamps, eviction</td></tr>
+<tr><td>Rate limiter</td><td>limit requests per user/model over a time window</td><td>dict of deques, rolling expiration</td></tr>
+<tr><td>Worker/job scheduler</td><td>assign jobs to the least-loaded or highest-priority worker</td><td>heapq, tuples, queues</td></tr>
+<tr><td>Retrieval ranking</td><td>score documents and return deterministic top-k</td><td>similarity function, sort/heap, tie-breaking</td></tr>
+<tr><td>Document chunking</td><td>split text with overlap and metadata preservation</td><td>indices, slicing, generators</td></tr>
+<tr><td>Conversation/session state</td><td>maintain recent messages, summaries, limits, and metadata</td><td>deque/list, dict, truncation policy</td></tr>
+<tr><td>Experiment tracker</td><td>record runs and find best/latest valid configuration</td><td>dict, sorting, filters, dataclasses</td></tr>
+<tr><td>Model registry</td><td>resolve aliases, versions, capabilities, and fallback models</td><td>dict, semantic ordering policy, validation</td></tr>
+<tr><td>Anomaly/event detector</td><td>identify spikes, repeated failures, or threshold violations</td><td>rolling windows, counters, state</td></tr>
+<tr><td>Dependency DAG</td><td>execute tasks only when prerequisites are satisfied</td><td>graph adjacency, indegrees, deque, topological sort</td></tr>
+<tr><td>Feature/data join</td><td>join entity metadata to examples while handling missing/stale values</td><td>index dict, validation, timestamps</td></tr>
+<tr><td>Multimodal metadata pipeline</td><td>associate images/audio/files with captions and IDs</td><td>joins, path/ID validation, grouping</td></tr>
+<tr><td>Active-learning sampler</td><td>choose uncertain examples while enforcing diversity or quotas</td><td>sorting, heaps, grouping, sampling</td></tr>
+<tr><td>Prompt/template manager</td><td>resolve variables, versions, defaults, and missing placeholders</td><td>dict, strings, validation</td></tr>
+<tr><td>Spatial or 3D post-processing</td><td>nearest-centroid assignment, group points, build adjacency or masks</td><td>loops/comprehensions, distances, argmin logic, sets</td></tr>
+</tbody>
+</table>
+
+<h2 id="review-questions">Topic-related review questions</h2>
+<ol>
+<li>When would a dictionary be a better representation than a list of records?</li>
+<li>How would you deduplicate values while preserving first-seen order?</li>
+<li>What is the difference between <code>dict.get</code>, <code>setdefault</code>, and <code>defaultdict</code>?</li>
+<li>When is <code>Counter</code> preferable to a normal dictionary?</li>
+<li>Why is repeatedly scanning a list to join by ID often the wrong design?</li>
+<li>What does Python guarantee about sort stability?</li>
+<li>How do you implement deterministic tie-breaking in a ranking?</li>
+<li>When would you prefer a heap over sorting the full input?</li>
+<li>Why is a deque preferable to a list for popping repeatedly from the left?</li>
+<li>What state do you need for a rolling-window rate limiter?</li>
+<li>What happens if you iterate over the same generator twice?</li>
+<li>Why should a generator batching function explicitly flush the final partial batch?</li>
+<li>What is the mutable-default-argument bug?</li>
+<li>What is the difference between a shallow copy and a deep copy?</li>
+<li>Why does <code>[[]] * n</code> often create an aliasing bug?</li>
+<li>When is a dataclass clearer than a dictionary?</li>
+<li>Where should validation happen in a pipeline?</li>
+<li>Why is <code>except Exception: pass</code> dangerous?</li>
+<li>What is the average lookup complexity of a dict or set?</li>
+<li>How can you convert an O(n²) join into roughly O(n)?</li>
+<li>How would you handle one request that exceeds a batch token budget?</li>
+<li>How would you design a fallback chain for model routing?</li>
+<li>What are the failure modes of a cache with stale entries?</li>
+<li>How would you prevent data leakage when splitting examples belonging to the same entity?</li>
+<li>What extra assumptions appear when time-series timestamps are irregular?</li>
+<li>How would you represent an agent workflow so illegal state transitions are impossible?</li>
+<li>How would you build an inverted index from token to document IDs?</li>
+<li>How would you return top-k retrieval results without storing every scored item?</li>
+<li>How do you make a task scheduler deterministic when workers have equal load?</li>
+<li>When does “AI logic” belong in a model, and when is deterministic Python the better place?</li>
+</ol>
+
+<h2 id="train-exercises">Compact exercises for review</h2>
+<p>For each prompt, first state the input/output contract and the data structure you would use. Then sketch the implementation. The goal is not cleverness; it is fast representation and clean edge-case handling.</p>
+
+<h3 id="exercise-1">1. Latest valid record</h3>
+<p>Given unsorted model-run records with <code>run_id</code>, <code>version</code>, <code>status</code>, and payload, keep the highest-version successful record for each <code>run_id</code>. Ignore malformed records.</p>
+<p><strong>Think about:</strong> keyed state, missing fields, tie policy.</p>
+
+<h3 id="exercise-2">2. Dataset leakage prevention</h3>
+<p>Each example has <code>example_id</code> and <code>customer_id</code>. Produce train/validation sets such that no customer appears in both. Make the split deterministic from a seed.</p>
+<p><strong>Think about:</strong> grouping before sampling rather than sampling rows independently.</p>
+
+<h3 id="exercise-3">3. RAG candidate merge</h3>
+<p>Two retrievers return <code>(document_id, score)</code> lists. Merge them, remove duplicates, retain source scores, and return a deterministic top-k according to a simple fusion rule.</p>
+<p><strong>Think about:</strong> dictionary keyed by document ID, ranking ties.</p>
+
+<h3 id="exercise-4">4. LLM router</h3>
+<p>Route each request to one of several model descriptors based on required capabilities, maximum context, current availability, and cost. Return a clear error when no model can serve the request.</p>
+<p><strong>Think about:</strong> filter candidates first, then rank them.</p>
+
+<h3 id="exercise-5">5. Tool workflow</h3>
+<p>Implement a tiny workflow runner whose steps have IDs and prerequisite IDs. A step can run only when all prerequisites completed. Detect a dependency cycle.</p>
+<p><strong>Think about:</strong> indegree counts and topological sorting.</p>
+
+<h3 id="exercise-6">6. Token-budget batcher</h3>
+<p>Consume requests lazily and yield batches whose sum of <code>num_tokens</code> does not exceed a limit. Define behavior for one oversized request.</p>
+<p><strong>Think about:</strong> generator, accumulator, final flush.</p>
+
+<h3 id="exercise-7">7. Per-user rate limiter</h3>
+<p>Accept at most five requests per user in any ten-second window. Requests arrive in chronological order.</p>
+<p><strong>Think about:</strong> dictionary of deques.</p>
+
+<h3 id="exercise-8">8. Data-cleaning pipeline</h3>
+<p>Normalize whitespace and case in prompts, reject empty prompts, deduplicate normalized content, and preserve the first original version plus its metadata.</p>
+<p><strong>Think about:</strong> normalization function + seen set.</p>
+
+<h3 id="exercise-9">9. Time-series windows</h3>
+<p>Given records <code>(machine_id, timestamp, value)</code>, build fixed-history/fixed-horizon windows independently per machine. Reject windows crossing a gap larger than a threshold.</p>
+<p><strong>Think about:</strong> grouping, sorting, gap policy.</p>
+
+<h3 id="exercise-10">10. Worker assignment</h3>
+<p>Workers have IDs and current load. Jobs arrive with estimated cost. Assign each job to the least-loaded worker, updating load after every assignment.</p>
+<p><strong>Think about:</strong> heap entries such as <code>(load, worker_id)</code>.</p>
+
+<h3 id="exercise-11">11. LRU cache</h3>
+<p>Implement <code>get</code> and <code>put</code> for a fixed-capacity cache. Accessing a key makes it most recently used.</p>
+<p><strong>Think about:</strong> <code>OrderedDict</code>; then consider how you would implement it without one.</p>
+
+<h3 id="exercise-12">12. Evaluation summary</h3>
+<p>Given result records, compute accuracy by model and by task, then identify the model with the best macro-average across tasks.</p>
+<p><strong>Think about:</strong> nested sufficient statistics; do not retain every row unnecessarily.</p>
+
+<h3 id="exercise-13">13. Conversation memory</h3>
+<p>Maintain the most recent messages under a character budget. Always retain the system message and remove the oldest ordinary messages first.</p>
+<p><strong>Think about:</strong> queue semantics and what to do when one message exceeds the budget.</p>
+
+<h3 id="exercise-14">14. Nested error extraction</h3>
+<p>A tool response is an arbitrary combination of dictionaries and lists. Return all non-empty strings stored under a key named <code>error</code>.</p>
+<p><strong>Think about:</strong> recursive traversal with explicit base cases.</p>
+
+<h3 id="exercise-15">15. Experiment registry</h3>
+<p>Runs contain model name, dataset, metric, timestamp, and status. Return the best successful run for each <code>(model, dataset)</code>, with latest timestamp as the tie-breaker.</p>
+<p><strong>Think about:</strong> tuple keys and explicit comparison.</p>
+
+<h3 id="exercise-16">16. Streaming duplicate suppression</h3>
+<p>Suppress IDs repeated within the last 1,000 events. An ID can occur multiple times inside that window.</p>
+<p><strong>Think about:</strong> a deque plus counts, not merely a deque plus set.</p>
+
+<h3 id="exercise-17">17. Active-learning selection</h3>
+<p>Choose the 100 lowest-confidence examples while allowing at most 20 examples from any one source.</p>
+<p><strong>Think about:</strong> sorting is a fine first implementation; quotas complicate naïve top-k.</p>
+
+<h3 id="exercise-18">18. Spatial nearest centroid</h3>
+<p>Given 3D points and named centroids, assign every point to its nearest centroid using squared Euclidean distance, then return the point IDs grouped by centroid.</p>
+<pre><code class="language-python">def squared_distance(a, b):
+    return sum((x - y) ** 2 for x, y in zip(a, b))
+</code></pre>
+<p><strong>Think about:</strong> nested loop is acceptable for the simple version; identify its complexity.</p>
+
+<h3 id="exercise-19">19. Document chunker</h3>
+<p>Split a token list into chunks of size 200 with overlap 40. Preserve document ID and chunk start/end offsets.</p>
+<p><strong>Think about:</strong> step size is <code>chunk_size - overlap</code>; guard against invalid overlap.</p>
+
+<h3 id="exercise-20">20. Alert aggregation</h3>
+<p>Engineering events contain machine, timestamp, severity, and message. For each machine, return its latest error and the number of warnings in the previous hour.</p>
+<p><strong>Think about:</strong> whether input is sorted, per-machine state, rolling windows.</p>
+
+<h2 id="final-checklist">Final checklist</h2>
+<ul>
+<li>Can I turn a list of records into a dictionary index without thinking?</li>
+<li>Can I group, count, deduplicate, join, rank, and window data cleanly?</li>
+<li>Can I explain why I chose a list, set, dict, deque, or heap?</li>
+<li>Can I recognize when the domain description is hiding a simple data-structure problem?</li>
+<li>Do I handle empty inputs, duplicates, missing IDs, ties, malformed records, and oversized items?</li>
+<li>Can my solution accept an iterator when the whole dataset does not need to be materialized?</li>
+<li>Do I test the smallest non-trivial example before optimizing?</li>
+<li>If something fails, is the failure mode explicit rather than silently swallowed?</li>
+<li>For AI systems, are routing, authorization, batching, caching, retries, and state transitions deterministic where possible?</li>
+<li>Can I state the dominant time and space complexity of the implementation?</li>
+</ul>
+</section>
