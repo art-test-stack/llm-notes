@@ -520,5 +520,20 @@
       "ssm",
       "hmm-state-space"
     ]
+  },
+  {
+    "id": "python-applied-ai",
+    "title": "Python Problem Solving for Applied AI Systems",
+    "track": "Applied AI Engineering",
+    "summary": "Practical Python patterns for data manipulation, streaming, ranking, routing, orchestration, caching, validation, time-series preparation, and other model-adjacent AI workflows.",
+    "prerequisites": [],
+    "connections": [
+      "agents",
+      "rag",
+      "retrieval",
+      "evaluation",
+      "pretraining-data",
+      "hmm-state-space"
+    ]
   }
 ]
