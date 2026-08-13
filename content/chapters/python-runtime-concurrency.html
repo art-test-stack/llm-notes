@@ -1,0 +1,634 @@
+<section class="chapter-content" data-topic="python-runtime-concurrency">
+<h2 id="mental-model">Processes, threads, and asyncio tasks</h2>
+<p>These are three different ways to organize work. A <strong>process</strong> is a running program with its own address space. A <strong>thread</strong> is an execution path inside a process, so threads in the same process can access the same Python objects. An <strong>asyncio task</strong> is a coroutine scheduled by an event loop; it is not automatically a thread or a process.</p>
+<table>
+<thead><tr><th>Unit</th><th>Memory</th><th>Typical execution</th><th>Good first use</th></tr></thead>
+<tbody>
+<tr><td>Process</td><td>Separate address space by default</td><td>Can execute on another CPU core</td><td>Heavy pure-Python CPU work</td></tr>
+<tr><td>Thread</td><td>Shares objects in its process</td><td>Subject to the CPython GIL for Python bytecode</td><td>Blocking synchronous I/O</td></tr>
+<tr><td>Asyncio task</td><td>Shares its event-loop thread</td><td>Runs until it cooperatively pauses at <code>await</code></td><td>Many async-compatible I/O operations</td></tr>
+</tbody>
+</table>
+<p><strong>Concurrency</strong> means several jobs make progress during the same period. <strong>Parallelism</strong> means instructions literally execute at the same instant. Several processes are concurrent and can also run in parallel on different CPU cores. Several ordinary CPython threads are concurrent, but pure Python bytecode normally does not run in parallel because of the GIL.</p>
+
+<h2 id="gil">The CPython Global Interpreter Lock</h2>
+<p>The Global Interpreter Lock, or GIL, is a lock used by standard CPython. A thread must hold it before executing Python bytecode, so only one thread in a process normally executes Python instructions at a time.</p>
+<pre><code class="language-text">Thread A: execute Python ── wait ───────── execute Python
+Thread B: wait ─────────── execute Python ──────────────
+</code></pre>
+<p>This does not make threads useless:</p>
+<ul>
+<li>A thread releases the CPU while it waits for many I/O operations.</li>
+<li>Native Rust, C, and C++ libraries may release the GIL while doing their real work.</li>
+<li>NumPy, PyTorch, tokenizers, image libraries, and compression libraries may have native or internal parallelism, depending on the operation.</li>
+</ul>
+<p>The GIL also does <strong>not</strong> make application logic thread-safe. An invariant may span several Python operations, allowing another thread to run between the check and the update.</p>
+
+<h2 id="io-cpu-bound">Blocking I/O and CPU-bound work</h2>
+<p><strong>I/O</strong> is communication with something outside the CPU: a network service, database, disk, terminal, or another process. A <strong>blocking</strong> call keeps the calling thread waiting until the operation finishes.</p>
+<pre><code class="language-python">response = socket.recv(1024)
+
+# This cannot run until recv() returns.
+process(response)
+</code></pre>
+<p>During that wait, the CPU may be mostly idle. Threads can overlap several such waits:</p>
+<pre><code class="language-python">import time
+from concurrent.futures import ThreadPoolExecutor
+
+
+def fake_request(request_id: int) -&gt; int:
+    # Simulate a synchronous network call.
+    time.sleep(1)
+    return request_id
+
+
+with ThreadPoolExecutor(max_workers=3) as executor:
+    results = list(executor.map(fake_request, [1, 2, 3]))
+
+# The three one-second waits overlap, so this takes about one second.
+print(results)
+</code></pre>
+<p>A task is <strong>CPU-bound</strong> when calculations, rather than waiting, dominate its runtime. A large pure-Python loop is the standard example:</p>
+<pre><code class="language-python">def sum_of_squares(limit: int) -&gt; int:
+    # The CPU continually executes Python operations.
+    return sum(number * number for number in range(limit))
+</code></pre>
+<p>Processes can bypass the per-process GIL for this workload. Native numerical or GPU work is different: the library may already parallelize internally, so adding Python workers can oversubscribe the machine and make it slower. Benchmark the complete pipeline.</p>
+
+<h2 id="threads">Threads share ordinary Python objects</h2>
+<p>Every thread in a process can refer to the same list, dictionary, model, or other object. This is convenient for read-only state but dangerous for shared mutation.</p>
+<pre><code class="language-python">from threading import Thread
+
+values: list[int] = []
+
+
+def worker() -&gt; None:
+    # This is the same list object used by the main thread.
+    values.append(42)
+
+
+thread = Thread(target=worker)
+thread.start()  # Begin running worker().
+thread.join()   # Wait until that thread finishes.
+
+print(values)  # [42]
+</code></pre>
+<p>A simple design is to let workers return values and let one owner assemble the shared result:</p>
+<pre><code class="language-python">from concurrent.futures import ThreadPoolExecutor
+
+
+def fetch(ticket_id: str) -&gt; tuple[str, dict]:
+    record = call_external_api(ticket_id)
+    return ticket_id, record
+
+
+with ThreadPoolExecutor(max_workers=4) as executor:
+    pairs = executor.map(fetch, ["T1", "T2", "T3"])
+
+# Only the main thread mutates this dictionary.
+tickets_by_id = dict(pairs)
+</code></pre>
+
+<h2 id="processes">Processes, start methods, start, and join</h2>
+<p>Ordinary Python objects are not automatically shared between processes. A child modifying its list does not modify the parent list:</p>
+<pre><code class="language-python">from multiprocessing import Process
+
+
+def worker(values: list[int]) -&gt; None:
+    # This mutation belongs to the child process.
+    values.append(42)
+    print("Child:", values)  # [1, 2, 42]
+
+
+if __name__ == "__main__":
+    values = [1, 2]
+    process = Process(target=worker, args=(values,))
+    process.start()
+    process.join()
+
+    print("Parent:", values)  # [1, 2]
+</code></pre>
+<p>The main guard is important because a spawned child imports the module. Without the guard, importing it could create more children recursively.</p>
+<table>
+<thead><tr><th>Start method</th><th>What happens</th><th>Main consequence</th></tr></thead>
+<tbody>
+<tr><td><code>spawn</code></td><td>Starts a fresh interpreter and reconstructs serialized arguments</td><td>Importable functions and picklable arguments are required; startup is relatively expensive</td></tr>
+<tr><td><code>fork</code></td><td>Child inherits the parent's memory image</td><td>Pages begin copy-on-write but ordinary mutations remain private; inherited threads, locks, or CUDA state can be unsafe</td></tr>
+<tr><td><code>forkserver</code></td><td>A clean server process forks children</td><td>Avoids inheriting much of the main process's complicated state</td></tr>
+</tbody>
+</table>
+<p>Copy-on-write is a physical-memory optimization, not ordinary shared mutable state. Parent and child may initially map the same unchanged memory pages. When either writes to a page, the operating system gives it a private copy.</p>
+<p>To run several workers concurrently, start all of them before joining any of them:</p>
+<pre><code class="language-python">workers = [
+    Process(target=do_work, args=(worker_id,))
+    for worker_id in range(4)
+]
+
+# Launch every process first.
+for worker in workers:
+    worker.start()
+
+# The workers are now concurrent and can run in parallel on multiple cores.
+# join() only makes the main process wait for a worker to terminate.
+for worker in workers:
+    worker.join()
+</code></pre>
+<p>Starting and immediately joining inside the same loop would serialize the jobs:</p>
+<pre><code class="language-python">for worker in workers:
+    worker.start()
+    worker.join()  # The next worker is not started until this one ends.
+</code></pre>
+
+<h2 id="ipc">Inter-process communication and shared memory</h2>
+<p>IPC means inter-process communication. Passing an ordinary Python object commonly requires serialization, byte transfer, deserialization, and synchronization. This fixed work can dominate thousands of tiny tasks.</p>
+<pre><code class="language-python">from multiprocessing import Process, Queue
+
+
+def worker(queue: Queue) -&gt; None:
+    result = {"ticket_count": 42}
+    queue.put(result)  # Serialize and transfer to the parent.
+
+
+if __name__ == "__main__":
+    queue = Queue()
+    process = Process(target=worker, args=(queue,))
+    process.start()
+
+    result = queue.get()  # Receive and reconstruct the dictionary.
+    process.join()
+    print(result)
+</code></pre>
+<p>Queues and pipes are communication mechanisms. <code>multiprocessing.Value</code>, <code>Array</code>, <code>shared_memory</code>, memory-mapped files, manager proxies, and shared CPU tensor storage provide explicit sharing. Shared mutation still needs a lock whenever workers can touch the same logical state.</p>
+<pre><code class="language-python">import torch
+import torch.multiprocessing as mp
+
+
+def fill_row(tensor: torch.Tensor, row: int) -&gt; None:
+    # Each worker owns a different row, so these writes do not conflict.
+    tensor[row].fill_(row + 1)
+
+
+if __name__ == "__main__":
+    context = mp.get_context("spawn")
+    tensor = torch.zeros(4, 3)
+    tensor.share_memory_()  # Share the underlying CPU storage.
+
+    workers = [
+        context.Process(target=fill_row, args=(tensor, row))
+        for row in range(4)
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+
+    print(tensor)
+</code></pre>
+<p>Prefer fewer substantial jobs over many tiny IPC exchanges. Batch records before sending them to a process pool, and return compact results whenever possible.</p>
+
+<h2 id="asyncio">Asyncio is cooperative concurrency</h2>
+<p>An asyncio event loop normally runs in one thread. A coroutine executes until it reaches an <code>await</code> whose result is not ready. It pauses, allowing the loop to run another ready task.</p>
+<pre><code class="language-python">import asyncio
+
+
+async def fake_request(request_id: int) -&gt; int:
+    print("Starting", request_id)
+    await asyncio.sleep(1 / request_id)  # Pause without blocking the loop.
+    print("Finished", request_id)
+    return request_id
+
+
+async def main() -&gt; None:
+    results = await asyncio.gather(
+        fake_request(1),
+        fake_request(2),
+        fake_request(3),
+    )
+    # gather() preserves input order even if tasks finish in another order.
+    print(results)  # [1, 2, 3]
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+</code></pre>
+<p>Calling <code>main()</code> by itself merely creates a coroutine object. If it is neither awaited nor passed to <code>asyncio.run()</code>, Python warns that the coroutine was never awaited.</p>
+<p>A blocking function freezes the event-loop thread:</p>
+<pre><code class="language-python">import time
+
+
+async def bad_task() -&gt; None:
+    time.sleep(5)  # No other asyncio task can run on this loop meanwhile.
+</code></pre>
+<p>Use an async-compatible API, or move an unavoidable synchronous call to a thread:</p>
+<pre><code class="language-python">async def main() -&gt; None:
+    results = await asyncio.gather(
+        asyncio.to_thread(blocking_library_call, 1),
+        asyncio.to_thread(blocking_library_call, 2),
+    )
+    print(results)
+</code></pre>
+<p>Asyncio can also coordinate a process pool for CPU work:</p>
+<pre><code class="language-python">import asyncio
+from concurrent.futures import ProcessPoolExecutor
+
+
+def cpu_work(limit: int) -&gt; int:
+    # Module-level functions are importable by spawned workers.
+    return sum(number * number for number in range(limit))
+
+
+async def main() -&gt; None:
+    loop = asyncio.get_running_loop()
+
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        jobs = [
+            loop.run_in_executor(pool, cpu_work, 10_000_000),
+            loop.run_in_executor(pool, cpu_work, 10_000_000),
+        ]
+        print(await asyncio.gather(*jobs))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+</code></pre>
+<p><code>asyncio.create_task()</code> creates an asyncio task, not a new OS thread or process. Threads and processes can be created inside async code, but calling blocking operations such as <code>join()</code> directly would freeze the event-loop thread.</p>
+
+<h2 id="dataloader">PyTorch DataLoader worker semantics</h2>
+<p><code>DataLoader(..., num_workers=0)</code> loads samples in the main process. A positive <code>num_workers</code> creates worker <strong>processes</strong>.</p>
+<p>For a map-style dataset, the main process's sampler chooses indices and sends them to workers. Each worker calls its own dataset instance's <code>__getitem__</code>, and the produced samples are returned to the main process. The index assignment is coordinated, but ordinary mutable dataset state is not automatically shared.</p>
+<pre><code class="language-python">from torch.utils.data import DataLoader, Dataset
+
+
+class RecordingDataset(Dataset):
+    def __init__(self) -&gt; None:
+        self.seen_indices: list[int] = []
+
+    def __len__(self) -&gt; int:
+        return 4
+
+    def __getitem__(self, index: int) -&gt; int:
+        # This changes only this worker's dataset state.
+        self.seen_indices.append(index)
+        return index
+
+
+if __name__ == "__main__":
+    dataset = RecordingDataset()
+    loader = DataLoader(dataset, batch_size=1, num_workers=2)
+    list(loader)
+
+    print(dataset.seen_indices)  # [] in the parent process
+</code></pre>
+<p><code>persistent_workers=True</code> preserves each worker's private dataset and cache between epochs. It does not merge those caches or expose them to the parent. For large read-only data, prefer file paths, memory-mapped arrays, databases designed for concurrent reads, or explicitly shared CPU tensors instead of millions of nested Python objects.</p>
+<pre><code class="language-python">loader = DataLoader(
+    dataset,
+    batch_size=32,
+    num_workers=4,
+    multiprocessing_context="spawn",
+    persistent_workers=True,
+    pin_memory=True,
+)
+</code></pre>
+<p><code>pin_memory=True</code> prepares CPU batches for faster asynchronous transfer to a CUDA device. It does not create general shared Python memory. A common design is for workers to return CPU tensors and for the main process to transfer them:</p>
+<pre><code class="language-python">for cpu_batch in loader:
+    gpu_batch = cpu_batch.to("cuda", non_blocking=True)
+</code></pre>
+<p>Avoid initializing CUDA or returning CUDA tensors inside ordinary loader workers. Use module-level dataset classes, collators, and worker initialization functions with <code>spawn</code>; local functions and lambdas are often not picklable.</p>
+
+<h2 id="tokenization">Choosing concurrency for tokenization</h2>
+<p>Tokenization is CPU work, but “CPU-bound” does not automatically imply “use processes.” The implementation determines whether the GIL matters.</p>
+<ul>
+<li>A slow tokenizer implemented mainly in Python may benefit from processes over a sufficiently large corpus.</li>
+<li>A fast Rust- or C++-backed tokenizer may release the GIL and may already use native threads.</li>
+<li>For a few strings, worker startup and IPC cost more than they save.</li>
+</ul>
+<p>For a modern fast tokenizer, begin with one batched call:</p>
+<pre><code class="language-python">encoded = tokenizer(
+    texts,                 # A list of strings, processed as a batch.
+    truncation=True,
+    padding=False,
+    add_special_tokens=True,
+)
+</code></pre>
+<p>This reduces repeated Python-to-native calls compared with <code>[tokenizer.encode(text) for text in texts]</code>. For a fixed large corpus, offline batched preprocessing is often simpler than repeating tokenization every epoch. If profiling still shows a CPU bottleneck, test a small number of processes and watch for tokenizer duplication, serialization overhead, memory use, and CPU oversubscription.</p>
+<p>When tokenization must happen during loading, batching it in a collator is usually better than encoding one string at a time:</p>
+<pre><code class="language-python">def collate_texts(texts: list[str]):
+    # With num_workers &gt; 0, this runs inside a loader worker process.
+    return tokenizer(
+        texts,
+        padding=True,
+        truncation=True,
+        return_tensors="pt",
+    )
+
+
+loader = DataLoader(
+    raw_text_dataset,
+    batch_size=32,
+    num_workers=4,
+    collate_fn=collate_texts,
+)
+</code></pre>
+
+<h2 id="iterables">Iterable, iterator, and generator</h2>
+<p>An <strong>iterable</strong> can produce an iterator through <code>iter(obj)</code>. An <strong>iterator</strong> remembers a traversal position and produces the next value through <code>next(obj)</code>. A <strong>generator</strong> is one convenient kind of iterator.</p>
+<table>
+<thead><tr><th>Object</th><th>Iterable</th><th>Iterator</th><th>Generator</th><th>Normally reusable</th></tr></thead>
+<tbody>
+<tr><td><code>list</code></td><td>Yes</td><td>No</td><td>No</td><td>Yes</td></tr>
+<tr><td><code>range</code></td><td>Yes</td><td>No</td><td>No</td><td>Yes</td></tr>
+<tr><td><code>iter(list)</code></td><td>Yes</td><td>Yes</td><td>No</td><td>No</td></tr>
+<tr><td>Generator object</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+<tr><td><code>map</code>, <code>filter</code>, <code>zip</code></td><td>Yes</td><td>Yes</td><td>No</td><td>No</td></tr>
+</tbody>
+</table>
+<pre><code class="language-python">numbers = [10, 20, 30]
+iterator = iter(numbers)
+
+print(next(iterator))  # 10
+print(next(iterator))  # 20
+
+# next(numbers) would fail: a list is iterable, not an iterator.
+assert iter(iterator) is iterator
+</code></pre>
+<p>Iterators are stateful and normally one-shot:</p>
+<pre><code class="language-python">iterator = iter([10, 20])
+
+print(list(iterator))  # [10, 20]
+print(list(iterator))  # []: it is exhausted
+</code></pre>
+
+<h2 id="generators">Generator functions and expressions</h2>
+<p>A function containing <code>yield</code> creates a generator object when called. Its body begins only when a value is requested:</p>
+<pre><code class="language-python">def countdown(start: int):
+    current = start
+
+    while current &gt; 0:
+        yield current  # Produce one value and pause here.
+        current -= 1
+
+
+generator = countdown(3)
+print(next(generator))  # 3
+print(next(generator))  # 2
+</code></pre>
+<p><code>yield from</code> delegates to another iterable:</p>
+<pre><code class="language-python">def combine(first, second):
+    yield from first
+    yield from second
+
+
+print(list(combine([1, 2], [3, 4])))  # [1, 2, 3, 4]
+</code></pre>
+<p>A generator expression resembles a tuple, but the <code>for</code> gives it generator-expression syntax:</p>
+<pre><code class="language-python">lazy_squares = (number * number for number in range(5))
+print(type(lazy_squares))  # &lt;class 'generator'&gt;
+
+grouped = (1)    # int: parentheses only group the expression
+one_item = (1,)  # tuple: the comma creates the tuple
+
+# Python has no tuple-comprehension syntax. Consume a generator explicitly.
+squares_tuple = tuple(number * number for number in range(5))
+</code></pre>
+<p>The corresponding eager comprehensions use brackets or braces:</p>
+<pre><code class="language-python">[number**2 for number in range(5)]          # list
+{number**2 for number in range(5)}          # set
+{number: number**2 for number in range(5)}  # dict
+(number**2 for number in range(5))          # generator
+</code></pre>
+
+<h2 id="eager-lazy">Eager versus lazy, reusable versus one-shot</h2>
+<p>These are two independent questions. Eager or lazy asks <em>when values are computed</em>. Reusable or one-shot asks <em>whether traversal can start again</em>.</p>
+<pre><code class="language-python">def square(number: int) -&gt; int:
+    print("Computing", number)
+    return number * number
+
+
+eager = [square(number) for number in range(3)]
+# All three calls have already happened.
+
+lazy = (square(number) for number in range(3))
+# No call has happened yet.
+
+first = next(lazy)  # Only square(0) runs now.
+</code></pre>
+<p>A list is eager and reusable. A generator is lazy and one-shot. A <code>range</code> is compact and reusable: it stores boundaries rather than materializing every Python integer. Laziness saves memory and supports streams, but exceptions and side effects also happen later, during consumption.</p>
+
+<h2 id="references-copies">References, identity, shallow copies, and deep copies</h2>
+<p>Python assignment binds a name to an object; it does not copy the object. <code>is</code> asks whether two names identify the same object, while <code>==</code> asks whether their values compare equal.</p>
+<pre><code class="language-python">original = {"tags": ["urgent"]}
+alias = original
+
+assert alias is original
+alias["tags"].append("customer")
+
+print(original)  # {"tags": ["urgent", "customer"]}
+</code></pre>
+<p>A shallow copy creates a new outer container but reuses nested objects:</p>
+<pre><code class="language-python">original = {"owner": "alice", "tags": ["urgent"]}
+shallow = original.copy()
+
+assert shallow is not original
+assert shallow["tags"] is original["tags"]
+
+shallow["owner"] = "bob"          # Only shallow changes here.
+shallow["tags"].append("customer")  # The nested list is shared.
+</code></pre>
+<p>A deep copy recursively constructs independent nested objects where possible:</p>
+<pre><code class="language-python">import copy
+
+original = {"tags": ["urgent"]}
+deep = copy.deepcopy(original)
+
+assert deep["tags"] is not original["tags"]
+deep["tags"].append("customer")
+
+print(original["tags"])  # ["urgent"]
+</code></pre>
+<p>Deep copies can be expensive and can duplicate more state than intended. Prefer clear ownership and immutable data when that avoids copying altogether.</p>
+
+<h2 id="mutability">Mutable and immutable objects</h2>
+<p>A mutable object can change in place. Lists, dictionaries, sets, byte arrays, tensors, and most class instances are mutable. Integers, floats, booleans, strings, bytes, tuples, frozensets, and <code>None</code> are immutable.</p>
+<pre><code class="language-python">numbers = [1, 2]
+alias = numbers
+numbers.append(3)
+print(alias)  # [1, 2, 3]: the shared list changed
+
+text = "hello"
+old_text = text
+text += " world"  # Build a new string and rebind text.
+print(old_text)    # hello
+</code></pre>
+<p>An immutable tuple can contain a mutable object. The tuple's references cannot be replaced, but the referenced object can still change:</p>
+<pre><code class="language-python">value = ([1, 2],)
+value[0].append(3)
+print(value)  # ([1, 2, 3],)
+</code></pre>
+<p>Mutable default arguments are shared across calls because defaults are evaluated once, when the function is defined:</p>
+<pre><code class="language-python">def add_bad(value: int, values: list[int] = []) -&gt; list[int]:
+    values.append(value)
+    return values
+
+
+print(add_bad(1))  # [1]
+print(add_bad(2))  # [1, 2]
+</code></pre>
+<p>Create a fresh object inside the function instead:</p>
+<pre><code class="language-python">def add_good(
+    value: int,
+    values: list[int] | None = None,
+) -&gt; list[int]:
+    if values is None:
+        values = []
+
+    values.append(value)
+    return values
+</code></pre>
+
+<h2 id="eafp-lbyl">EAFP and LBYL error handling</h2>
+<p><strong>LBYL</strong>, “look before you leap,” checks a condition first. <strong>EAFP</strong>, “easier to ask forgiveness than permission,” attempts the operation and catches the specific expected failure.</p>
+<pre><code class="language-python"># LBYL
+if ticket_id in tickets:
+    ticket = tickets[ticket_id]
+else:
+    ticket = None
+
+# EAFP
+try:
+    ticket = tickets[ticket_id]
+except KeyError:
+    ticket = None
+</code></pre>
+<p>EAFP is especially useful when the operation itself is the only reliable test. A separate existence check can race with another process:</p>
+<pre><code class="language-python">from pathlib import Path
+
+
+def read_configuration(path: Path) -&gt; str | None:
+    try:
+        return path.read_text()
+    except FileNotFoundError:
+        return None
+</code></pre>
+<p>Catch the narrow failure whose meaning is understood. <code>except Exception</code> could hide permission problems, encoding errors, or programming bugs.</p>
+
+<h2 id="context-managers">Context managers and guaranteed cleanup</h2>
+<p>A context manager owns setup and cleanup around a block. A file is closed when the block exits, whether it succeeds, raises, or returns:</p>
+<pre><code class="language-python">with open("tickets.json", "r") as file:
+    content = file.read()
+
+# file.close() has run here.
+</code></pre>
+<p>The structure is approximately a <code>try</code>/<code>finally</code>:</p>
+<pre><code class="language-python">file = open("tickets.json", "r")
+try:
+    content = file.read()
+finally:
+    file.close()
+</code></pre>
+<p>Custom context managers make ownership explicit:</p>
+<pre><code class="language-python">from contextlib import contextmanager
+
+
+@contextmanager
+def managed_connection(connect):
+    connection = connect()
+    try:
+        yield connection  # Give the resource to the with block.
+    finally:
+        connection.close()
+
+
+with managed_connection(create_connection) as connection:
+    connection.send("hello")
+</code></pre>
+<p>Locks are context managers too. <code>with lock:</code> acquires the lock before the block and releases it afterward, including when an exception occurs.</p>
+
+<h2 id="closures">Closures, scope, and late binding</h2>
+<p>Python resolves a name through local, enclosing, global, and built-in scopes, often abbreviated LEGB. A closure is a nested function that retains access to names from an enclosing function:</p>
+<pre><code class="language-python">def make_multiplier(factor: int):
+    def multiply(value: int) -&gt; int:
+        return value * factor
+
+    return multiply
+
+
+double = make_multiplier(2)
+print(double(10))  # 20
+</code></pre>
+<p>Closures normally look up the enclosed variable when called, producing the late-binding surprise:</p>
+<pre><code class="language-python">functions = []
+
+for number in range(3):
+    functions.append(lambda: number)
+
+print([function() for function in functions])  # [2, 2, 2]
+</code></pre>
+<p>Capture the current value through a default argument evaluated during function creation:</p>
+<pre><code class="language-python">functions = []
+
+for number in range(3):
+    functions.append(lambda number=number: number)
+
+print([function() for function in functions])  # [0, 1, 2]
+</code></pre>
+<p>Use <code>nonlocal</code> to rebind a name from an enclosing function and <code>global</code> to rebind a module-level name:</p>
+<pre><code class="language-python">def make_counter():
+    count = 0
+
+    def increment() -&gt; int:
+        nonlocal count
+        count += 1
+        return count
+
+    return increment
+</code></pre>
+
+<h2 id="races-locks">Race conditions, locks, and atomicity</h2>
+<p>A race condition occurs when correctness depends on how concurrent operations are interleaved. Suppose two threads both try to withdraw 80 from a balance of 100. Both can pass the check before either performs the subtraction.</p>
+<pre><code class="language-python">import time
+from threading import Thread
+
+balance = 100
+
+
+def unsafe_withdraw(amount: int) -&gt; None:
+    global balance
+
+    if balance &gt;= amount:
+        time.sleep(0.01)  # Make the harmful interleaving easier to observe.
+        balance -= amount
+</code></pre>
+<p>The invariant is that the balance must never become negative. The complete check-and-update sequence is the critical section, so protect the entire sequence with one lock:</p>
+<pre><code class="language-python">from threading import Lock
+
+balance = 100
+balance_lock = Lock()
+
+
+def withdraw(amount: int) -&gt; bool:
+    global balance
+
+    with balance_lock:
+        if balance &lt; amount:
+            return False
+
+        balance -= amount
+        return True
+</code></pre>
+<p>The block is atomic relative to code using the same lock: another such worker cannot observe it halfway through. A lock should protect an invariant, not merely one line that happens to write. Reducing shared mutable state is usually even simpler than adding more locks.</p>
+
+<h2 id="decision-guide">Practical decision guide</h2>
+<table>
+<thead><tr><th>Situation</th><th>First approach</th><th>Reason</th></tr></thead>
+<tbody>
+<tr><td>Small or inexpensive workload</td><td>Sequential Python</td><td>No worker startup, coordination, or debugging overhead</td></tr>
+<tr><td>Blocking synchronous I/O</td><td>Thread pool</td><td>Other threads can progress while one waits</td></tr>
+<tr><td>Many connections with async-compatible clients</td><td>Asyncio</td><td>One event loop can coordinate many waiting operations</td></tr>
+<tr><td>Heavy pure-Python computation</td><td>Process pool</td><td>Separate interpreters can use several CPU cores</td></tr>
+<tr><td>NumPy, PyTorch, Rust, C++, or GPU work</td><td>Batch first, inspect native parallelism, then benchmark</td><td>The library may already release the GIL or manage threads and devices</td></tr>
+<tr><td>Fixed large text corpus</td><td>Offline batched tokenization</td><td>Avoid repeated preprocessing on every epoch</td></tr>
+<tr><td>On-the-fly PyTorch input work</td><td>DataLoader processes with CPU outputs</td><td>Overlap loading and preprocessing while the main process owns device transfer</td></tr>
+</tbody>
+</table>
+<p>Measure end-to-end throughput and latency rather than assuming more workers are faster. Account for startup, serialization, IPC, memory duplication, native thread pools, ordering, cancellation, and cleanup. The clearest design usually assigns ownership explicitly: workers compute or fetch results, while one component owns each mutable piece of state.</p>
+</section>

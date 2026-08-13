@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "chapter_count": 41,
-  "total_characters": 724599,
+  "chapter_count": 42,
+  "total_characters": 747795,
   "total_math_expressions": 1395,
   "chapters": [
     {
@@ -330,6 +330,14 @@
       "sha256": "3f64fa43fcf1bf5575974ebe8d03805f1705b1215ee7df29c42341f85c805ad1",
       "characters": 22053,
       "sections": 15,
+      "math_expressions": 0
+    },
+    {
+      "id": "python-runtime-concurrency",
+      "file": "chapters/python-runtime-concurrency.html",
+      "sha256": "5c71d7d502daf4585755c61d73cc0c8f2ba0b1fdefa8419562b99449884b89ad",
+      "characters": 23196,
+      "sections": 19,
       "math_expressions": 0
     }
   ]

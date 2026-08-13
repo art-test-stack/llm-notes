@@ -535,5 +535,17 @@
       "pretraining-data",
       "hmm-state-space"
     ]
+  },
+  {
+    "id": "python-runtime-concurrency",
+    "title": "Python Runtime, Iteration and Concurrency",
+    "track": "Applied AI Engineering",
+    "summary": "Python programs coordinate work through processes, threads, and asyncio, while object identity, mutability, iteration, cleanup, and synchronization determine correctness and performance.",
+    "prerequisites": [],
+    "connections": [
+      "python-applied-ai",
+      "pytorch-data-loading",
+      "tokenization"
+    ]
   }
 ]
